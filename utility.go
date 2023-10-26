@@ -67,6 +67,41 @@ func editMessage(s *discordgo.Session, m *discordgo.Message, content string) *di
 	return msg
 }
 
+func getMaxModelTokens(model string) (maxTokens int) {
+	switch model {
+	case openai.GPT4, openai.GPT40613, openai.GPT40314:
+		maxTokens = 8192
+	case openai.GPT432K, openai.GPT432K0613, openai.GPT432K0314:
+		maxTokens = 32768
+	case openai.GPT3Dot5Turbo16K, openai.GPT3Dot5Turbo16K0613:
+		maxTokens = 16385
+	case openai.GPT3Dot5Turbo, openai.GPT3Dot5Turbo0613, openai.GPT3Dot5Turbo0301, openai.GPT3Dot5TurboInstruct:
+		maxTokens = 4097
+	case openai.GPT3Davinci002:
+		maxTokens = 16384
+	}
+
+	return maxTokens
+}
+
+func getRequestMaxTokensString(message string, model string) (maxTokens int) {
+	maxTokens = getMaxModelTokens(model)
+	usedTokens := NumTokensFromString(message)
+
+	availableTokens := maxTokens - usedTokens
+
+	return availableTokens
+}
+
+func getRequestMaxTokens(message []openai.ChatCompletionMessage, model string) (maxTokens int) {
+	maxTokens = getMaxModelTokens(model)
+	usedTokens := NumTokensFromMessages(message, model)
+
+	availableTokens := maxTokens - usedTokens
+
+	return availableTokens
+}
+
 func NumTokensFromString(s string) (numTokens int) {
 	message := []openai.ChatCompletionMessage{
 		{

@@ -4,16 +4,16 @@ import (
 	"log"
 
 	"github.com/bwmarrin/discordgo"
+	"github.com/sashabaranov/go-openai"
 )
 
 var (
-	adminCommandPermission int64 = discordgo.PermissionAdministrator
-	writePermission        int64 = discordgo.PermissionSendMessages
+	writePermission int64 = discordgo.PermissionSendMessages
 
 	commands = []*discordgo.ApplicationCommand{
 		{
 			Name:                     "ask",
-			Description:              "Ask a question to gpt",
+			Description:              "Ask a question (default gpt-4-0314)",
 			DefaultMemberPermissions: &writePermission,
 			Options: []*discordgo.ApplicationCommandOption{
 				{
@@ -22,6 +22,49 @@ var (
 					Description: "question to ask",
 					Required:    true,
 				},
+				{
+					Type:        discordgo.ApplicationCommandOptionString,
+					Name:        "model",
+					Description: "Pick a model to use",
+					Choices: []*discordgo.ApplicationCommandOptionChoice{
+						{
+							Name:  "gpt-4-0613",
+							Value: openai.GPT40613,
+						},
+						{
+							Name:  "gpt-4-0314",
+							Value: openai.GPT40314,
+						},
+						{
+							Name:  "gpt-4-32k-0613",
+							Value: openai.GPT432K0613,
+						},
+						{
+							Name:  "gpt-4-32k-0314",
+							Value: openai.GPT432K0314,
+						},
+						{
+							Name:  "gpt-3.5-turbo-16k-0613",
+							Value: openai.GPT3Dot5Turbo16K0613,
+						},
+						{
+							Name:  "gpt-3.5-turbo-0613",
+							Value: openai.GPT3Dot5Turbo0613,
+						},
+						{
+							Name:  "gpt-3.5-turbo-0301",
+							Value: openai.GPT3Dot5Turbo0301,
+						},
+						{
+							Name:  "davinci-002",
+							Value: openai.GPT3Davinci002,
+						},
+						{
+							Name:  "gpt-3.5-turbo-instruct",
+							Value: openai.GPT3Dot5TurboInstruct,
+						},
+					},
+				},
 			},
 		},
 	}
@@ -29,9 +72,26 @@ var (
 	commandHandlers = map[string]func(s *discordgo.Session, i *discordgo.InteractionCreate){
 		"ask": func(s *discordgo.Session, i *discordgo.InteractionCreate) {
 			deferResponse(s, i)
-			message := i.ApplicationCommandData().Options[0].Value.(string)
-			log.Println("ask:", message)
-			sendInteractionResponse(s, i)
+
+			var model string = ""
+			for _, option := range i.ApplicationCommandData().Options {
+				if option.Name == "question" {
+					message := option.Value.(string)
+					log.Println("ask:", message)
+				}
+				if option.Name == "model" {
+					model = option.Value.(string)
+				}
+			}
+			if model == "" {
+				model = openai.GPT40314
+			}
+
+			if model == openai.GPT3Davinci002 || model == openai.GPT3Dot5TurboInstruct {
+				sendInteractionCompletionResponse(s, i, model)
+			} else {
+				sendInteractionChatResponse(s, i, model)
+			}
 		},
 	}
 )
@@ -48,7 +108,7 @@ func handleMessage(s *discordgo.Session, m *discordgo.MessageCreate) {
 	for _, mention := range m.Mentions {
 		if mention.ID == s.State.User.ID {
 			log.Println("mention:", m.Content)
-			sendMessageResponse(s, m)
+			sendMessageChatResponse(s, m)
 		}
 	}
 }
