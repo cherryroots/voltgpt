@@ -86,7 +86,7 @@ func getMaxModelTokens(model string) (maxTokens int) {
 
 func getRequestMaxTokensString(message string, model string) (maxTokens int) {
 	maxTokens = getMaxModelTokens(model)
-	usedTokens := NumTokensFromString(message)
+	usedTokens := numTokensFromString(message)
 
 	availableTokens := maxTokens - usedTokens
 
@@ -95,26 +95,27 @@ func getRequestMaxTokensString(message string, model string) (maxTokens int) {
 
 func getRequestMaxTokens(message []openai.ChatCompletionMessage, model string) (maxTokens int) {
 	maxTokens = getMaxModelTokens(model)
-	usedTokens := NumTokensFromMessages(message, model)
+	usedTokens := numTokensFromMessages(message, model)
 
 	availableTokens := maxTokens - usedTokens
 
 	return availableTokens
 }
 
-func NumTokensFromString(s string) (numTokens int) {
-	message := []openai.ChatCompletionMessage{
-		{
-			Role:    openai.ChatMessageRoleUser,
-			Content: s,
-		},
+func numTokensFromString(s string) (numTokens int) {
+	encoding := "p50k_base"
+	tkm, err := tiktoken.GetEncoding(encoding)
+	if err != nil {
+		err = fmt.Errorf("encoding for model: %v", err)
+		log.Println(err)
+		return
 	}
-	tokens := NumTokensFromMessages(message, openai.GPT40613)
+	numTokens = len(tkm.Encode(s, nil, nil))
 
-	return tokens
+	return numTokens
 }
 
-func NumTokensFromMessages(messages []openai.ChatCompletionMessage, model string) (numTokens int) {
+func numTokensFromMessages(messages []openai.ChatCompletionMessage, model string) (numTokens int) {
 	tkm, err := tiktoken.EncodingForModel(model)
 	if err != nil {
 		err = fmt.Errorf("encoding for model: %v", err)
@@ -138,10 +139,10 @@ func NumTokensFromMessages(messages []openai.ChatCompletionMessage, model string
 	default:
 		if strings.Contains(model, "gpt-3.5-turbo") {
 			log.Println("warning: gpt-3.5-turbo may update over time. Returning num tokens assuming gpt-3.5-turbo-0613")
-			return NumTokensFromMessages(messages, "gpt-3.5-turbo-0613")
+			return numTokensFromMessages(messages, "gpt-3.5-turbo-0613")
 		} else if strings.Contains(model, "gpt-4") {
 			log.Println("warning: gpt-4 may update over time. Returning num tokens assuming gpt-4-0613")
-			return NumTokensFromMessages(messages, "gpt-4-0613")
+			return numTokensFromMessages(messages, "gpt-4-0613")
 		} else {
 			err = fmt.Errorf("num_tokens_from_messages() is not implemented for model %s. See https://github.com/openai/openai-python/blob/main/chatml.md for information on how messages are converted to tokens", model)
 			log.Println(err)
