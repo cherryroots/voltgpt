@@ -10,26 +10,20 @@ import (
 	openai "github.com/sashabaranov/go-openai"
 )
 
-func sendFollowup(s *discordgo.Session, i *discordgo.InteractionCreate, content string) *discordgo.Message {
+func sendFollowup(s *discordgo.Session, i *discordgo.InteractionCreate, content string) (*discordgo.Message, error) {
 	msg, err := s.FollowupMessageCreate(i.Interaction, true, &discordgo.WebhookParams{
 		Content: content,
 	})
-	if err != nil {
-		log.Println(err)
-	}
 
-	return msg
+	return msg, err
 }
 
-func editFollowup(s *discordgo.Session, i *discordgo.InteractionCreate, followupID string, content string) *discordgo.Message {
+func editFollowup(s *discordgo.Session, i *discordgo.InteractionCreate, followupID string, content string) (*discordgo.Message, error) {
 	msg, err := s.FollowupMessageEdit(i.Interaction, followupID, &discordgo.WebhookEdit{
 		Content: &content,
 	})
-	if err != nil {
-		log.Println(err)
-	}
 
-	return msg
+	return msg, err
 }
 
 func deferResponse(s *discordgo.Session, i *discordgo.InteractionCreate) {
@@ -41,16 +35,13 @@ func deferResponse(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	}
 }
 
-func sendMessage(s *discordgo.Session, m *discordgo.MessageCreate, content string) *discordgo.Message {
+func sendMessage(s *discordgo.Session, m *discordgo.MessageCreate, content string) (*discordgo.Message, error) {
 	msg, err := s.ChannelMessageSendComplex(m.ChannelID, &discordgo.MessageSend{
 		Content:   content,
 		Reference: m.Reference(),
 	})
-	if err != nil {
-		log.Println(err)
-	}
 
-	return msg
+	return msg, err
 }
 
 // command to edit a given message the bot has sent

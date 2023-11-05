@@ -9,12 +9,14 @@ import (
 
 var (
 	writePermission int64 = discordgo.PermissionSendMessages
+	dmPermission    bool  = false
 
 	commands = []*discordgo.ApplicationCommand{
 		{
 			Name:                     "ask",
 			Description:              "Ask a question (default gpt-4-0314)",
 			DefaultMemberPermissions: &writePermission,
+			DMPermission:             &dmPermission,
 			Options: []*discordgo.ApplicationCommandOption{
 				{
 					Type:        discordgo.ApplicationCommandOptionString,

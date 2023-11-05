@@ -30,7 +30,7 @@ func main() {
 		return
 	}
 
-	dg.Identify.Intents = discordgo.IntentsGuildMessages
+	dg.Identify.Intents = discordgo.IntentGuildMessages
 	dg.ShouldReconnectOnError = true
 
 	err = dg.Open()

@@ -54,7 +54,11 @@ func sendMessageChatResponse(s *discordgo.Session, m *discordgo.MessageCreate) {
 	}
 	defer stream.Close()
 
-	msg := sendMessage(s, m, "Responding...")
+	msg, err := sendMessage(s, m, "Responding...")
+	if err != nil {
+		log.Println(err)
+		return
+	}
 
 	var i int
 	var message string
@@ -79,7 +83,11 @@ func sendMessageChatResponse(s *discordgo.Session, m *discordgo.MessageCreate) {
 			// If the message is too long, split it into a new message
 			if len(message) > 1900 {
 				editMessage(s, msg, message)
-				msg = sendMessage(s, m, "...")
+				msg, err = sendMessage(s, m, "...")
+				if err != nil {
+					log.Println(err)
+					return
+				}
 				message = ""
 			} else {
 				editMessage(s, msg, message)
@@ -112,7 +120,11 @@ func sendInteractionChatResponse(s *discordgo.Session, i *discordgo.InteractionC
 		return
 	}
 	defer stream.Close()
-	msg := sendFollowup(s, i, "Responding...")
+	msg, err := sendFollowup(s, i, "Responding...")
+	if err != nil {
+		log.Printf("sendFollowup error: %v\n", err)
+		return
+	}
 	var count int = 1
 
 	var message string
@@ -130,11 +142,23 @@ func sendInteractionChatResponse(s *discordgo.Session, i *discordgo.InteractionC
 		message = message + response.Choices[0].Delta.Content
 		if count%15 == 0 {
 			if len(message) > 1900 {
-				editFollowup(s, i, msg.ID, message)
-				msg = sendFollowup(s, i, "...")
+				_, err = editFollowup(s, i, msg.ID, message)
+				if err != nil {
+					log.Printf("editFollowup error: %v\n", err)
+					return
+				}
+				msg, err = sendFollowup(s, i, "...")
+				if err != nil {
+					log.Printf("sendFollowup error: %v\n", err)
+					return
+				}
 				message = ""
 			} else {
-				editFollowup(s, i, msg.ID, message)
+				_, err = editFollowup(s, i, msg.ID, message)
+				if err != nil {
+					log.Printf("editFollowup error: %v\n", err)
+					return
+				}
 			}
 		}
 		count++
@@ -165,7 +189,11 @@ func sendInteractionCompletionResponse(s *discordgo.Session, i *discordgo.Intera
 		return
 	}
 	defer stream.Close()
-	msg := sendFollowup(s, i, "Responding...")
+	msg, err := sendFollowup(s, i, "Responding...")
+	if err != nil {
+		log.Printf("sendFollowup error: %v\n", err)
+		return
+	}
 	var count int = 1
 
 	var message string = prompt
@@ -183,11 +211,23 @@ func sendInteractionCompletionResponse(s *discordgo.Session, i *discordgo.Intera
 		message = message + response.Choices[0].Text
 		if count%15 == 0 {
 			if len(message) > 1900 {
-				editFollowup(s, i, msg.ID, message)
-				msg = sendFollowup(s, i, "...")
+				_, err = editFollowup(s, i, msg.ID, message)
+				if err != nil {
+					log.Printf("editFollowup error: %v\n", err)
+					return
+				}
+				msg, err = sendFollowup(s, i, "...")
+				if err != nil {
+					log.Printf("sendFollowup error: %v\n", err)
+					return
+				}
 				message = ""
 			} else {
-				editFollowup(s, i, msg.ID, message)
+				_, err = editFollowup(s, i, msg.ID, message)
+				if err != nil {
+					log.Printf("editFollowup error: %v\n", err)
+					return
+				}
 			}
 		}
 		count++
