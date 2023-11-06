@@ -80,8 +80,13 @@ func checkForReplies(s *discordgo.Session, message *discordgo.Message, cache []*
 	}
 }
 
-func getMessageCache(s *discordgo.Session, channelID string, messageID string) []*discordgo.Message {
-	messages, _ := s.ChannelMessages(channelID, 100, messageID, "", "")
+func getMessageBefore(s *discordgo.Session, channelID string, count int, messageID string) []*discordgo.Message {
+	messages, _ := s.ChannelMessages(channelID, count, messageID, "", "")
+	return messages
+}
+
+func getMessagesAround(s *discordgo.Session, channelID string, count int, messageID string) []*discordgo.Message {
+	messages, _ := s.ChannelMessages(channelID, count, "", "", messageID)
 	return messages
 }
 

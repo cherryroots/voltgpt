@@ -165,7 +165,7 @@ func handleMessage(s *discordgo.Session, m *discordgo.MessageCreate) {
 			return
 		}
 		if m.ReferencedMessage.Author.ID == s.State.User.ID {
-			cache := getMessageCache(s, m.ChannelID, m.ID)
+			cache := getMessageBefore(s, m.ChannelID, 100, m.ID)
 			log.Println("reply:", m.Content)
 			var chatMessages []openai.ChatCompletionMessage = createMessage(openai.ChatMessageRoleUser, m.Author.Username, m.Content)
 			checkForReplies(s, m.Message, cache, &chatMessages)

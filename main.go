@@ -33,13 +33,6 @@ func main() {
 	dg.Identify.Intents = discordgo.IntentGuildMessages
 	dg.ShouldReconnectOnError = true
 
-	err = dg.Open()
-	if err != nil {
-		log.Panic("error opening connection,", err)
-		return
-	}
-	log.Println("Bot is now running. Press CTRL-C to exit.")
-
 	dg.AddHandler(func(s *discordgo.Session, i *discordgo.InteractionCreate) {
 		switch i.Type {
 		case discordgo.InteractionApplicationCommand:
@@ -58,6 +51,17 @@ func main() {
 		go handleMessage(s, m)
 	})
 
+	dg.AddHandler(func(s *discordgo.Session, r *discordgo.Ready) {
+		log.Printf("Logged in as: %v#%v", s.State.User.Username, s.State.User.Discriminator)
+	})
+
+	err = dg.Open()
+	if err != nil {
+		log.Panic("error opening connection,", err)
+		return
+	}
+	log.Println("Bot is now running. Press CTRL-C to exit.")
+
 	for _, guild := range dg.State.Guilds {
 		registerCommands := make([]*discordgo.ApplicationCommand, len(commands))
 		for i, command := range commands {
@@ -66,7 +70,6 @@ func main() {
 				log.Printf("could not create '%s' command: %v", command.Name, err)
 			}
 			registerCommands[i] = cmd
-			log.Printf("created '%s' command in '%s'", cmd.Name, guild.ID)
 		}
 
 		// delete commands that are not registered in commands.go
@@ -80,7 +83,6 @@ func main() {
 				if err != nil {
 					log.Printf("could not delete '%s' command: %v", command.Name, err)
 				}
-				log.Printf("deleted '%s' command in '%s'", command.Name, guild.ID)
 			}
 		}
 	}
