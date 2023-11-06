@@ -55,7 +55,7 @@ func sendMessageChatResponse(s *discordgo.Session, m *discordgo.MessageCreate, m
 	}
 	defer stream.Close()
 
-	msg, err := sendMessage(s, m, "Responding...")
+	msg, err := sendMessage(s, m.Message, "Responding...")
 	if err != nil {
 		log.Println(err)
 		return
@@ -84,7 +84,7 @@ func sendMessageChatResponse(s *discordgo.Session, m *discordgo.MessageCreate, m
 			// If the message is too long, split it into a new message
 			if len(message) > 1900 {
 				editMessage(s, msg, message)
-				msg, err = sendMessage(s, m, "...")
+				msg, err = sendMessage(s, msg, "...")
 				if err != nil {
 					log.Println(err)
 					return

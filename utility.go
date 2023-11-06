@@ -36,7 +36,7 @@ func deferResponse(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	}
 }
 
-func sendMessage(s *discordgo.Session, m *discordgo.MessageCreate, content string) (*discordgo.Message, error) {
+func sendMessage(s *discordgo.Session, m *discordgo.Message, content string) (*discordgo.Message, error) {
 	msg, err := s.ChannelMessageSendComplex(m.ChannelID, &discordgo.MessageSend{
 		Content:   content,
 		Reference: m.Reference(),
