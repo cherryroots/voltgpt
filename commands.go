@@ -27,6 +27,12 @@ var (
 					Required:    true,
 				},
 				{
+					Type:        discordgo.ApplicationCommandOptionAttachment,
+					Name:        "image",
+					Description: "image to use as context",
+					Required:    false,
+				},
+				{
 					Type:        discordgo.ApplicationCommandOptionNumber,
 					Name:        "temperature",
 					Description: "Choose a number between 0 and 2. Higher values are more random, lower values are more factual.",
@@ -82,69 +88,57 @@ var (
 		"ask": func(s *discordgo.Session, i *discordgo.InteractionCreate) {
 			deferResponse(s, i)
 
-			var message string
-			var temperature float32 = 0
-			var model string = ""
+			var options *responseOptions = newResponseOptions()
+
 			for _, option := range i.ApplicationCommandData().Options {
 				if option.Name == "question" {
-					message = option.Value.(string)
-					log.Println("ask:", message)
+					options.message = option.Value.(string)
+					log.Println("ask:", options.message)
+				}
+				if option.Name == "image" {
+					options.imageUrl = option.Value.(string)
 				}
 				if option.Name == "temperature" {
-					temperature = float32(option.Value.(float64))
+					options.temperature = float32(option.Value.(float64))
 				}
 				if option.Name == "model" {
-					model = option.Value.(string)
+					options.model = option.Value.(string)
 				}
 			}
-			if temperature == 0 {
-				temperature = 0.7
-			}
-			if model == "" {
-				model = openai.GPT40314
-			}
 
-			var reqMessage []openai.ChatCompletionMessage = createMessage(openai.ChatMessageRoleUser, i.Member.User.Username, message)
-			sendInteractionChatResponse(s, i, reqMessage, temperature, model)
+			var reqMessage []openai.ChatCompletionMessage = createMessage(openai.ChatMessageRoleUser, options.message)
+			sendInteractionChatResponse(s, i, reqMessage, options)
 		},
 		"summarize": func(s *discordgo.Session, i *discordgo.InteractionCreate) {
 			deferResponse(s, i)
 
-			var message string
+			var options *responseOptions = newResponseOptions()
 			var count int = 0
-			var temperature float32 = 0
-			var model string = ""
 			for _, option := range i.ApplicationCommandData().Options {
 				if option.Name == "question" {
-					message = option.Value.(string)
-					log.Println("summarize:", message)
+					options.message = option.Value.(string)
+					log.Println("summarize:", options.message)
 				}
 				if option.Name == "count" {
 					count = int(option.Value.(float64))
 				}
 				if option.Name == "temperature" {
-					temperature = float32(option.Value.(float64))
+					options.temperature = float32(option.Value.(float64))
 				}
 				if option.Name == "model" {
-					model = option.Value.(string)
+					options.model = option.Value.(string)
 				}
 			}
 			if count == 0 {
 				count = 20
-			}
-			if temperature == 0 {
-				temperature = 0.7
-			}
-			if model == "" {
-				model = openai.GPT40314
 			}
 
 			var messages []*discordgo.Message = getMessages(s, i.ChannelID, count)
 			messages = cleanMessages(s, messages)
 
 			var chatMessages []openai.ChatCompletionMessage = createBatchMessages(s, messages)
-			appendMessage(openai.ChatMessageRoleUser, i.Member.User.Username, message, &chatMessages)
-			sendInteractionChatResponse(s, i, chatMessages, temperature, model)
+			appendMessage(openai.ChatMessageRoleUser, i.Member.User.Username, options.message, &chatMessages)
+			sendInteractionChatResponse(s, i, chatMessages, options)
 		},
 	}
 )
@@ -167,7 +161,7 @@ func handleMessage(s *discordgo.Session, m *discordgo.MessageCreate) {
 		if m.ReferencedMessage.Author.ID == s.State.User.ID {
 			cache := getMessageBefore(s, m.ChannelID, 100, m.ID)
 			log.Println("reply:", m.Content)
-			var chatMessages []openai.ChatCompletionMessage = createMessage(openai.ChatMessageRoleUser, m.Author.Username, m.Content)
+			var chatMessages []openai.ChatCompletionMessage = createMessage(openai.ChatMessageRoleUser, m.Content)
 			checkForReplies(s, m.Message, cache, &chatMessages)
 			sendMessageChatResponse(s, m, chatMessages)
 			return
@@ -178,7 +172,7 @@ func handleMessage(s *discordgo.Session, m *discordgo.MessageCreate) {
 		if mention.ID == s.State.User.ID {
 			m.Message = cleanMessage(s, m.Message)
 			log.Println("mention:", m.Content)
-			var chatMessages []openai.ChatCompletionMessage = createMessage(openai.ChatMessageRoleUser, m.Author.Username, m.Content)
+			var chatMessages []openai.ChatCompletionMessage = createMessage(openai.ChatMessageRoleUser, m.Content)
 			sendMessageChatResponse(s, m, chatMessages)
 			return
 		}

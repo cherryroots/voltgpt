@@ -8,32 +8,36 @@ import (
 var (
 	modelChoices = []*discordgo.ApplicationCommandOptionChoice{
 		{
-			Name:  "gpt-4-0613",
-			Value: openai.GPT40613,
+			Name:  "gpt-4",
+			Value: openai.GPT4,
 		},
 		{
-			Name:  "gpt-4-0314",
-			Value: openai.GPT40314,
+			Name:  "gpt-4-1106-preview",
+			Value: openai.GPT4TurboPreview,
 		},
 		{
-			Name:  "gpt-4-32k-0613",
-			Value: openai.GPT432K0613,
+			Name:  "gpt-4-vision-preview",
+			Value: openai.GPT4VisionPreview,
 		},
 		{
-			Name:  "gpt-4-32k-0314",
-			Value: openai.GPT432K0314,
-		},
-		{
-			Name:  "gpt-3.5-turbo-16k-0613",
-			Value: openai.GPT3Dot5Turbo16K0613,
-		},
-		{
-			Name:  "gpt-3.5-turbo-0613",
-			Value: openai.GPT3Dot5Turbo0613,
-		},
-		{
-			Name:  "gpt-3.5-turbo-0301",
-			Value: openai.GPT3Dot5Turbo0301,
+			Name:  "gpt-3.5-turbo-1106",
+			Value: openai.GPT3Dot5Turbo1106,
 		},
 	}
 )
+
+type responseOptions struct {
+	message     string
+	imageUrl    string
+	temperature float32
+	model       string
+}
+
+func newResponseOptions() *responseOptions {
+	return &responseOptions{
+		message:     "",
+		imageUrl:    "",
+		temperature: 0.7,
+		model:       openai.GPT4TurboPreview,
+	}
+}

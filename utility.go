@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"log"
+	"path/filepath"
 	"regexp"
 	"strings"
 
@@ -137,20 +138,28 @@ func cleanMessages(s *discordgo.Session, messages []*discordgo.Message) []*disco
 	return messages
 }
 
+func isImageURL(url string) bool {
+	// Check the file extension of the URL
+	fileExt := filepath.Ext(url)
+	switch fileExt {
+	case ".jpg", ".jpeg", ".png", ".gif":
+		return true
+	default:
+		return false
+	}
+}
+
 func getMaxModelTokens(model string) (maxTokens int) {
 	switch model {
-	case openai.GPT4, openai.GPT40613, openai.GPT40314:
+	case openai.GPT4:
 		maxTokens = 8192
-	case openai.GPT432K, openai.GPT432K0613, openai.GPT432K0314:
-		maxTokens = 32768
-	case openai.GPT3Dot5Turbo16K, openai.GPT3Dot5Turbo16K0613:
+	case "gpt-4-1106-preview", "gpt-4-vision-preview":
+		maxTokens = 4096
+	case "gpt-3.5-turbo-1106":
 		maxTokens = 16385
-	case openai.GPT3Dot5Turbo, openai.GPT3Dot5Turbo0613, openai.GPT3Dot5Turbo0301, openai.GPT3Dot5TurboInstruct:
-		maxTokens = 4097
-	case openai.GPT3Davinci002:
-		maxTokens = 16384
+	default:
+		maxTokens = 4096
 	}
-
 	return maxTokens
 }
 
@@ -195,12 +204,16 @@ func numTokensFromMessages(messages []openai.ChatCompletionMessage, model string
 
 	var tokensPerMessage, tokensPerName int
 	switch model {
-	case "gpt-3.5-turbo-0613",
+	case
+		"gpt-3.5-turbo-0613",
 		"gpt-3.5-turbo-16k-0613",
+		"gpt-3.5-turbo-1106",
 		"gpt-4-0314",
 		"gpt-4-32k-0314",
 		"gpt-4-0613",
-		"gpt-4-32k-0613":
+		"gpt-4-32k-0613",
+		"gpt-4-vision-preview",
+		"gpt-4-1106-preview":
 		tokensPerMessage = 3
 		tokensPerName = 1
 	case "gpt-3.5-turbo-0301":

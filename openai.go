@@ -12,20 +12,19 @@ import (
 )
 
 func appendMessage(role string, name string, content string, messages *[]openai.ChatCompletionMessage) {
-	newMessages := append(*messages, createMessage(role, name, content)...)
+	newMessages := append(*messages, createMessage(role, content)...)
 	*messages = newMessages
 }
 
 func prependMessage(role string, name string, content string, messages *[]openai.ChatCompletionMessage) {
-	newMessages := append(createMessage(role, name, content), *messages...)
+	newMessages := append(createMessage(role, content), *messages...)
 	*messages = newMessages
 }
 
-func createMessage(role string, name string, content string) []openai.ChatCompletionMessage {
+func createMessage(role string, content string) []openai.ChatCompletionMessage {
 	return []openai.ChatCompletionMessage{
 		{
 			Role:    role,
-			Name:    name,
 			Content: content,
 		},
 	}
@@ -56,10 +55,10 @@ func sendMessageChatResponse(s *discordgo.Session, m *discordgo.MessageCreate, m
 
 	// Create a new request
 	req := openai.ChatCompletionRequest{
-		Model:       openai.GPT40314,
+		Model:       openai.GPT4TurboPreview,
 		Messages:    messages,
 		Temperature: 0.7,
-		MaxTokens:   getRequestMaxTokens(messages, openai.GPT40314),
+		MaxTokens:   getRequestMaxTokens(messages, openai.GPT4TurboPreview),
 		Stream:      true,
 	}
 	// Send the request
@@ -95,9 +94,9 @@ func sendMessageChatResponse(s *discordgo.Session, m *discordgo.MessageCreate, m
 		message = message + response.Choices[0].Delta.Content
 		i++
 		// Every 15 delta send the message
-		if i%20 == 0 {
+		if i%50 == 0 {
 			// If the message is too long, split it into a new message
-			if len(message) > 1900 {
+			if len(message) > 1800 {
 				firstPart, lastPart := splitParagraph(message)
 
 				editMessage(s, msg, firstPart)
@@ -114,7 +113,7 @@ func sendMessageChatResponse(s *discordgo.Session, m *discordgo.MessageCreate, m
 	}
 }
 
-func sendInteractionChatResponse(s *discordgo.Session, i *discordgo.InteractionCreate, reqMessage []openai.ChatCompletionMessage, temperature float32, model string) {
+func sendInteractionChatResponse(s *discordgo.Session, i *discordgo.InteractionCreate, reqMessage []openai.ChatCompletionMessage, options *responseOptions) {
 	// OpenAI API key
 	openaiToken := os.Getenv("OPENAI_TOKEN")
 	if openaiToken == "" {
@@ -125,10 +124,10 @@ func sendInteractionChatResponse(s *discordgo.Session, i *discordgo.InteractionC
 	ctx := context.Background()
 
 	req := openai.ChatCompletionRequest{
-		Model:       model,
+		Model:       options.model,
 		Messages:    reqMessage,
-		Temperature: temperature,
-		MaxTokens:   getRequestMaxTokens(reqMessage, model),
+		Temperature: options.temperature,
+		MaxTokens:   getRequestMaxTokens(reqMessage, options.model),
 		Stream:      true,
 	}
 	stream, err := c.CreateChatCompletionStream(ctx, req)
@@ -157,8 +156,8 @@ func sendInteractionChatResponse(s *discordgo.Session, i *discordgo.InteractionC
 		}
 
 		message = message + response.Choices[0].Delta.Content
-		if count%20 == 0 {
-			if len(message) > 1900 {
+		if count%50 == 0 {
+			if len(message) > 1800 {
 				firstPart, lastPart := splitParagraph(message)
 				_, err = editFollowup(s, i, msg.ID, firstPart)
 				if err != nil {
