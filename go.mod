@@ -1,4 +1,4 @@
-module openai
+module voltgpt
 
 go 1.21.3
 

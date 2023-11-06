@@ -11,11 +11,14 @@ import (
 	openai "github.com/sashabaranov/go-openai"
 )
 
-func appendMessage(role string, content string, messages []openai.ChatCompletionMessage) []openai.ChatCompletionMessage {
-	return append(messages, openai.ChatCompletionMessage{
-		Role:    role,
-		Content: content,
-	})
+func appendMessage(role string, content string, messages *[]openai.ChatCompletionMessage) {
+	newMessages := append(*messages, createMessage(role, content)...)
+	*messages = newMessages
+}
+
+func prependMessage(role string, content string, messages *[]openai.ChatCompletionMessage) {
+	newMessages := append(createMessage(role, content), *messages...)
+	*messages = newMessages
 }
 
 func createMessage(role string, content string) []openai.ChatCompletionMessage {
@@ -27,7 +30,7 @@ func createMessage(role string, content string) []openai.ChatCompletionMessage {
 	}
 }
 
-func sendMessageChatResponse(s *discordgo.Session, m *discordgo.MessageCreate) {
+func sendMessageChatResponse(s *discordgo.Session, m *discordgo.MessageCreate, messages []openai.ChatCompletionMessage) {
 	// OpenAI API key
 	openaiToken := os.Getenv("OPENAI_TOKEN")
 	if openaiToken == "" {
@@ -37,13 +40,11 @@ func sendMessageChatResponse(s *discordgo.Session, m *discordgo.MessageCreate) {
 	c := openai.NewClient(openaiToken)
 	ctx := context.Background()
 
-	reqMessage := createMessage(openai.ChatMessageRoleUser, m.Content)
-
 	// Create a new request
 	req := openai.ChatCompletionRequest{
 		Model:     openai.GPT40314,
-		Messages:  reqMessage,
-		MaxTokens: getRequestMaxTokens(reqMessage, openai.GPT40314),
+		Messages:  messages,
+		MaxTokens: getRequestMaxTokens(messages, openai.GPT40314),
 		Stream:    true,
 	}
 	// Send the request

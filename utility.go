@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"log"
+	"regexp"
 	"strings"
 
 	"github.com/bwmarrin/discordgo"
@@ -56,6 +57,50 @@ func editMessage(s *discordgo.Session, m *discordgo.Message, content string) *di
 	}
 
 	return msg
+}
+
+func checkForReplies(s *discordgo.Session, message *discordgo.Message, cache []*discordgo.Message, chatMessages *[]openai.ChatCompletionMessage) {
+	if message.Type == discordgo.MessageTypeReply {
+		if message.ReferencedMessage == nil {
+			if message.MessageReference != nil {
+				cachedMessage := checkCache(cache, message.MessageReference.MessageID)
+				if cachedMessage != nil {
+					message.ReferencedMessage = cachedMessage
+				} else {
+					message.ReferencedMessage, _ = s.ChannelMessage(message.MessageReference.ChannelID, message.MessageReference.MessageID)
+				}
+			}
+		}
+		replyMessage := cleanMessage(s, message.ReferencedMessage)
+		if replyMessage.Author.ID == s.State.User.ID {
+			prependMessage(openai.ChatMessageRoleAssistant, replyMessage.Content, chatMessages)
+		} else {
+			prependMessage(openai.ChatMessageRoleUser, replyMessage.Content, chatMessages)
+		}
+		checkForReplies(s, message.ReferencedMessage, cache, chatMessages)
+	}
+}
+
+func getMessageCache(s *discordgo.Session, channelID string, messageID string) []*discordgo.Message {
+	messages, _ := s.ChannelMessages(channelID, 100, "", "", messageID)
+	return messages
+}
+
+func checkCache(cache []*discordgo.Message, messageID string) *discordgo.Message {
+	for _, message := range cache {
+		if message.ID == messageID {
+			return message
+		}
+	}
+	return nil
+}
+
+func cleanMessage(s *discordgo.Session, message *discordgo.Message) *discordgo.Message {
+	botid := fmt.Sprintf("<@%s>", s.State.User.ID)
+	mentionRegex := regexp.MustCompile(botid)
+	message.Content = mentionRegex.ReplaceAllString(message.Content, "")
+	message.Content = strings.TrimSpace(message.Content)
+	return message
 }
 
 func getMaxModelTokens(model string) (maxTokens int) {

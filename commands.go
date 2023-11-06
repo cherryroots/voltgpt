@@ -71,10 +71,28 @@ func handleMessage(s *discordgo.Session, m *discordgo.MessageCreate) {
 		return
 	}
 
+	m.Message = cleanMessage(s, m.Message)
+
+	if m.Type == discordgo.MessageTypeReply {
+		if m.ReferencedMessage == nil {
+			return
+		}
+		if m.ReferencedMessage.Author.ID == s.State.User.ID {
+			cache := getMessageCache(s, m.ChannelID, m.ID)
+			chatMessages := createMessage(openai.ChatMessageRoleUser, m.Content)
+			checkForReplies(s, m.Message, cache, &chatMessages)
+			sendMessageChatResponse(s, m, chatMessages)
+			return
+		}
+	}
+
 	for _, mention := range m.Mentions {
 		if mention.ID == s.State.User.ID {
+			m.Message = cleanMessage(s, m.Message)
 			log.Println("mention:", m.Content)
-			sendMessageChatResponse(s, m)
+			chatMessages := createMessage(openai.ChatMessageRoleUser, m.Content)
+			sendMessageChatResponse(s, m, chatMessages)
+			return
 		}
 	}
 }
