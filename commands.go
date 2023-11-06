@@ -104,7 +104,7 @@ var (
 				model = openai.GPT40314
 			}
 
-			reqMessage := createMessage(openai.ChatMessageRoleUser, i.Member.User.Username, message)
+			var reqMessage []openai.ChatCompletionMessage = createMessage(openai.ChatMessageRoleUser, i.Member.User.Username, message)
 			sendInteractionChatResponse(s, i, reqMessage, temperature, model)
 		},
 		"summarize": func(s *discordgo.Session, i *discordgo.InteractionCreate) {
@@ -139,10 +139,10 @@ var (
 				model = openai.GPT40314
 			}
 
-			messages := getMessages(s, i.ChannelID, count)
+			var messages []*discordgo.Message = getMessages(s, i.ChannelID, count)
 			messages = cleanMessages(s, messages)
 
-			chatMessages := createBatchMessages(s, messages)
+			var chatMessages []openai.ChatCompletionMessage = createBatchMessages(s, messages)
 			appendMessage(openai.ChatMessageRoleUser, i.Member.User.Username, message, &chatMessages)
 			sendInteractionChatResponse(s, i, chatMessages, temperature, model)
 		},
@@ -167,7 +167,7 @@ func handleMessage(s *discordgo.Session, m *discordgo.MessageCreate) {
 		if m.ReferencedMessage.Author.ID == s.State.User.ID {
 			cache := getMessageCache(s, m.ChannelID, m.ID)
 			log.Println("reply:", m.Content)
-			chatMessages := createMessage(openai.ChatMessageRoleUser, m.Author.Username, m.Content)
+			var chatMessages []openai.ChatCompletionMessage = createMessage(openai.ChatMessageRoleUser, m.Author.Username, m.Content)
 			checkForReplies(s, m.Message, cache, &chatMessages)
 			sendMessageChatResponse(s, m, chatMessages)
 			return
@@ -178,7 +178,7 @@ func handleMessage(s *discordgo.Session, m *discordgo.MessageCreate) {
 		if mention.ID == s.State.User.ID {
 			m.Message = cleanMessage(s, m.Message)
 			log.Println("mention:", m.Content)
-			chatMessages := createMessage(openai.ChatMessageRoleUser, m.Author.Username, m.Content)
+			var chatMessages []openai.ChatCompletionMessage = createMessage(openai.ChatMessageRoleUser, m.Author.Username, m.Content)
 			sendMessageChatResponse(s, m, chatMessages)
 			return
 		}
