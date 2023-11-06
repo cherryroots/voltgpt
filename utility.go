@@ -82,7 +82,7 @@ func checkForReplies(s *discordgo.Session, message *discordgo.Message, cache []*
 }
 
 func getMessageCache(s *discordgo.Session, channelID string, messageID string) []*discordgo.Message {
-	messages, _ := s.ChannelMessages(channelID, 100, "", "", messageID)
+	messages, _ := s.ChannelMessages(channelID, 100, messageID, "", "")
 	return messages
 }
 
