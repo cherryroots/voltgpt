@@ -59,6 +59,24 @@ func editMessage(s *discordgo.Session, m *discordgo.Message, content string) *di
 	return msg
 }
 
+func splitParagraph(message string) (string, string) {
+	separator := "\n\n"
+	var firstPart string
+	var lastPart string
+
+	lastIndex := strings.LastIndex(message, separator)
+	if lastIndex != -1 {
+		firstPart = message[:lastIndex]
+		lastPart = message[lastIndex+len(separator):]
+	} else {
+		firstPart = message
+		lastPart = "..."
+	}
+
+	return firstPart, lastPart
+
+}
+
 func checkForReplies(s *discordgo.Session, message *discordgo.Message, cache []*discordgo.Message, chatMessages *[]openai.ChatCompletionMessage) {
 	if message.Type == discordgo.MessageTypeReply {
 		if message.ReferencedMessage == nil {

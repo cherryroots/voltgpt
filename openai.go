@@ -95,16 +95,18 @@ func sendMessageChatResponse(s *discordgo.Session, m *discordgo.MessageCreate, m
 		message = message + response.Choices[0].Delta.Content
 		i++
 		// Every 15 delta send the message
-		if i%15 == 0 {
+		if i%20 == 0 {
 			// If the message is too long, split it into a new message
 			if len(message) > 1900 {
-				editMessage(s, msg, message)
-				msg, err = sendMessage(s, msg, "...")
+				firstPart, lastPart := splitParagraph(message)
+
+				editMessage(s, msg, firstPart)
+				msg, err = sendMessage(s, msg, lastPart)
 				if err != nil {
 					log.Println(err)
 					return
 				}
-				message = ""
+				message = lastPart
 			} else {
 				editMessage(s, msg, message)
 			}
@@ -155,19 +157,20 @@ func sendInteractionChatResponse(s *discordgo.Session, i *discordgo.InteractionC
 		}
 
 		message = message + response.Choices[0].Delta.Content
-		if count%15 == 0 {
+		if count%20 == 0 {
 			if len(message) > 1900 {
-				_, err = editFollowup(s, i, msg.ID, message)
+				firstPart, lastPart := splitParagraph(message)
+				_, err = editFollowup(s, i, msg.ID, firstPart)
 				if err != nil {
 					log.Printf("editFollowup error: %v\n", err)
 					return
 				}
-				msg, err = sendFollowup(s, i, "...")
+				msg, err = sendFollowup(s, i, lastPart)
 				if err != nil {
 					log.Printf("sendFollowup error: %v\n", err)
 					return
 				}
-				message = ""
+				message = lastPart
 			} else {
 				_, err = editFollowup(s, i, msg.ID, message)
 				if err != nil {

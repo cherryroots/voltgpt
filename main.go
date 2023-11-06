@@ -32,6 +32,7 @@ func main() {
 
 	dg.Identify.Intents = discordgo.IntentGuildMessages
 	dg.ShouldReconnectOnError = true
+	dg.ShouldRetryOnRateLimit = true
 
 	dg.AddHandler(func(s *discordgo.Session, i *discordgo.InteractionCreate) {
 		switch i.Type {
@@ -60,7 +61,6 @@ func main() {
 		log.Panic("error opening connection,", err)
 		return
 	}
-	log.Println("Bot is now running. Press CTRL-C to exit.")
 
 	for _, guild := range dg.State.Guilds {
 		registerCommands := make([]*discordgo.ApplicationCommand, len(commands))
@@ -86,6 +86,8 @@ func main() {
 			}
 		}
 	}
+
+	log.Println("Bot is now running. Press CTRL-C to exit.")
 
 	sc := make(chan os.Signal, 1)
 	signal.Notify(sc, syscall.SIGINT, syscall.SIGTERM, os.Interrupt)
