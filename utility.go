@@ -66,9 +66,8 @@ func checkForReplies(s *discordgo.Session, message *discordgo.Message, cache []*
 				cachedMessage := checkCache(cache, message.MessageReference.MessageID)
 				if cachedMessage != nil {
 					message.ReferencedMessage = cachedMessage
-				} else {
-					message.ReferencedMessage, _ = s.ChannelMessage(message.MessageReference.ChannelID, message.MessageReference.MessageID)
 				}
+				message.ReferencedMessage, _ = s.ChannelMessage(message.MessageReference.ChannelID, message.MessageReference.MessageID)
 			}
 		}
 		replyMessage := cleanMessage(s, message.ReferencedMessage)
@@ -83,6 +82,11 @@ func checkForReplies(s *discordgo.Session, message *discordgo.Message, cache []*
 
 func getMessageCache(s *discordgo.Session, channelID string, messageID string) []*discordgo.Message {
 	messages, _ := s.ChannelMessages(channelID, 100, messageID, "", "")
+	return messages
+}
+
+func getMessages(s *discordgo.Session, channelID string, count int) []*discordgo.Message {
+	messages, _ := s.ChannelMessages(channelID, count, "", "", "")
 	return messages
 }
 
@@ -101,6 +105,13 @@ func cleanMessage(s *discordgo.Session, message *discordgo.Message) *discordgo.M
 	message.Content = mentionRegex.ReplaceAllString(message.Content, "")
 	message.Content = strings.TrimSpace(message.Content)
 	return message
+}
+
+func cleanMessages(s *discordgo.Session, messages []*discordgo.Message) []*discordgo.Message {
+	for i, message := range messages {
+		messages[i] = cleanMessage(s, message)
+	}
+	return messages
 }
 
 func getMaxModelTokens(model string) (maxTokens int) {

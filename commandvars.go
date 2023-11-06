@@ -35,13 +35,5 @@ var (
 			Name:  "gpt-3.5-turbo-0301",
 			Value: openai.GPT3Dot5Turbo0301,
 		},
-		{
-			Name:  "davinci-002",
-			Value: openai.GPT3Davinci002,
-		},
-		{
-			Name:  "gpt-3.5-turbo-instruct",
-			Value: openai.GPT3Dot5TurboInstruct,
-		},
 	}
 )

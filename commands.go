@@ -11,6 +11,7 @@ var (
 	writePermission int64   = discordgo.PermissionSendMessages
 	dmPermission    bool    = false
 	tempMin         float64 = 0.01
+	integerMin      float64 = 1
 
 	commands = []*discordgo.ApplicationCommand{
 		{
@@ -40,17 +41,53 @@ var (
 				},
 			},
 		},
+		{
+			Name:                     "summarize",
+			Description:              "Summarize the message history of the channel (default 20 messages)",
+			DefaultMemberPermissions: &writePermission,
+			DMPermission:             &dmPermission,
+			Options: []*discordgo.ApplicationCommandOption{
+				{
+					Type:        discordgo.ApplicationCommandOptionString,
+					Name:        "question",
+					Description: "question to ask",
+					Required:    true,
+				},
+				{
+					Type:        discordgo.ApplicationCommandOptionInteger,
+					Name:        "count",
+					Description: "Number of messages to include in the summary. ",
+					Required:    false,
+					MinValue:    &integerMin,
+					MaxValue:    100,
+				},
+				{
+					Type:        discordgo.ApplicationCommandOptionNumber,
+					Name:        "temperature",
+					Description: "Choose a number between 0 and 2. Higher values are more random, lower values are more factual.",
+					MinValue:    &tempMin,
+					MaxValue:    2,
+				},
+				{
+					Type:        discordgo.ApplicationCommandOptionString,
+					Name:        "model",
+					Description: "Pick a model to use",
+					Choices:     modelChoices,
+				},
+			},
+		},
 	}
 
 	commandHandlers = map[string]func(s *discordgo.Session, i *discordgo.InteractionCreate){
 		"ask": func(s *discordgo.Session, i *discordgo.InteractionCreate) {
 			deferResponse(s, i)
 
+			var message string
 			var temperature float32 = 0
 			var model string = ""
 			for _, option := range i.ApplicationCommandData().Options {
 				if option.Name == "question" {
-					message := option.Value.(string)
+					message = option.Value.(string)
 					log.Println("ask:", message)
 				}
 				if option.Name == "temperature" {
@@ -67,12 +104,47 @@ var (
 				model = openai.GPT40314
 			}
 
-			switch model {
-			case openai.GPT3Davinci002, openai.GPT3Dot5TurboInstruct:
-				sendInteractionCompletionResponse(s, i, temperature, model)
-			default:
-				sendInteractionChatResponse(s, i, temperature, model)
+			reqMessage := createMessage(openai.ChatMessageRoleUser, i.Member.User.Username, message)
+			sendInteractionChatResponse(s, i, reqMessage, temperature, model)
+		},
+		"summarize": func(s *discordgo.Session, i *discordgo.InteractionCreate) {
+			deferResponse(s, i)
+
+			var message string
+			var count int = 0
+			var temperature float32 = 0
+			var model string = ""
+			for _, option := range i.ApplicationCommandData().Options {
+				if option.Name == "question" {
+					message = option.Value.(string)
+					log.Println("summarize:", message)
+				}
+				if option.Name == "count" {
+					count = int(option.Value.(float64))
+				}
+				if option.Name == "temperature" {
+					temperature = float32(option.Value.(float64))
+				}
+				if option.Name == "model" {
+					model = option.Value.(string)
+				}
 			}
+			if count == 0 {
+				count = 20
+			}
+			if temperature == 0 {
+				temperature = 0.7
+			}
+			if model == "" {
+				model = openai.GPT40314
+			}
+
+			messages := getMessages(s, i.ChannelID, count)
+			messages = cleanMessages(s, messages)
+
+			chatMessages := createBatchMessages(s, messages)
+			appendMessage(openai.ChatMessageRoleUser, i.Member.User.Username, message, &chatMessages)
+			sendInteractionChatResponse(s, i, chatMessages, temperature, model)
 		},
 	}
 )

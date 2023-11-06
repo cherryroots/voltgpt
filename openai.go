@@ -31,6 +31,19 @@ func createMessage(role string, name string, content string) []openai.ChatComple
 	}
 }
 
+func createBatchMessages(s *discordgo.Session, messages []*discordgo.Message) []openai.ChatCompletionMessage {
+	var batchMessages []openai.ChatCompletionMessage
+
+	for _, message := range messages {
+		if message.Author.ID == s.State.User.ID {
+			prependMessage(openai.ChatMessageRoleAssistant, message.Author.Username, message.Content, &batchMessages)
+		}
+		prependMessage(openai.ChatMessageRoleUser, message.Author.Username, message.Content, &batchMessages)
+	}
+
+	return batchMessages
+}
+
 func sendMessageChatResponse(s *discordgo.Session, m *discordgo.MessageCreate, messages []openai.ChatCompletionMessage) {
 	// OpenAI API key
 	openaiToken := os.Getenv("OPENAI_TOKEN")
@@ -99,7 +112,7 @@ func sendMessageChatResponse(s *discordgo.Session, m *discordgo.MessageCreate, m
 	}
 }
 
-func sendInteractionChatResponse(s *discordgo.Session, i *discordgo.InteractionCreate, temperature float32, model string) {
+func sendInteractionChatResponse(s *discordgo.Session, i *discordgo.InteractionCreate, reqMessage []openai.ChatCompletionMessage, temperature float32, model string) {
 	// OpenAI API key
 	openaiToken := os.Getenv("OPENAI_TOKEN")
 	if openaiToken == "" {
@@ -108,8 +121,6 @@ func sendInteractionChatResponse(s *discordgo.Session, i *discordgo.InteractionC
 	// Create a new OpenAI client
 	c := openai.NewClient(openaiToken)
 	ctx := context.Background()
-
-	reqMessage := createMessage(openai.ChatMessageRoleUser, i.Member.User.Username, i.ApplicationCommandData().Options[0].Value.(string))
 
 	req := openai.ChatCompletionRequest{
 		Model:       model,
@@ -144,76 +155,6 @@ func sendInteractionChatResponse(s *discordgo.Session, i *discordgo.InteractionC
 		}
 
 		message = message + response.Choices[0].Delta.Content
-		if count%15 == 0 {
-			if len(message) > 1900 {
-				_, err = editFollowup(s, i, msg.ID, message)
-				if err != nil {
-					log.Printf("editFollowup error: %v\n", err)
-					return
-				}
-				msg, err = sendFollowup(s, i, "...")
-				if err != nil {
-					log.Printf("sendFollowup error: %v\n", err)
-					return
-				}
-				message = ""
-			} else {
-				_, err = editFollowup(s, i, msg.ID, message)
-				if err != nil {
-					log.Printf("editFollowup error: %v\n", err)
-					return
-				}
-			}
-		}
-		count++
-	}
-}
-
-func sendInteractionCompletionResponse(s *discordgo.Session, i *discordgo.InteractionCreate, temperature float32, model string) {
-	// OpenAI API key
-	openaiToken := os.Getenv("OPENAI_TOKEN")
-	if openaiToken == "" {
-		log.Fatal("OPENAI_TOKEN is not set")
-	}
-	// Create a new OpenAI client
-	c := openai.NewClient(openaiToken)
-	ctx := context.Background()
-
-	prompt := i.ApplicationCommandData().Options[0].Value.(string)
-
-	req := openai.CompletionRequest{
-		Model:       model,
-		Prompt:      prompt,
-		Temperature: temperature,
-		MaxTokens:   getRequestMaxTokensString(prompt, model),
-		Stream:      true,
-	}
-	stream, err := c.CreateCompletionStream(ctx, req)
-	if err != nil {
-		log.Printf("ChatCompletionStream error: %v\n", err)
-		return
-	}
-	defer stream.Close()
-	msg, err := sendFollowup(s, i, "Responding...")
-	if err != nil {
-		log.Printf("sendFollowup error: %v\n", err)
-		return
-	}
-	var count int = 1
-
-	var message string = prompt
-	for {
-		response, err := stream.Recv()
-		if errors.Is(err, io.EOF) {
-			editFollowup(s, i, msg.ID, message)
-			return
-		}
-		if err != nil {
-			log.Printf("\nStream error: %v\n", err)
-			return
-		}
-
-		message = message + response.Choices[0].Text
 		if count%15 == 0 {
 			if len(message) > 1900 {
 				_, err = editFollowup(s, i, msg.ID, message)
