@@ -11,20 +11,21 @@ import (
 	openai "github.com/sashabaranov/go-openai"
 )
 
-func appendMessage(role string, content string, messages *[]openai.ChatCompletionMessage) {
-	newMessages := append(*messages, createMessage(role, content)...)
+func appendMessage(role string, name string, content string, messages *[]openai.ChatCompletionMessage) {
+	newMessages := append(*messages, createMessage(role, name, content)...)
 	*messages = newMessages
 }
 
-func prependMessage(role string, content string, messages *[]openai.ChatCompletionMessage) {
-	newMessages := append(createMessage(role, content), *messages...)
+func prependMessage(role string, name string, content string, messages *[]openai.ChatCompletionMessage) {
+	newMessages := append(createMessage(role, name, content), *messages...)
 	*messages = newMessages
 }
 
-func createMessage(role string, content string) []openai.ChatCompletionMessage {
+func createMessage(role string, name string, content string) []openai.ChatCompletionMessage {
 	return []openai.ChatCompletionMessage{
 		{
 			Role:    role,
+			Name:    name,
 			Content: content,
 		},
 	}
@@ -42,10 +43,11 @@ func sendMessageChatResponse(s *discordgo.Session, m *discordgo.MessageCreate, m
 
 	// Create a new request
 	req := openai.ChatCompletionRequest{
-		Model:     openai.GPT40314,
-		Messages:  messages,
-		MaxTokens: getRequestMaxTokens(messages, openai.GPT40314),
-		Stream:    true,
+		Model:       openai.GPT40314,
+		Messages:    messages,
+		Temperature: 0.7,
+		MaxTokens:   getRequestMaxTokens(messages, openai.GPT40314),
+		Stream:      true,
 	}
 	// Send the request
 	stream, err := c.CreateChatCompletionStream(ctx, req)
@@ -68,7 +70,7 @@ func sendMessageChatResponse(s *discordgo.Session, m *discordgo.MessageCreate, m
 		response, err := stream.Recv()
 		if errors.Is(err, io.EOF) {
 			// At the end of the stream
-			// Send the last message delta
+			// Send the last message state
 			editMessage(s, msg, message)
 			return
 		}
@@ -97,7 +99,7 @@ func sendMessageChatResponse(s *discordgo.Session, m *discordgo.MessageCreate, m
 	}
 }
 
-func sendInteractionChatResponse(s *discordgo.Session, i *discordgo.InteractionCreate, model string) {
+func sendInteractionChatResponse(s *discordgo.Session, i *discordgo.InteractionCreate, temperature float32, model string) {
 	// OpenAI API key
 	openaiToken := os.Getenv("OPENAI_TOKEN")
 	if openaiToken == "" {
@@ -107,13 +109,14 @@ func sendInteractionChatResponse(s *discordgo.Session, i *discordgo.InteractionC
 	c := openai.NewClient(openaiToken)
 	ctx := context.Background()
 
-	reqMessage := createMessage(openai.ChatMessageRoleUser, i.ApplicationCommandData().Options[0].Value.(string))
+	reqMessage := createMessage(openai.ChatMessageRoleUser, i.Member.User.Username, i.ApplicationCommandData().Options[0].Value.(string))
 
 	req := openai.ChatCompletionRequest{
-		Model:     model,
-		Messages:  reqMessage,
-		MaxTokens: getRequestMaxTokens(reqMessage, model),
-		Stream:    true,
+		Model:       model,
+		Messages:    reqMessage,
+		Temperature: temperature,
+		MaxTokens:   getRequestMaxTokens(reqMessage, model),
+		Stream:      true,
 	}
 	stream, err := c.CreateChatCompletionStream(ctx, req)
 	if err != nil {
@@ -166,7 +169,7 @@ func sendInteractionChatResponse(s *discordgo.Session, i *discordgo.InteractionC
 	}
 }
 
-func sendInteractionCompletionResponse(s *discordgo.Session, i *discordgo.InteractionCreate, model string) {
+func sendInteractionCompletionResponse(s *discordgo.Session, i *discordgo.InteractionCreate, temperature float32, model string) {
 	// OpenAI API key
 	openaiToken := os.Getenv("OPENAI_TOKEN")
 	if openaiToken == "" {
@@ -179,10 +182,11 @@ func sendInteractionCompletionResponse(s *discordgo.Session, i *discordgo.Intera
 	prompt := i.ApplicationCommandData().Options[0].Value.(string)
 
 	req := openai.CompletionRequest{
-		Model:     model,
-		Prompt:    prompt,
-		MaxTokens: getRequestMaxTokensString(prompt, model),
-		Stream:    true,
+		Model:       model,
+		Prompt:      prompt,
+		Temperature: temperature,
+		MaxTokens:   getRequestMaxTokensString(prompt, model),
+		Stream:      true,
 	}
 	stream, err := c.CreateCompletionStream(ctx, req)
 	if err != nil {

@@ -58,14 +58,31 @@ func main() {
 		go handleMessage(s, m)
 	})
 
-	registerCommands := make([]*discordgo.ApplicationCommand, len(commands))
-	for i, command := range commands {
-		cmd, err := dg.ApplicationCommandCreate(dg.State.User.ID, "", command)
-		if err != nil {
-			log.Printf("could not create '%s' command: %v", command.Name, err)
+	for _, guild := range dg.State.Guilds {
+		registerCommands := make([]*discordgo.ApplicationCommand, len(commands))
+		for i, command := range commands {
+			cmd, err := dg.ApplicationCommandCreate(dg.State.User.ID, guild.ID, command)
+			if err != nil {
+				log.Printf("could not create '%s' command: %v", command.Name, err)
+			}
+			registerCommands[i] = cmd
+			log.Printf("created '%s' command in '%s'", cmd.Name, guild.ID)
 		}
-		registerCommands[i] = cmd
-		log.Printf("Created '%s' command", cmd.Name)
+
+		// delete commands that are not registered in commands.go
+		commands, err := dg.ApplicationCommands(dg.State.User.ID, guild.ID)
+		if err != nil {
+			log.Printf("could not get commands for guild %s: %v", guild.ID, err)
+		}
+		for _, command := range commands {
+			if _, ok := commandHandlers[command.Name]; !ok {
+				err := dg.ApplicationCommandDelete(dg.State.User.ID, guild.ID, command.ID)
+				if err != nil {
+					log.Printf("could not delete '%s' command: %v", command.Name, err)
+				}
+				log.Printf("deleted '%s' command in '%s'", command.Name, guild.ID)
+			}
+		}
 	}
 
 	sc := make(chan os.Signal, 1)

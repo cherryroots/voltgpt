@@ -73,9 +73,9 @@ func checkForReplies(s *discordgo.Session, message *discordgo.Message, cache []*
 		}
 		replyMessage := cleanMessage(s, message.ReferencedMessage)
 		if replyMessage.Author.ID == s.State.User.ID {
-			prependMessage(openai.ChatMessageRoleAssistant, replyMessage.Content, chatMessages)
+			prependMessage(openai.ChatMessageRoleAssistant, replyMessage.Author.Username, replyMessage.Content, chatMessages)
 		} else {
-			prependMessage(openai.ChatMessageRoleUser, replyMessage.Content, chatMessages)
+			prependMessage(openai.ChatMessageRoleUser, replyMessage.Author.Username, replyMessage.Content, chatMessages)
 		}
 		checkForReplies(s, message.ReferencedMessage, cache, chatMessages)
 	}
