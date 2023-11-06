@@ -6,6 +6,9 @@ import (
 )
 
 var (
+	defaultTemp  float32 = 0.7
+	defaultModel         = openai.GPT4TurboPreview
+
 	modelChoices = []*discordgo.ApplicationCommandOptionChoice{
 		{
 			Name:  "gpt-4",
@@ -37,7 +40,7 @@ func newResponseOptions() *responseOptions {
 	return &responseOptions{
 		message:     "",
 		imageUrl:    "",
-		temperature: 0.7,
-		model:       openai.GPT4TurboPreview,
+		temperature: defaultTemp,
+		model:       defaultModel,
 	}
 }

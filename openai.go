@@ -55,10 +55,10 @@ func sendMessageChatResponse(s *discordgo.Session, m *discordgo.MessageCreate, m
 
 	// Create a new request
 	req := openai.ChatCompletionRequest{
-		Model:       openai.GPT4TurboPreview,
+		Model:       defaultModel,
 		Messages:    messages,
-		Temperature: 0.7,
-		MaxTokens:   getRequestMaxTokens(messages, openai.GPT4TurboPreview),
+		Temperature: defaultTemp,
+		MaxTokens:   getRequestMaxTokens(messages, defaultModel),
 		Stream:      true,
 	}
 	// Send the request
