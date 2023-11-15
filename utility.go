@@ -6,23 +6,33 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"sync"
 
 	"github.com/bwmarrin/discordgo"
 	"github.com/pkoukk/tiktoken-go"
 	openai "github.com/sashabaranov/go-openai"
 )
 
-func sendFollowup(s *discordgo.Session, i *discordgo.InteractionCreate, content string) (*discordgo.Message, error) {
+func sendFollowup(s *discordgo.Session, i *discordgo.InteractionCreate, content string, files []*discordgo.File) (*discordgo.Message, error) {
 	msg, err := s.FollowupMessageCreate(i.Interaction, true, &discordgo.WebhookParams{
 		Content: content,
+		Files:   files,
 	})
 
 	return msg, err
 }
 
-func editFollowup(s *discordgo.Session, i *discordgo.InteractionCreate, followupID string, content string) (*discordgo.Message, error) {
+func logSendErrorFollowup(s *discordgo.Session, i *discordgo.InteractionCreate, content string) {
+	log.Println(content)
+	_, _ = s.FollowupMessageCreate(i.Interaction, true, &discordgo.WebhookParams{
+		Content: content,
+	})
+}
+
+func editFollowup(s *discordgo.Session, i *discordgo.InteractionCreate, followupID string, content string, files []*discordgo.File) (*discordgo.Message, error) {
 	msg, err := s.FollowupMessageEdit(i.Interaction, followupID, &discordgo.WebhookEdit{
 		Content: &content,
+		Files:   files,
 	})
 
 	return msg, err
@@ -37,21 +47,23 @@ func deferResponse(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	}
 }
 
-func sendMessage(s *discordgo.Session, m *discordgo.Message, content string) (*discordgo.Message, error) {
+func sendMessage(s *discordgo.Session, m *discordgo.Message, content string, files []*discordgo.File) (*discordgo.Message, error) {
 	msg, err := s.ChannelMessageSendComplex(m.ChannelID, &discordgo.MessageSend{
 		Content:   content,
 		Reference: m.Reference(),
+		Files:     files,
 	})
 
 	return msg, err
 }
 
 // command to edit a given message the bot has sent
-func editMessage(s *discordgo.Session, m *discordgo.Message, content string) *discordgo.Message {
+func editMessage(s *discordgo.Session, m *discordgo.Message, content string, files []*discordgo.File) *discordgo.Message {
 	msg, err := s.ChannelMessageEditComplex(&discordgo.MessageEdit{
 		Content: &content,
 		ID:      m.ID,
 		Channel: m.ChannelID,
+		Files:   files,
 	})
 	if err != nil {
 		log.Println(err)
@@ -60,22 +72,157 @@ func editMessage(s *discordgo.Session, m *discordgo.Message, content string) *di
 	return msg
 }
 
-func splitParagraph(message string) (string, string) {
+func createMessageLink(s *discordgo.Session, i *discordgo.InteractionCreate, m *discordgo.Message) string {
+	return fmt.Sprintf("https://discord.com/channels/%s/%s/%s", i.GuildID, m.ChannelID, m.ID)
+}
+
+func sendErrorMessage(s *discordgo.Session, m *discordgo.Message, content string) {
+	_, _ = s.ChannelMessageSendComplex(m.ChannelID, &discordgo.MessageSend{
+		Content:   content,
+		Reference: m.Reference(),
+	})
+}
+
+func logSendErrorMessage(s *discordgo.Session, m *discordgo.Message, content string) {
+	log.Println(content)
+	_, _ = s.ChannelMessageSendComplex(m.ChannelID, &discordgo.MessageSend{
+		Content:   content,
+		Reference: m.Reference(),
+	})
+}
+
+func appendMessage(role string, name string, content string, messages *[]openai.ChatCompletionMessage) {
+	newMessages := append(*messages, createMessage(role, name, content)...)
+	*messages = newMessages
+}
+
+func prependMessage(role string, name string, content string, messages *[]openai.ChatCompletionMessage) {
+	newMessages := append(createMessage(role, name, content), *messages...)
+	*messages = newMessages
+}
+
+func createMessage(role string, name string, content string) []openai.ChatCompletionMessage {
+	if name != "" {
+		return []openai.ChatCompletionMessage{
+			{
+				Role:    role,
+				Name:    cleanName(name),
+				Content: content,
+			},
+		}
+	}
+	return []openai.ChatCompletionMessage{
+		{
+			Role:    role,
+			Content: content,
+		},
+	}
+}
+
+func createBatchMessages(s *discordgo.Session, messages []*discordgo.Message) []openai.ChatCompletionMessage {
+	var batchMessages []openai.ChatCompletionMessage
+
+	for _, message := range messages {
+		if message.Author.ID == s.State.User.ID {
+			prependMessage(openai.ChatMessageRoleAssistant, message.Author.Username, message.Content, &batchMessages)
+		}
+		prependMessage(openai.ChatMessageRoleUser, message.Author.Username, message.Content, &batchMessages)
+	}
+
+	return batchMessages
+}
+
+func splitTTS(message string) []*discordgo.File {
+	// Chunk up message into maxLength character chunks separated by newlines
 	separator := "\n\n"
+	maxLength := 4000
+	var files []*discordgo.File
+	var messageChunks []string
+
+	// Split message into chunks of up to maxLength characters
+	for len(message) > 0 {
+		var chunk string
+		if len(message) > maxLength {
+			// Find the last separator before the maxLength character limit
+			end := strings.LastIndex(message[:maxLength], separator)
+			if end == -1 {
+				// No separator found, so just cut at maxLength characters
+				end = maxLength
+			}
+			chunk = message[:end]
+			message = message[end:]
+		} else {
+			chunk = message
+			message = ""
+		}
+		// Add chunk to messageChunks
+		messageChunks = append(messageChunks, chunk)
+	}
+
+	log.Printf("Split into %d chunks\n", len(messageChunks))
+
+	var wg sync.WaitGroup
+	filesChan := make(chan *discordgo.File, len(messageChunks))
+
+	for count, chunk := range messageChunks {
+		wg.Add(1)
+		go func(chunk string, index int) {
+			defer wg.Done()
+			files := getTTSFile(chunk, fmt.Sprintf("%d", index+1))
+			for _, file := range files {
+				filesChan <- file
+			}
+		}(chunk, count)
+	}
+
+	wg.Wait()
+	close(filesChan)
+
+	for file := range filesChan {
+		files = append(files, file)
+	}
+
+	return files
+}
+
+func splitParagraph(message string) (string, string) {
+	primarySeparator := "\n\n"
+	secondarySeparator := "\n"
 	var firstPart string
 	var lastPart string
 
-	lastIndex := strings.LastIndex(message, separator)
-	if lastIndex != -1 {
-		firstPart = message[:lastIndex]
-		lastPart = message[lastIndex+len(separator):]
+	// split the message into two parts based on the separator
+	lastPrimaryIndex := strings.LastIndex(message, primarySeparator)
+	lastSecondaryIndex := strings.LastIndex(message, secondarySeparator)
+	// if there's a separator in the message
+	if lastPrimaryIndex != -1 {
+		// split the message into two parts
+		firstPart = message[:lastPrimaryIndex]
+		lastPart = message[lastPrimaryIndex+len(primarySeparator):]
+	} else if lastSecondaryIndex != -1 {
+		// split the message into two parts
+		firstPart = message[:lastSecondaryIndex]
+		lastPart = message[lastSecondaryIndex+len(secondarySeparator):]
+
 	} else {
+		// if there's no separator, return the whole message, and start the next one
 		firstPart = message
-		lastPart = "..."
+		lastPart = ""
+	}
+
+	// if there's a code block in the first part that's not closed
+	if strings.Count(firstPart, "```")%2 != 0 {
+		lastCodeBlockIndex := strings.LastIndex(firstPart, "```")
+		lastCodeBlock := firstPart[lastCodeBlockIndex:]
+		// returns ```lang of the last code block in the first part
+		languageCode := lastCodeBlock[:strings.Index(lastCodeBlock, "\n")]
+
+		// ends the code block in the first message and starts a new code block in the next one
+		firstPart = firstPart + "```"
+		lastPart = languageCode + "\n" + lastPart
 	}
 
 	return firstPart, lastPart
-
 }
 
 func checkForReplies(s *discordgo.Session, message *discordgo.Message, cache []*discordgo.Message, chatMessages *[]openai.ChatCompletionMessage) {
@@ -99,18 +246,43 @@ func checkForReplies(s *discordgo.Session, message *discordgo.Message, cache []*
 	}
 }
 
-func getMessageBefore(s *discordgo.Session, channelID string, count int, messageID string) []*discordgo.Message {
+func getMessagesBefore(s *discordgo.Session, channelID string, count int, messageID string) []*discordgo.Message {
+	if messageID == "" {
+		messageID = ""
+	}
 	messages, _ := s.ChannelMessages(channelID, count, messageID, "", "")
 	return messages
 }
 
 func getMessagesAround(s *discordgo.Session, channelID string, count int, messageID string) []*discordgo.Message {
+	if messageID == "" {
+		messageID = ""
+	}
 	messages, _ := s.ChannelMessages(channelID, count, "", "", messageID)
 	return messages
 }
 
 func getMessages(s *discordgo.Session, channelID string, count int) []*discordgo.Message {
-	messages, _ := s.ChannelMessages(channelID, count, "", "", "")
+	// if the count is over 100 split into multiple runs with the last message id being the first message in the next run
+	var messages []*discordgo.Message
+	var lastMessageID string
+
+	// Calculate the number of full iterations and the remainder
+	iterations := count / 100
+	remainder := count % 100
+
+	// Fetch full iterations of 100 messages
+	for i := 0; i < iterations; i++ {
+		var batch []*discordgo.Message = getMessagesBefore(s, channelID, 100, lastMessageID)
+		lastMessageID = batch[len(batch)-1].ID
+		messages = append(messages, batch...)
+	}
+
+	// Fetch the remainder of messages if there are any
+	if remainder > 0 {
+		var batch []*discordgo.Message = getMessagesBefore(s, channelID, remainder, lastMessageID)
+		messages = append(messages, batch...)
+	}
 	return messages
 }
 
@@ -129,6 +301,16 @@ func cleanMessage(s *discordgo.Session, message *discordgo.Message) *discordgo.M
 	message.Content = mentionRegex.ReplaceAllString(message.Content, "")
 	message.Content = strings.TrimSpace(message.Content)
 	return message
+}
+
+func cleanName(name string) string {
+	// '^[a-zA-Z0-9_-]{1,64}$' are the only characters the name can contain
+
+	if len(name) > 64 {
+		name = name[:64]
+	}
+	name = regexp.MustCompile("[^a-zA-Z0-9_-]").ReplaceAllString(name, "")
+	return name
 }
 
 func cleanMessages(s *discordgo.Session, messages []*discordgo.Message) []*discordgo.Message {
@@ -153,9 +335,9 @@ func getMaxModelTokens(model string) (maxTokens int) {
 	switch model {
 	case openai.GPT4:
 		maxTokens = 8192
-	case "gpt-4-1106-preview", "gpt-4-vision-preview":
-		maxTokens = 4096
-	case "gpt-3.5-turbo-1106":
+	case openai.GPT4TurboPreview, openai.GPT4VisionPreview:
+		maxTokens = 120000
+	case openai.GPT3Dot5Turbo1106:
 		maxTokens = 16385
 	default:
 		maxTokens = 4096
@@ -163,22 +345,51 @@ func getMaxModelTokens(model string) (maxTokens int) {
 	return maxTokens
 }
 
-func getRequestMaxTokensString(message string, model string) (maxTokens int) {
+func isOutputLimited(model string) bool {
+	switch model {
+	case openai.GPT4TurboPreview, openai.GPT4VisionPreview, openai.GPT3Dot5Turbo1106:
+		return true
+	default:
+		return false
+	}
+}
+
+func getRequestMaxTokensString(message string, model string) (maxTokens int, err error) {
 	maxTokens = getMaxModelTokens(model)
 	usedTokens := numTokensFromString(message)
 
 	availableTokens := maxTokens - usedTokens
 
-	return availableTokens
+	if availableTokens < 0 {
+		availableTokens = 0
+		err = fmt.Errorf("not enough tokens")
+		return availableTokens, err
+	}
+
+	if isOutputLimited(model) {
+		availableTokens = 4096
+	}
+
+	return availableTokens, nil
 }
 
-func getRequestMaxTokens(message []openai.ChatCompletionMessage, model string) (maxTokens int) {
+func getRequestMaxTokens(message []openai.ChatCompletionMessage, model string) (maxTokens int, err error) {
 	maxTokens = getMaxModelTokens(model)
 	usedTokens := numTokensFromMessages(message, model)
 
 	availableTokens := maxTokens - usedTokens
 
-	return availableTokens
+	if availableTokens < 0 {
+		availableTokens = 0
+		err = fmt.Errorf("not enough tokens")
+		return availableTokens, err
+	}
+
+	if isOutputLimited(model) {
+		availableTokens = 4096
+	}
+
+	return availableTokens, nil
 }
 
 func numTokensFromString(s string) (numTokens int) {

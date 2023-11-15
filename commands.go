@@ -65,7 +65,7 @@ var (
 					Description: "Number of messages to include in the summary. ",
 					Required:    false,
 					MinValue:    &integerMin,
-					MaxValue:    100,
+					MaxValue:    500,
 				},
 				{
 					Type:        discordgo.ApplicationCommandOptionNumber,
@@ -81,6 +81,10 @@ var (
 					Choices:     modelChoices,
 				},
 			},
+		},
+		{
+			Name: "TTS",
+			Type: discordgo.MessageApplicationCommand,
 		},
 	}
 
@@ -106,7 +110,7 @@ var (
 				}
 			}
 
-			var reqMessage []openai.ChatCompletionMessage = createMessage(openai.ChatMessageRoleUser, options.message)
+			var reqMessage []openai.ChatCompletionMessage = createMessage(openai.ChatMessageRoleUser, "", options.message)
 			sendInteractionChatResponse(s, i, reqMessage, options)
 		},
 		"summarize": func(s *discordgo.Session, i *discordgo.InteractionCreate) {
@@ -140,6 +144,18 @@ var (
 			appendMessage(openai.ChatMessageRoleUser, i.Member.User.Username, options.message, &chatMessages)
 			sendInteractionChatResponse(s, i, chatMessages, options)
 		},
+		"TTS": func(s *discordgo.Session, i *discordgo.InteractionCreate) {
+			deferResponse(s, i)
+
+			message := i.ApplicationCommandData().Resolved.Messages[i.ApplicationCommandData().TargetID]
+
+			var files []*discordgo.File = splitTTS(message.Content)
+
+			s.FollowupMessageCreate(i.Interaction, true, &discordgo.WebhookParams{
+				Content: createMessageLink(s, i, message),
+				Files:   files,
+			})
+		},
 	}
 )
 
@@ -159,9 +175,9 @@ func handleMessage(s *discordgo.Session, m *discordgo.MessageCreate) {
 			return
 		}
 		if m.ReferencedMessage.Author.ID == s.State.User.ID {
-			cache := getMessageBefore(s, m.ChannelID, 100, m.ID)
+			cache := getMessagesBefore(s, m.ChannelID, 100, m.ID)
 			log.Println("reply:", m.Content)
-			var chatMessages []openai.ChatCompletionMessage = createMessage(openai.ChatMessageRoleUser, m.Content)
+			var chatMessages []openai.ChatCompletionMessage = createMessage(openai.ChatMessageRoleUser, "", m.Content)
 			checkForReplies(s, m.Message, cache, &chatMessages)
 			sendMessageChatResponse(s, m, chatMessages)
 			return
@@ -172,7 +188,7 @@ func handleMessage(s *discordgo.Session, m *discordgo.MessageCreate) {
 		if mention.ID == s.State.User.ID {
 			m.Message = cleanMessage(s, m.Message)
 			log.Println("mention:", m.Content)
-			var chatMessages []openai.ChatCompletionMessage = createMessage(openai.ChatMessageRoleUser, m.Content)
+			var chatMessages []openai.ChatCompletionMessage = createMessage(openai.ChatMessageRoleUser, "", m.Content)
 			sendMessageChatResponse(s, m, chatMessages)
 			return
 		}

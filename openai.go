@@ -3,44 +3,84 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"log"
 	"os"
+	"strings"
 
 	"github.com/bwmarrin/discordgo"
 	openai "github.com/sashabaranov/go-openai"
 )
 
-func appendMessage(role string, name string, content string, messages *[]openai.ChatCompletionMessage) {
-	newMessages := append(*messages, createMessage(role, content)...)
-	*messages = newMessages
-}
-
-func prependMessage(role string, name string, content string, messages *[]openai.ChatCompletionMessage) {
-	newMessages := append(createMessage(role, content), *messages...)
-	*messages = newMessages
-}
-
-func createMessage(role string, content string) []openai.ChatCompletionMessage {
-	return []openai.ChatCompletionMessage{
-		{
-			Role:    role,
-			Content: content,
-		},
+func getTTSFile(message string, index string) []*discordgo.File {
+	files := make([]*discordgo.File, 0)
+	// OpenAI API key
+	openaiToken := os.Getenv("OPENAI_TOKEN")
+	if openaiToken == "" {
+		log.Fatal("OPENAI_TOKEN is not set")
 	}
-}
+	// Create a new OpenAI client
+	c := openai.NewClient(openaiToken)
+	ctx := context.Background()
 
-func createBatchMessages(s *discordgo.Session, messages []*discordgo.Message) []openai.ChatCompletionMessage {
-	var batchMessages []openai.ChatCompletionMessage
+	res, err := c.CreateSpeech(ctx, openai.CreateSpeechRequest{
+		Model: openai.TTSModel1,
+		Input: message,
+		Voice: openai.VoiceAlloy,
+	})
+	if err != nil {
+		log.Printf("CreateSpeech error: %v\n", err)
+	}
+	defer res.Close()
 
-	for _, message := range messages {
-		if message.Author.ID == s.State.User.ID {
-			prependMessage(openai.ChatMessageRoleAssistant, message.Author.Username, message.Content, &batchMessages)
-		}
-		prependMessage(openai.ChatMessageRoleUser, message.Author.Username, message.Content, &batchMessages)
+	buf, err := io.ReadAll(res)
+	if err != nil {
+		log.Printf("io.ReadAll error: %v\n", err)
 	}
 
-	return batchMessages
+	filename := getFilenameSummary(message)
+
+	files = append(files, &discordgo.File{
+		Name:   index + "-" + filename + ".mp3",
+		Reader: strings.NewReader(string(buf)),
+	})
+
+	return files
+}
+
+func getFilenameSummary(message string) string {
+	// OpenAI API key
+	openaiToken := os.Getenv("OPENAI_TOKEN")
+	if openaiToken == "" {
+		log.Fatal("OPENAI_TOKEN is not set")
+	}
+	// Create a new OpenAI client
+	c := openai.NewClient(openaiToken)
+	ctx := context.Background()
+
+	maxTokens, err := getRequestMaxTokensString(message, defaultModel)
+	if err != nil {
+		log.Printf("getRequestMaxTokens error: %v\n", err)
+		return "file"
+	}
+
+	prompt := "Summarize this text as a filename: " + message
+
+	req := openai.ChatCompletionRequest{
+		Model:       openai.GPT3Dot5Turbo1106,
+		Messages:    createMessage(openai.ChatMessageRoleUser, "", prompt),
+		Temperature: defaultTemp,
+		MaxTokens:   maxTokens,
+	}
+
+	resp, err := c.CreateChatCompletion(ctx, req)
+	if err != nil {
+		log.Printf("CreateCompletion error: %v\n", err)
+		return "file"
+	}
+
+	return resp.Choices[0].Message.Content
 }
 
 func sendMessageChatResponse(s *discordgo.Session, m *discordgo.MessageCreate, messages []openai.ChatCompletionMessage) {
@@ -53,61 +93,77 @@ func sendMessageChatResponse(s *discordgo.Session, m *discordgo.MessageCreate, m
 	c := openai.NewClient(openaiToken)
 	ctx := context.Background()
 
+	maxTokens, err := getRequestMaxTokens(messages, defaultModel)
+	if err != nil {
+		logSendErrorMessage(s, m.Message, err.Error())
+		return
+	}
+
 	// Create a new request
 	req := openai.ChatCompletionRequest{
 		Model:       defaultModel,
 		Messages:    messages,
 		Temperature: defaultTemp,
-		MaxTokens:   getRequestMaxTokens(messages, defaultModel),
+		MaxTokens:   maxTokens,
 		Stream:      true,
 	}
 	// Send the request
 	stream, err := c.CreateChatCompletionStream(ctx, req)
 	if err != nil {
-		log.Printf("ChatCompletionStream error: %v\n", err)
+		errmsg := fmt.Sprintf("ChatCompletionStream error: %v\n", err)
+		logSendErrorMessage(s, m.Message, errmsg)
 		return
 	}
 	defer stream.Close()
 
-	msg, err := sendMessage(s, m.Message, "Responding...")
+	msg, err := sendMessage(s, m.Message, "Responding...", nil)
 	if err != nil {
-		log.Println(err)
+		logSendErrorMessage(s, m.Message, err.Error())
 		return
 	}
 
 	var i int
 	var message string
+	var fullMessage string
 	// Read the stream and send the response
 	for {
 		response, err := stream.Recv()
 		if errors.Is(err, io.EOF) {
 			// At the end of the stream
 			// Send the last message state
-			editMessage(s, msg, message)
+			message = strings.TrimPrefix(message, "...")
+			editMessage(s, msg, message, nil)
+			files := splitTTS(fullMessage)
+			editMessage(s, msg, message, files)
 			return
 		}
 		if err != nil {
-			log.Printf("\nStream error: %v\n", err)
+			errmsg := fmt.Sprintf("\nStream error: %v\n", err)
+			logSendErrorMessage(s, m.Message, errmsg)
 			return
 		}
 
 		message = message + response.Choices[0].Delta.Content
+		fullMessage = fullMessage + response.Choices[0].Delta.Content
 		i++
-		// Every 15 delta send the message
+		// Every 50 delta send the message
 		if i%50 == 0 {
 			// If the message is too long, split it into a new message
 			if len(message) > 1800 {
 				firstPart, lastPart := splitParagraph(message)
+				if lastPart == "" {
+					lastPart = "..."
+				}
 
-				editMessage(s, msg, firstPart)
-				msg, err = sendMessage(s, msg, lastPart)
+				editMessage(s, msg, firstPart, nil)
+				msg, err = sendMessage(s, msg, lastPart, nil)
 				if err != nil {
-					log.Println(err)
+					logSendErrorMessage(s, m.Message, err.Error())
 					return
 				}
 				message = lastPart
 			} else {
-				editMessage(s, msg, message)
+				editMessage(s, msg, message, nil)
 			}
 		}
 	}
@@ -123,11 +179,17 @@ func sendInteractionChatResponse(s *discordgo.Session, i *discordgo.InteractionC
 	c := openai.NewClient(openaiToken)
 	ctx := context.Background()
 
+	maxTokens, err := getRequestMaxTokens(reqMessage, options.model)
+	if err != nil {
+		log.Println(err)
+		return
+	}
+
 	req := openai.ChatCompletionRequest{
 		Model:       options.model,
 		Messages:    reqMessage,
 		Temperature: options.temperature,
-		MaxTokens:   getRequestMaxTokens(reqMessage, options.model),
+		MaxTokens:   maxTokens,
 		Stream:      true,
 	}
 	stream, err := c.CreateChatCompletionStream(ctx, req)
@@ -136,18 +198,21 @@ func sendInteractionChatResponse(s *discordgo.Session, i *discordgo.InteractionC
 		return
 	}
 	defer stream.Close()
-	msg, err := sendFollowup(s, i, "Responding...")
+	msg, err := sendFollowup(s, i, "Responding...", nil)
 	if err != nil {
 		log.Printf("sendFollowup error: %v\n", err)
 		return
 	}
-	var count int = 1
 
+	var count int
 	var message string
+	var fullMessage string
 	for {
 		response, err := stream.Recv()
 		if errors.Is(err, io.EOF) {
-			editFollowup(s, i, msg.ID, message)
+			editFollowup(s, i, msg.ID, message, nil)
+			files := splitTTS(fullMessage)
+			editFollowup(s, i, msg.ID, message, files)
 			return
 		}
 		if err != nil {
@@ -156,28 +221,32 @@ func sendInteractionChatResponse(s *discordgo.Session, i *discordgo.InteractionC
 		}
 
 		message = message + response.Choices[0].Delta.Content
+		fullMessage = fullMessage + response.Choices[0].Delta.Content
+		count++
 		if count%50 == 0 {
 			if len(message) > 1800 {
 				firstPart, lastPart := splitParagraph(message)
-				_, err = editFollowup(s, i, msg.ID, firstPart)
+				if lastPart == "" {
+					lastPart = "..."
+				}
+				_, err = editFollowup(s, i, msg.ID, firstPart, nil)
 				if err != nil {
 					log.Printf("editFollowup error: %v\n", err)
 					return
 				}
-				msg, err = sendFollowup(s, i, lastPart)
+				msg, err = sendFollowup(s, i, lastPart, nil)
 				if err != nil {
 					log.Printf("sendFollowup error: %v\n", err)
 					return
 				}
 				message = lastPart
 			} else {
-				_, err = editFollowup(s, i, msg.ID, message)
+				_, err = editFollowup(s, i, msg.ID, message, nil)
 				if err != nil {
 					log.Printf("editFollowup error: %v\n", err)
 					return
 				}
 			}
 		}
-		count++
 	}
 }
