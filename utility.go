@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"log"
+	"net/url"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -325,7 +326,9 @@ func getAttachments(s *discordgo.Session, m *discordgo.Message) []string {
 	var attachments []string
 	for _, attachment := range m.Attachments {
 		if attachment.Width > 0 && attachment.Height > 0 {
-			attachments = append(attachments, attachment.URL)
+			if isImageURL(attachment.URL) {
+				attachments = append(attachments, attachment.URL)
+			}
 		}
 	}
 	return attachments
@@ -365,11 +368,16 @@ func cleanMessages(s *discordgo.Session, messages []*discordgo.Message) []*disco
 	return messages
 }
 
-func isImageURL(url string) bool {
-	// Check the file extension of the URL
-	fileExt := filepath.Ext(url)
+func isImageURL(urlStr string) bool {
+	parsedURL, err := url.Parse(urlStr)
+	if err != nil {
+		return false
+	}
+	fileExt := filepath.Ext(parsedURL.Path)
+	fileExt = strings.ToLower(fileExt)
+
 	switch fileExt {
-	case ".jpg", ".jpeg", ".png", ".gif":
+	case ".jpg", ".jpeg", ".png", ".gif", ".webp":
 		return true
 	default:
 		return false
