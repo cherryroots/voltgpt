@@ -65,7 +65,7 @@ var (
 					Description: "Number of messages to include in the summary. ",
 					Required:    false,
 					MinValue:    &integerMin,
-					MaxValue:    500,
+					MaxValue:    200,
 				},
 				{
 					Type:        discordgo.ApplicationCommandOptionNumber,
@@ -110,7 +110,11 @@ var (
 				}
 			}
 
-			var reqMessage []openai.ChatCompletionMessage = createMessage(openai.ChatMessageRoleUser, "", options.message)
+			content := requestContent{
+				text: options.message,
+				url:  []string{options.imageUrl},
+			}
+			var reqMessage []openai.ChatCompletionMessage = createMessage(openai.ChatMessageRoleUser, "", content)
 			sendInteractionChatResponse(s, i, reqMessage, options)
 		},
 		"summarize": func(s *discordgo.Session, i *discordgo.InteractionCreate) {
@@ -141,7 +145,10 @@ var (
 			messages = cleanMessages(s, messages)
 
 			var chatMessages []openai.ChatCompletionMessage = createBatchMessages(s, messages)
-			appendMessage(openai.ChatMessageRoleUser, i.Member.User.Username, options.message, &chatMessages)
+			content := requestContent{
+				text: options.message,
+			}
+			appendMessage(openai.ChatMessageRoleUser, i.Member.User.Username, content, &chatMessages)
 			sendInteractionChatResponse(s, i, chatMessages, options)
 		},
 		"TTS": func(s *discordgo.Session, i *discordgo.InteractionCreate) {
@@ -149,7 +156,7 @@ var (
 
 			message := i.ApplicationCommandData().Resolved.Messages[i.ApplicationCommandData().TargetID]
 
-			var files []*discordgo.File = splitTTS(message.Content)
+			var files []*discordgo.File = splitTTS(message.Content, true)
 
 			s.FollowupMessageCreate(i.Interaction, true, &discordgo.WebhookParams{
 				Content: createMessageLink(s, i, message),
@@ -177,7 +184,11 @@ func handleMessage(s *discordgo.Session, m *discordgo.MessageCreate) {
 		if m.ReferencedMessage.Author.ID == s.State.User.ID {
 			cache := getMessagesBefore(s, m.ChannelID, 100, m.ID)
 			log.Println("reply:", m.Content)
-			var chatMessages []openai.ChatCompletionMessage = createMessage(openai.ChatMessageRoleUser, "", m.Content)
+			content := requestContent{
+				text: m.Content,
+				url:  getAttachments(s, m.Message),
+			}
+			var chatMessages []openai.ChatCompletionMessage = createMessage(openai.ChatMessageRoleUser, "", content)
 			checkForReplies(s, m.Message, cache, &chatMessages)
 			sendMessageChatResponse(s, m, chatMessages)
 			return
@@ -188,7 +199,11 @@ func handleMessage(s *discordgo.Session, m *discordgo.MessageCreate) {
 		if mention.ID == s.State.User.ID {
 			m.Message = cleanMessage(s, m.Message)
 			log.Println("mention:", m.Content)
-			var chatMessages []openai.ChatCompletionMessage = createMessage(openai.ChatMessageRoleUser, "", m.Content)
+			content := requestContent{
+				text: m.Content,
+				url:  getAttachments(s, m.Message),
+			}
+			var chatMessages []openai.ChatCompletionMessage = createMessage(openai.ChatMessageRoleUser, "", content)
 			sendMessageChatResponse(s, m, chatMessages)
 			return
 		}

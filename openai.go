@@ -13,7 +13,7 @@ import (
 	openai "github.com/sashabaranov/go-openai"
 )
 
-func getTTSFile(message string, index string) []*discordgo.File {
+func getTTSFile(message string, index string, hd bool) []*discordgo.File {
 	files := make([]*discordgo.File, 0)
 	// OpenAI API key
 	openaiToken := os.Getenv("OPENAI_TOKEN")
@@ -23,9 +23,14 @@ func getTTSFile(message string, index string) []*discordgo.File {
 	// Create a new OpenAI client
 	c := openai.NewClient(openaiToken)
 	ctx := context.Background()
+	model := openai.TTSModel1
+
+	if hd {
+		model = openai.TTSModel1HD
+	}
 
 	res, err := c.CreateSpeech(ctx, openai.CreateSpeechRequest{
-		Model: openai.TTSModel1,
+		Model: model,
 		Input: message,
 		Voice: openai.VoiceAlloy,
 	})
@@ -65,11 +70,11 @@ func getFilenameSummary(message string) string {
 		return "file"
 	}
 
-	prompt := "Summarize this text as a filename: " + message
+	prompt := "Summarize this text as a filename but without a file extension: " + message
 
 	req := openai.ChatCompletionRequest{
 		Model:       openai.GPT3Dot5Turbo1106,
-		Messages:    createMessage(openai.ChatMessageRoleUser, "", prompt),
+		Messages:    createMessage(openai.ChatMessageRoleUser, "", requestContent{text: prompt}),
 		Temperature: defaultTemp,
 		MaxTokens:   maxTokens,
 	}
@@ -133,7 +138,7 @@ func sendMessageChatResponse(s *discordgo.Session, m *discordgo.MessageCreate, m
 			// Send the last message state
 			message = strings.TrimPrefix(message, "...")
 			editMessage(s, msg, message, nil)
-			files := splitTTS(fullMessage)
+			files := splitTTS(fullMessage, false)
 			editMessage(s, msg, message, files)
 			return
 		}
@@ -211,7 +216,7 @@ func sendInteractionChatResponse(s *discordgo.Session, i *discordgo.InteractionC
 		response, err := stream.Recv()
 		if errors.Is(err, io.EOF) {
 			editFollowup(s, i, msg.ID, message, nil)
-			files := splitTTS(fullMessage)
+			files := splitTTS(fullMessage, false)
 			editFollowup(s, i, msg.ID, message, files)
 			return
 		}

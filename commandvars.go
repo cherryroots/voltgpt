@@ -7,7 +7,7 @@ import (
 
 var (
 	defaultTemp  float32 = 0.7
-	defaultModel         = openai.GPT4TurboPreview
+	defaultModel         = openai.GPT4VisionPreview
 
 	modelChoices = []*discordgo.ApplicationCommandOptionChoice{
 		{

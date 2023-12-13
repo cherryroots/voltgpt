@@ -13,6 +13,11 @@ import (
 	openai "github.com/sashabaranov/go-openai"
 )
 
+type requestContent struct {
+	text string
+	url  []string
+}
+
 func sendFollowup(s *discordgo.Session, i *discordgo.InteractionCreate, content string, files []*discordgo.File) (*discordgo.Message, error) {
 	msg, err := s.FollowupMessageCreate(i.Interaction, true, &discordgo.WebhookParams{
 		Content: content,
@@ -91,48 +96,76 @@ func logSendErrorMessage(s *discordgo.Session, m *discordgo.Message, content str
 	})
 }
 
-func appendMessage(role string, name string, content string, messages *[]openai.ChatCompletionMessage) {
+func appendMessage(role string, name string, content requestContent, messages *[]openai.ChatCompletionMessage) {
 	newMessages := append(*messages, createMessage(role, name, content)...)
 	*messages = newMessages
 }
 
-func prependMessage(role string, name string, content string, messages *[]openai.ChatCompletionMessage) {
+func prependMessage(role string, name string, content requestContent, messages *[]openai.ChatCompletionMessage) {
 	newMessages := append(createMessage(role, name, content), *messages...)
 	*messages = newMessages
 }
 
-func createMessage(role string, name string, content string) []openai.ChatCompletionMessage {
+func createMessage(role string, name string, content requestContent) []openai.ChatCompletionMessage {
+	var message []openai.ChatCompletionMessage
 	if name != "" {
-		return []openai.ChatCompletionMessage{
+		message = []openai.ChatCompletionMessage{
 			{
-				Role:    role,
-				Name:    cleanName(name),
-				Content: content,
+				Role: role,
+				Name: cleanName(name),
+				MultiContent: []openai.ChatMessagePart{
+					{
+						Type: openai.ChatMessagePartTypeText,
+						Text: content.text,
+					},
+				},
+			},
+		}
+	} else {
+		message = []openai.ChatCompletionMessage{
+			{
+				Role: role,
+				MultiContent: []openai.ChatMessagePart{
+					{
+						Type: openai.ChatMessagePartTypeText,
+						Text: content.text,
+					},
+				},
 			},
 		}
 	}
-	return []openai.ChatCompletionMessage{
-		{
-			Role:    role,
-			Content: content,
-		},
+
+	for _, url := range content.url {
+		message[0].MultiContent = append(message[0].MultiContent, openai.ChatMessagePart{
+			Type: openai.ChatMessagePartTypeImageURL,
+			ImageURL: &openai.ChatMessageImageURL{
+				URL:    url,
+				Detail: openai.ImageURLDetailLow,
+			},
+		})
 	}
+
+	return message
 }
 
 func createBatchMessages(s *discordgo.Session, messages []*discordgo.Message) []openai.ChatCompletionMessage {
 	var batchMessages []openai.ChatCompletionMessage
 
 	for _, message := range messages {
-		if message.Author.ID == s.State.User.ID {
-			prependMessage(openai.ChatMessageRoleAssistant, message.Author.Username, message.Content, &batchMessages)
+		content := requestContent{
+			text: message.Content,
+			url:  getAttachments(s, message),
 		}
-		prependMessage(openai.ChatMessageRoleUser, message.Author.Username, message.Content, &batchMessages)
+		if message.Author.ID == s.State.User.ID {
+			prependMessage(openai.ChatMessageRoleAssistant, message.Author.Username, content, &batchMessages)
+		}
+		prependMessage(openai.ChatMessageRoleUser, message.Author.Username, content, &batchMessages)
 	}
 
 	return batchMessages
 }
 
-func splitTTS(message string) []*discordgo.File {
+func splitTTS(message string, hd bool) []*discordgo.File {
 	// Chunk up message into maxLength character chunks separated by newlines
 	separator := "\n\n"
 	maxLength := 4000
@@ -159,8 +192,6 @@ func splitTTS(message string) []*discordgo.File {
 		messageChunks = append(messageChunks, chunk)
 	}
 
-	log.Printf("Split into %d chunks\n", len(messageChunks))
-
 	var wg sync.WaitGroup
 	filesChan := make(chan *discordgo.File, len(messageChunks))
 
@@ -168,7 +199,7 @@ func splitTTS(message string) []*discordgo.File {
 		wg.Add(1)
 		go func(chunk string, index int) {
 			defer wg.Done()
-			files := getTTSFile(chunk, fmt.Sprintf("%d", index+1))
+			files := getTTSFile(chunk, fmt.Sprintf("%d", index+1), hd)
 			for _, file := range files {
 				filesChan <- file
 			}
@@ -237,10 +268,14 @@ func checkForReplies(s *discordgo.Session, message *discordgo.Message, cache []*
 			}
 		}
 		replyMessage := cleanMessage(s, message.ReferencedMessage)
+		content := requestContent{
+			text: replyMessage.Content,
+			url:  getAttachments(s, replyMessage),
+		}
 		if replyMessage.Author.ID == s.State.User.ID {
-			prependMessage(openai.ChatMessageRoleAssistant, replyMessage.Author.Username, replyMessage.Content, chatMessages)
+			prependMessage(openai.ChatMessageRoleAssistant, replyMessage.Author.Username, content, chatMessages)
 		} else {
-			prependMessage(openai.ChatMessageRoleUser, replyMessage.Author.Username, replyMessage.Content, chatMessages)
+			prependMessage(openai.ChatMessageRoleUser, replyMessage.Author.Username, content, chatMessages)
 		}
 		checkForReplies(s, message.ReferencedMessage, cache, chatMessages)
 	}
@@ -263,11 +298,11 @@ func getMessagesAround(s *discordgo.Session, channelID string, count int, messag
 }
 
 func getMessages(s *discordgo.Session, channelID string, count int) []*discordgo.Message {
-	// if the count is over 100 split into multiple runs with the last message id being the first message in the next run
+	// if the count is over 100 split into multiple runs with the last message id being the beforeid argument
 	var messages []*discordgo.Message
 	var lastMessageID string
 
-	// Calculate the number of full iterations and the remainder
+	// Calculate the number of full iterations and the remainder, dividing ints floors the result
 	iterations := count / 100
 	remainder := count % 100
 
@@ -284,6 +319,16 @@ func getMessages(s *discordgo.Session, channelID string, count int) []*discordgo
 		messages = append(messages, batch...)
 	}
 	return messages
+}
+
+func getAttachments(s *discordgo.Session, m *discordgo.Message) []string {
+	var attachments []string
+	for _, attachment := range m.Attachments {
+		if attachment.Width > 0 && attachment.Height > 0 {
+			attachments = append(attachments, attachment.URL)
+		}
+	}
+	return attachments
 }
 
 func checkCache(cache []*discordgo.Message, messageID string) *discordgo.Message {
