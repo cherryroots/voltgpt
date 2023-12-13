@@ -331,6 +331,13 @@ func getAttachments(s *discordgo.Session, m *discordgo.Message) []string {
 			}
 		}
 	}
+	regex := regexp.MustCompile(`(?m)[<]?(https?:\/\/[^\s<>]+)[>]?\b`)
+	result := regex.FindAllStringSubmatch(m.Content, -1)
+	for _, match := range result {
+		if isImageURL(match[1]) {
+			attachments = append(attachments, match[1])
+		}
+	}
 	return attachments
 }
 
