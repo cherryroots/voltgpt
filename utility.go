@@ -249,13 +249,15 @@ func splitParagraph(message string) (string, string) {
 
 func checkForReplies(s *discordgo.Session, message *discordgo.Message, cache []*discordgo.Message, chatMessages *[]openai.ChatCompletionMessage) {
 	if message.Type == discordgo.MessageTypeReply {
+		// check if the message has a refference, if not get it
 		if message.ReferencedMessage == nil {
 			if message.MessageReference != nil {
 				cachedMessage := checkCache(cache, message.MessageReference.MessageID)
 				if cachedMessage != nil {
 					message.ReferencedMessage = cachedMessage
+				} else {
+					message.ReferencedMessage, _ = s.ChannelMessage(message.MessageReference.ChannelID, message.MessageReference.MessageID)
 				}
-				message.ReferencedMessage, _ = s.ChannelMessage(message.MessageReference.ChannelID, message.MessageReference.MessageID)
 			}
 		}
 		replyMessage := cleanMessage(s, message.ReferencedMessage)
