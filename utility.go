@@ -108,32 +108,22 @@ func prependMessage(role string, name string, content requestContent, messages *
 }
 
 func createMessage(role string, name string, content requestContent) []openai.ChatCompletionMessage {
-	var message []openai.ChatCompletionMessage
+	message := []openai.ChatCompletionMessage{
+		{
+			Role:         role,
+			MultiContent: []openai.ChatMessagePart{},
+		},
+	}
+
 	if name != "" {
-		message = []openai.ChatCompletionMessage{
-			{
-				Role: role,
-				Name: cleanName(name),
-				MultiContent: []openai.ChatMessagePart{
-					{
-						Type: openai.ChatMessagePartTypeText,
-						Text: content.text,
-					},
-				},
-			},
-		}
-	} else {
-		message = []openai.ChatCompletionMessage{
-			{
-				Role: role,
-				MultiContent: []openai.ChatMessagePart{
-					{
-						Type: openai.ChatMessagePartTypeText,
-						Text: content.text,
-					},
-				},
-			},
-		}
+		message[0].Name = name
+	}
+
+	if content.text != "" {
+		message[0].MultiContent = append(message[0].MultiContent, openai.ChatMessagePart{
+			Type: openai.ChatMessagePartTypeText,
+			Text: content.text,
+		})
 	}
 
 	for _, url := range content.url {

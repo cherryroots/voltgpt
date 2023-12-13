@@ -181,14 +181,21 @@ func handleMessage(s *discordgo.Session, m *discordgo.MessageCreate) {
 		if m.ReferencedMessage == nil {
 			return
 		}
-		if m.ReferencedMessage.Author.ID == s.State.User.ID {
+		botMentioned := false
+		for _, mention := range m.Mentions {
+			if mention.ID == s.State.User.ID {
+				botMentioned = true
+				break
+			}
+		}
+		if m.ReferencedMessage.Author.ID == s.State.User.ID || botMentioned {
 			cache := getMessagesBefore(s, m.ChannelID, 100, m.ID)
 			log.Println("reply:", m.Content)
 			content := requestContent{
 				text: m.Content,
 				url:  getAttachments(s, m.Message),
 			}
-			var chatMessages []openai.ChatCompletionMessage = createMessage(openai.ChatMessageRoleUser, "", content)
+			var chatMessages []openai.ChatCompletionMessage = createMessage(openai.ChatMessageRoleUser, m.Author.Username, content)
 			checkForReplies(s, m.Message, cache, &chatMessages)
 			sendMessageChatResponse(s, m, chatMessages)
 			return
