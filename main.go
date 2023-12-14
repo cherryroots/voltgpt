@@ -6,6 +6,7 @@ import (
 	"os/signal"
 	"strings"
 	"syscall"
+	"time"
 
 	discordgo "github.com/bwmarrin/discordgo"
 	"github.com/joho/godotenv"
@@ -16,6 +17,14 @@ func init() {
 	if err := godotenv.Load(); err != nil {
 		log.Print("No .env file found")
 	}
+
+	//periodically write to file in a loop with a 1 min interval
+	go func() {
+		for {
+			time.Sleep(1 * time.Minute)
+			writeHashToFile()
+		}
+	}()
 }
 
 func main() {
@@ -54,6 +63,8 @@ func main() {
 
 	dg.AddHandler(func(s *discordgo.Session, r *discordgo.Ready) {
 		log.Printf("Logged in as: %v#%v", s.State.User.Username, s.State.User.Discriminator)
+		readHashFromFile()
+		log.Println("Hashes: ", len(readAllHashes()))
 	})
 
 	err = dg.Open()

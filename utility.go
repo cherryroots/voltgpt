@@ -10,7 +10,6 @@ import (
 	"sync"
 
 	"github.com/bwmarrin/discordgo"
-	"github.com/pkoukk/tiktoken-go"
 	openai "github.com/sashabaranov/go-openai"
 )
 
@@ -26,13 +25,6 @@ func sendFollowup(s *discordgo.Session, i *discordgo.InteractionCreate, content 
 	})
 
 	return msg, err
-}
-
-func logSendErrorFollowup(s *discordgo.Session, i *discordgo.InteractionCreate, content string) {
-	log.Println(content)
-	_, _ = s.FollowupMessageCreate(i.Interaction, true, &discordgo.WebhookParams{
-		Content: content,
-	})
 }
 
 func editFollowup(s *discordgo.Session, i *discordgo.InteractionCreate, followupID string, content string, files []*discordgo.File) (*discordgo.Message, error) {
@@ -78,15 +70,12 @@ func editMessage(s *discordgo.Session, m *discordgo.Message, content string, fil
 	return msg
 }
 
-func createMessageLink(s *discordgo.Session, i *discordgo.InteractionCreate, m *discordgo.Message) string {
+func linkFromIMessage(s *discordgo.Session, i *discordgo.InteractionCreate, m *discordgo.Message) string {
 	return fmt.Sprintf("https://discord.com/channels/%s/%s/%s", i.GuildID, m.ChannelID, m.ID)
 }
 
-func sendErrorMessage(s *discordgo.Session, m *discordgo.Message, content string) {
-	_, _ = s.ChannelMessageSendComplex(m.ChannelID, &discordgo.MessageSend{
-		Content:   content,
-		Reference: m.Reference(),
-	})
+func linkFromMcMessage(s *discordgo.Session, mc *discordgo.MessageCreate, m *discordgo.Message) string {
+	return fmt.Sprintf("https://discord.com/channels/%s/%s/%s", mc.Message.GuildID, m.ChannelID, m.ID)
 }
 
 func logSendErrorMessage(s *discordgo.Session, m *discordgo.Message, content string) {
@@ -116,7 +105,7 @@ func createMessage(role string, name string, content requestContent) []openai.Ch
 	}
 
 	if name != "" {
-		message[0].Name = name
+		message[0].Name = cleanName(name)
 	}
 
 	if content.text != "" {
@@ -282,15 +271,7 @@ func getMessagesBefore(s *discordgo.Session, channelID string, count int, messag
 	return messages
 }
 
-func getMessagesAround(s *discordgo.Session, channelID string, count int, messageID string) []*discordgo.Message {
-	if messageID == "" {
-		messageID = ""
-	}
-	messages, _ := s.ChannelMessages(channelID, count, "", "", messageID)
-	return messages
-}
-
-func getMessages(s *discordgo.Session, channelID string, count int) []*discordgo.Message {
+func getChannelMessages(s *discordgo.Session, channelID string, count int) []*discordgo.Message {
 	// if the count is over 100 split into multiple runs with the last message id being the beforeid argument
 	var messages []*discordgo.Message
 	var lastMessageID string
@@ -311,6 +292,21 @@ func getMessages(s *discordgo.Session, channelID string, count int) []*discordgo
 		var batch []*discordgo.Message = getMessagesBefore(s, channelID, remainder, lastMessageID)
 		messages = append(messages, batch...)
 	}
+	return messages
+}
+
+func getAllChannelMessages(s *discordgo.Session, channelID string) []*discordgo.Message {
+	var messages []*discordgo.Message
+	var lastMessageID string
+	messagesRetrieved := 100
+
+	for messagesRetrieved == 100 {
+		var batch []*discordgo.Message = getMessagesBefore(s, channelID, 100, lastMessageID)
+		lastMessageID = batch[len(batch)-1].ID
+		messagesRetrieved = len(batch)
+		messages = append(messages, batch...)
+	}
+
 	return messages
 }
 
@@ -367,6 +363,24 @@ func cleanMessages(s *discordgo.Session, messages []*discordgo.Message) []*disco
 	return messages
 }
 
+func hasImageURL(m *discordgo.Message) bool {
+	for _, attachment := range m.Attachments {
+		if attachment.Width > 0 && attachment.Height > 0 {
+			if isImageURL(attachment.URL) {
+				return true
+			}
+		}
+	}
+	regex := regexp.MustCompile(`(?m)[<]?(https?:\/\/[^\s<>]+)[>]?\b`)
+	result := regex.FindAllStringSubmatch(m.Content, -1)
+	for _, match := range result {
+		if isImageURL(match[1]) {
+			return true
+		}
+	}
+	return false
+}
+
 func isImageURL(urlStr string) bool {
 	parsedURL, err := url.Parse(urlStr)
 	if err != nil {
@@ -383,128 +397,13 @@ func isImageURL(urlStr string) bool {
 	}
 }
 
-func getMaxModelTokens(model string) (maxTokens int) {
-	switch model {
-	case openai.GPT4:
-		maxTokens = 8192
-	case openai.GPT4TurboPreview, openai.GPT4VisionPreview:
-		maxTokens = 120000
-	case openai.GPT3Dot5Turbo1106:
-		maxTokens = 16385
-	default:
-		maxTokens = 4096
-	}
-	return maxTokens
-}
-
-func isOutputLimited(model string) bool {
-	switch model {
-	case openai.GPT4TurboPreview, openai.GPT4VisionPreview, openai.GPT3Dot5Turbo1106:
-		return true
-	default:
-		return false
-	}
-}
-
-func getRequestMaxTokensString(message string, model string) (maxTokens int, err error) {
-	maxTokens = getMaxModelTokens(model)
-	usedTokens := numTokensFromString(message)
-
-	availableTokens := maxTokens - usedTokens
-
-	if availableTokens < 0 {
-		availableTokens = 0
-		err = fmt.Errorf("not enough tokens")
-		return availableTokens, err
-	}
-
-	if isOutputLimited(model) {
-		availableTokens = 4096
-	}
-
-	return availableTokens, nil
-}
-
-func getRequestMaxTokens(message []openai.ChatCompletionMessage, model string) (maxTokens int, err error) {
-	maxTokens = getMaxModelTokens(model)
-	usedTokens := numTokensFromMessages(message, model)
-
-	availableTokens := maxTokens - usedTokens
-
-	if availableTokens < 0 {
-		availableTokens = 0
-		err = fmt.Errorf("not enough tokens")
-		return availableTokens, err
-	}
-
-	if isOutputLimited(model) {
-		availableTokens = 4096
-	}
-
-	return availableTokens, nil
-}
-
-func numTokensFromString(s string) (numTokens int) {
-	encoding := "p50k_base"
-	tkm, err := tiktoken.GetEncoding(encoding)
+func getFileExt(urlStr string) string {
+	parsedURL, err := url.Parse(urlStr)
 	if err != nil {
-		err = fmt.Errorf("encoding for model: %v", err)
-		log.Println(err)
-		return
+		return ""
 	}
-	numTokens = len(tkm.Encode(s, nil, nil))
+	fileExt := filepath.Ext(parsedURL.Path)
+	fileExt = strings.ToLower(fileExt)
 
-	return numTokens
-}
-
-func numTokensFromMessages(messages []openai.ChatCompletionMessage, model string) (numTokens int) {
-	tkm, err := tiktoken.EncodingForModel(model)
-	if err != nil {
-		err = fmt.Errorf("encoding for model: %v", err)
-		log.Println(err)
-		return
-	}
-
-	var tokensPerMessage, tokensPerName int
-	switch model {
-	case
-		"gpt-3.5-turbo-0613",
-		"gpt-3.5-turbo-16k-0613",
-		"gpt-3.5-turbo-1106",
-		"gpt-4-0314",
-		"gpt-4-32k-0314",
-		"gpt-4-0613",
-		"gpt-4-32k-0613",
-		"gpt-4-vision-preview",
-		"gpt-4-1106-preview":
-		tokensPerMessage = 3
-		tokensPerName = 1
-	case "gpt-3.5-turbo-0301":
-		tokensPerMessage = 4 // every message follows <|start|>{role/name}\n{content}<|end|>\n
-		tokensPerName = -1   // if there's a name, the role is omitted
-	default:
-		if strings.Contains(model, "gpt-3.5-turbo") {
-			log.Println("warning: gpt-3.5-turbo may update over time. Returning num tokens assuming gpt-3.5-turbo-0613")
-			return numTokensFromMessages(messages, "gpt-3.5-turbo-0613")
-		} else if strings.Contains(model, "gpt-4") {
-			log.Println("warning: gpt-4 may update over time. Returning num tokens assuming gpt-4-0613")
-			return numTokensFromMessages(messages, "gpt-4-0613")
-		} else {
-			err = fmt.Errorf("num_tokens_from_messages() is not implemented for model %s. See https://github.com/openai/openai-python/blob/main/chatml.md for information on how messages are converted to tokens", model)
-			log.Println(err)
-			return
-		}
-	}
-
-	for _, message := range messages {
-		numTokens += tokensPerMessage
-		numTokens += len(tkm.Encode(message.Content, nil, nil))
-		numTokens += len(tkm.Encode(message.Role, nil, nil))
-		numTokens += len(tkm.Encode(message.Name, nil, nil))
-		if message.Name != "" {
-			numTokens += tokensPerName
-		}
-	}
-	numTokens += 3 // every reply is primed with <|start|>assistant<|message|>
-	return numTokens
+	return fileExt
 }

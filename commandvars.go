@@ -29,15 +29,15 @@ var (
 	}
 )
 
-type responseOptions struct {
+type generationOptions struct {
 	message     string
 	imageUrl    string
 	temperature float32
 	model       string
 }
 
-func newResponseOptions() *responseOptions {
-	return &responseOptions{
+func newGenerationOptions() *generationOptions {
+	return &generationOptions{
 		message:     "",
 		imageUrl:    "",
 		temperature: defaultTemp,

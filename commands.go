@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"log"
 
 	"github.com/bwmarrin/discordgo"
@@ -9,6 +10,7 @@ import (
 
 var (
 	writePermission int64   = discordgo.PermissionSendMessages
+	adminPermission int64   = discordgo.PermissionAdministrator
 	dmPermission    bool    = false
 	tempMin         float64 = 0.01
 	integerMin      float64 = 1
@@ -83,6 +85,28 @@ var (
 			},
 		},
 		{
+			Name:                     "hash_channel",
+			Description:              "Get the message history of the channel (default 20 messages)",
+			DefaultMemberPermissions: &writePermission,
+			DMPermission:             &dmPermission,
+			Options: []*discordgo.ApplicationCommandOption{
+				{
+					Type:        discordgo.ApplicationCommandOptionChannel,
+					Name:        "channel",
+					Description: "Which channel to retrieve messages from",
+					Required:    true,
+				},
+				{
+					Type:        discordgo.ApplicationCommandOptionInteger,
+					Name:        "count",
+					Description: "Number of messages to include in the summary. ",
+					Required:    false,
+					MinValue:    &integerMin,
+					MaxValue:    200,
+				},
+			},
+		},
+		{
 			Name: "TTS",
 			Type: discordgo.MessageApplicationCommand,
 		},
@@ -92,7 +116,7 @@ var (
 		"ask": func(s *discordgo.Session, i *discordgo.InteractionCreate) {
 			deferResponse(s, i)
 
-			var options *responseOptions = newResponseOptions()
+			var options *generationOptions = newGenerationOptions()
 
 			for _, option := range i.ApplicationCommandData().Options {
 				if option.Name == "question" {
@@ -112,7 +136,9 @@ var (
 
 			content := requestContent{
 				text: options.message,
-				url:  []string{options.imageUrl},
+			}
+			if options.imageUrl != "" {
+				content.url = append(content.url, options.imageUrl)
 			}
 			var reqMessage []openai.ChatCompletionMessage = createMessage(openai.ChatMessageRoleUser, "", content)
 			sendInteractionChatResponse(s, i, reqMessage, options)
@@ -120,7 +146,7 @@ var (
 		"summarize": func(s *discordgo.Session, i *discordgo.InteractionCreate) {
 			deferResponse(s, i)
 
-			var options *responseOptions = newResponseOptions()
+			var options *generationOptions = newGenerationOptions()
 			var count int = 0
 			for _, option := range i.ApplicationCommandData().Options {
 				if option.Name == "question" {
@@ -141,7 +167,7 @@ var (
 				count = 20
 			}
 
-			var messages []*discordgo.Message = getMessages(s, i.ChannelID, count)
+			var messages []*discordgo.Message = getChannelMessages(s, i.ChannelID, count)
 			messages = cleanMessages(s, messages)
 
 			var chatMessages []openai.ChatCompletionMessage = createBatchMessages(s, messages)
@@ -151,6 +177,45 @@ var (
 			appendMessage(openai.ChatMessageRoleUser, i.Member.User.Username, content, &chatMessages)
 			sendInteractionChatResponse(s, i, chatMessages, options)
 		},
+		"hash_channel": func(s *discordgo.Session, i *discordgo.InteractionCreate) {
+			deferResponse(s, i)
+
+			var channelID string
+			var count int = 0
+
+			for _, option := range i.ApplicationCommandData().Options {
+				if option.Name == "channel" {
+					channelID = option.Value.(string)
+				}
+				if option.Name == "count" {
+					count = int(option.Value.(float64))
+				}
+			}
+
+			var messages []*discordgo.Message
+
+			if count == 0 {
+				messages = getAllChannelMessages(s, channelID)
+			} else {
+				messages = getChannelMessages(s, channelID, count)
+			}
+
+			message := fmt.Sprintf("Found %d messages in channel %s", len(messages), channelID)
+
+			var hashes []string
+
+			for _, msg := range messages {
+				if hasImageURL(msg) {
+					newHashes := hashAttachments(s, msg, true)
+					hashes = append(hashes, newHashes...)
+				}
+			}
+
+			message += fmt.Sprintf("\nHashes: %d", len(hashes))
+
+			sendFollowup(s, i, message, []*discordgo.File{})
+
+		},
 		"TTS": func(s *discordgo.Session, i *discordgo.InteractionCreate) {
 			deferResponse(s, i)
 
@@ -159,7 +224,7 @@ var (
 			var files []*discordgo.File = splitTTS(message.Content, true)
 
 			s.FollowupMessageCreate(i.Interaction, true, &discordgo.WebhookParams{
-				Content: createMessageLink(s, i, message),
+				Content: linkFromIMessage(s, i, message),
 				Files:   files,
 			})
 		},
@@ -169,6 +234,16 @@ var (
 func handleMessage(s *discordgo.Session, m *discordgo.MessageCreate) {
 	if m.Author.ID == s.State.User.ID {
 		return
+	}
+
+	isSnail, msg := checkInHashes(s, m.Message)
+	if isSnail {
+		messageContent := fmt.Sprintf("Snail of %s", linkFromMcMessage(s, m, msg))
+		sendMessage(s, m.Message, messageContent, []*discordgo.File{})
+	}
+
+	if hasImageURL(m.Message) {
+		hashAttachments(s, m.Message, true)
 	}
 
 	if m.Author.Bot {
