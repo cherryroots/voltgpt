@@ -303,11 +303,11 @@ func getChannelMessages(s *discordgo.Session, channelID string, count int) []*di
 	return messages
 }
 
-func getAllChannelMessages(s *discordgo.Session, i *discordgo.InteractionCreate, channelID string, followupID string) []*discordgo.Message {
-	var messages []*discordgo.Message
+func getAllChannelMessages(s *discordgo.Session, i *discordgo.InteractionCreate, channelID string, followupID string, c chan []*discordgo.Message) {
 	var lastMessageID string
 	messagesRetrieved := 100
 	count := 0
+	defer close(c)
 
 	for messagesRetrieved == 100 {
 		var batch []*discordgo.Message = getMessagesBefore(s, channelID, 100, lastMessageID)
@@ -318,30 +318,33 @@ func getAllChannelMessages(s *discordgo.Session, i *discordgo.InteractionCreate,
 		messagesRetrieved = len(batch)
 		count += messagesRetrieved
 		editFollowup(s, i, followupID, fmt.Sprintf("Retrieved %d messages", count), []*discordgo.File{})
-		messages = append(messages, batch...)
+		c <- batch
 	}
 
-	return messages
+	close(c)
 }
 
 func getMessageImages(s *discordgo.Session, m *discordgo.Message) []string {
-	var attachments []string
+	seen := make(map[string]bool)
+	var urls []string
+	var uniqueURLs []string
+
 	for _, attachment := range m.Attachments {
 		if attachment.Width > 0 && attachment.Height > 0 {
 			if isImageURL(attachment.URL) {
-				attachments = append(attachments, attachment.URL)
+				urls = append(urls, attachment.URL)
 			}
 		}
 	}
 	for _, embed := range m.Embeds {
 		if embed.Thumbnail != nil {
 			if isImageURL(embed.Thumbnail.URL) {
-				attachments = append(attachments, embed.Thumbnail.URL)
+				urls = append(urls, embed.Thumbnail.URL)
 			}
 		}
 		if embed.Image != nil {
 			if isImageURL(embed.Image.URL) {
-				attachments = append(attachments, embed.Image.URL)
+				urls = append(urls, embed.Image.URL)
 			}
 		}
 	}
@@ -350,10 +353,18 @@ func getMessageImages(s *discordgo.Session, m *discordgo.Message) []string {
 	result := regex.FindAllStringSubmatch(m.Content, -1)
 	for _, match := range result {
 		if isImageURL(match[1]) {
-			attachments = append(attachments, match[1])
+			urls = append(urls, match[1])
 		}
 	}
-	return attachments
+
+	for _, url := range urls {
+		if !seen[url] {
+			seen[url] = true
+			uniqueURLs = append(uniqueURLs, url)
+		}
+	}
+
+	return uniqueURLs
 }
 
 func checkCache(cache []*discordgo.Message, messageID string) *discordgo.Message {

@@ -97,14 +97,6 @@ var (
 					Description: "Which channel to retrieve messages from",
 					Required:    true,
 				},
-				{
-					Type:        discordgo.ApplicationCommandOptionInteger,
-					Name:        "count",
-					Description: "Number of messages to include in the summary. ",
-					Required:    false,
-					MinValue:    &integerMin,
-					MaxValue:    200,
-				},
 			},
 		},
 		{
@@ -113,6 +105,10 @@ var (
 		},
 		{
 			Name: "CheckSnail",
+			Type: discordgo.MessageApplicationCommand,
+		},
+		{
+			Name: "Hash",
 			Type: discordgo.MessageApplicationCommand,
 		},
 	}
@@ -186,49 +182,42 @@ var (
 			deferResponse(s, i)
 
 			var channelID string
-			var count int = 0
+			var msgCount, hashes int = 0, 0
 
 			for _, option := range i.ApplicationCommandData().Options {
 				if option.Name == "channel" {
 					channelID = option.Value.(string)
 				}
-				if option.Name == "count" {
-					count = int(option.Value.(float64))
-				}
 			}
 
-			var messages []*discordgo.Message
+			var outputMessage string
+			c := make(chan []*discordgo.Message)
 
 			fMsg, _ := sendFollowup(s, i, "Retrieving messages...", []*discordgo.File{})
 
-			if count == 0 {
-				messages = getAllChannelMessages(s, i, channelID, fMsg.ID)
-			} else {
-				messages = getChannelMessages(s, channelID, count)
-			}
-
-			message := fmt.Sprintf("Found %d messages in channel %s", len(messages), channelID)
-
-			var hashes []string
+			go getAllChannelMessages(s, i, channelID, fMsg.ID, c)
 
 			var wg sync.WaitGroup
-
-			for _, msg := range messages {
+			for msgs := range c {
 				wg.Add(1)
-				go func(msg *discordgo.Message) {
+				go func(msgs []*discordgo.Message) {
 					defer wg.Done()
-					if hasImageURL(msg) {
-						newHashes := hashAttachments(s, msg, true)
-						hashes = append(hashes, newHashes...)
+					msgCount += len(msgs)
+					for _, msg := range msgs {
+						if hasImageURL(msg) {
+							var count int
+							_, count = hashAttachments(s, msg, true)
+							hashes += count
+						}
 					}
-				}(msg)
+				}(msgs)
 			}
 
 			wg.Wait()
 
-			message += fmt.Sprintf("\nHashes: %d", len(hashes))
+			outputMessage += fmt.Sprintf("\nHashes: %d", hashes)
 
-			editFollowup(s, i, fMsg.ID, message, []*discordgo.File{})
+			editFollowup(s, i, fMsg.ID, outputMessage, []*discordgo.File{})
 
 		},
 		"TTS": func(s *discordgo.Session, i *discordgo.InteractionCreate) {
@@ -271,6 +260,20 @@ var (
 				Content: messageContent,
 			})
 		},
+		"Hash": func(s *discordgo.Session, i *discordgo.InteractionCreate) {
+			deferEphemeralResponse(s, i)
+
+			message := i.ApplicationCommandData().Resolved.Messages[i.ApplicationCommandData().TargetID]
+			var count int
+
+			if hasImageURL(message) {
+				_, count = hashAttachments(s, message, true)
+			}
+
+			s.FollowupMessageCreate(i.Interaction, true, &discordgo.WebhookParams{
+				Content: fmt.Sprintf("Hashed: %d", count),
+			})
+		},
 	}
 )
 
@@ -280,7 +283,7 @@ func handleMessage(s *discordgo.Session, m *discordgo.MessageCreate) {
 	}
 
 	go func(m *discordgo.MessageCreate) {
-		refetchedMessage, _ := s.ChannelMessage(m.ChannelID, m.ID)
+		refetchedMessage, _ := s.ChannelMessage(m.Message.ChannelID, m.Message.ID)
 		if hasImageURL(refetchedMessage) {
 			hashAttachments(s, refetchedMessage, true)
 		}

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"crypto/tls"
 	"encoding/gob"
 	"image"
@@ -49,19 +50,28 @@ func writeHashToFile() {
 		return
 	}
 
-	file, err := os.OpenFile("imagehashes.gob", os.O_WRONLY|os.O_TRUNC, 0644)
-	if err != nil {
-		log.Fatal(err)
-	}
-	defer file.Close()
+	buf := new(bytes.Buffer)
 
 	gob.Register(&discordgo.ActionsRow{})
 	gob.Register(&discordgo.Button{})
 	gob.Register(&discordgo.SelectMenu{})
 	gob.Register(&discordgo.TextInput{})
 
-	if err := gob.NewEncoder(file).Encode(iHashes.m); err != nil {
-		log.Fatal(err)
+	if err := gob.NewEncoder(buf).Encode(iHashes.m); err != nil {
+		log.Printf("Encode error: %v\n", err)
+		return
+	}
+
+	file, err := os.OpenFile("imagehashes.gob", os.O_WRONLY|os.O_TRUNC, 0644)
+	if err != nil {
+		log.Printf("OpenFile error: %v\n", err)
+		return
+	}
+	defer file.Close()
+
+	if _, err := buf.WriteTo(file); err != nil {
+		log.Printf("WriteTo error: %v\n", err)
+		return
 	}
 }
 
@@ -82,10 +92,11 @@ func readHashFromFile() {
 	}
 }
 
-func hashAttachments(s *discordgo.Session, m *discordgo.Message, store bool) []string {
+func hashAttachments(s *discordgo.Session, m *discordgo.Message, store bool) ([]string, int) {
 	// Get the data
 	images := getMessageImages(s, m)
 	var hashes []string
+	var count int
 
 	for _, attachment := range images {
 
@@ -105,13 +116,13 @@ func hashAttachments(s *discordgo.Session, m *discordgo.Message, store bool) []s
 
 		if store && !checkHash(hash.ToString()) && olderHash(hash.ToString(), m) {
 			writeHash(hash.ToString(), m)
+			count++
 			log.Printf("Stored hash: %s", hash.ToString())
 		}
-
 		hashes = append(hashes, hash.ToString())
 	}
 
-	return hashes
+	return hashes, count
 }
 
 func readHash(hashString string) *discordgo.Message {
@@ -165,7 +176,7 @@ func olderHash(hash string, message *discordgo.Message) bool {
 func checkInHashes(s *discordgo.Session, m *discordgo.Message) (bool, []*discordgo.Message) {
 	var oldMessages []*discordgo.Message
 	oldHashes := readAllHashes()
-	newHashes := hashAttachments(s, m, false)
+	newHashes, _ := hashAttachments(s, m, false)
 	for _, newHash := range newHashes {
 		if checkHash(newHash) {
 			oldMessages = append(oldMessages, oldHashes[newHash])
@@ -176,11 +187,11 @@ func checkInHashes(s *discordgo.Session, m *discordgo.Message) (bool, []*discord
 	}
 
 	for oldHash := range readAllHashes() {
+		hash1 := stringToHash(oldHash)
 		for _, newHash := range newHashes {
-			hash1 := stringToHash(oldHash)
 			hash2 := stringToHash(newHash)
 			distance, _ := hash1.Distance(hash2)
-			if distance < 3 {
+			if distance < 10 {
 				oldMessages = append(oldMessages, readHash(oldHash))
 			}
 		}
@@ -195,7 +206,8 @@ func checkInHashes(s *discordgo.Session, m *discordgo.Message) (bool, []*discord
 func stringToHash(s string) *goimagehash.ExtImageHash {
 	extHash, err := goimagehash.ExtImageHashFromString(s)
 	if err != nil {
-		log.Fatal(err)
+		log.Printf("stringToHash error: %v\n", err)
+		return new(goimagehash.ExtImageHash)
 	}
 	return extHash
 }
