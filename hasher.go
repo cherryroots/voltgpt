@@ -100,13 +100,12 @@ func hashAttachments(s *discordgo.Session, m *discordgo.Message, store bool) ([]
 
 	for _, attachment := range images {
 
-		file, err := downloadOpenFile(attachment)
+		buf, err := getFile(attachment)
 		if err != nil {
 			continue
 		}
-		defer file.Close()
 
-		img, _, err := image.Decode(file)
+		img, _, err := image.Decode(&buf)
 		if err != nil {
 			continue
 		}
@@ -114,7 +113,7 @@ func hashAttachments(s *discordgo.Session, m *discordgo.Message, store bool) ([]
 		width, height := 8, 8
 		hash, _ := goimagehash.ExtAverageHash(img, width, height)
 
-		if store && !checkHash(hash.ToString()) && olderHash(hash.ToString(), m) {
+		if store && (!checkHash(hash.ToString()) || olderHash(hash.ToString(), m)) {
 			writeHash(hash.ToString(), m)
 			count++
 			log.Printf("Stored hash: %s", hash.ToString())
@@ -175,29 +174,19 @@ func olderHash(hash string, message *discordgo.Message) bool {
 
 func checkInHashes(s *discordgo.Session, m *discordgo.Message) (bool, []*discordgo.Message) {
 	var oldMessages []*discordgo.Message
-	oldHashes := readAllHashes()
 	newHashes, _ := hashAttachments(s, m, false)
-	for _, newHash := range newHashes {
-		if checkHash(newHash) {
-			oldMessages = append(oldMessages, oldHashes[newHash])
-		}
-	}
-	if len(oldMessages) > 0 {
-		return true, oldMessages
-	}
-
 	for oldHash := range readAllHashes() {
 		hash1 := stringToHash(oldHash)
 		for _, newHash := range newHashes {
 			hash2 := stringToHash(newHash)
 			distance, _ := hash1.Distance(hash2)
-			if distance < 10 {
+			if distance <= 6 {
 				oldMessages = append(oldMessages, readHash(oldHash))
 			}
 		}
-		if len(oldMessages) > 0 {
-			return true, oldMessages
-		}
+	}
+	if len(oldMessages) > 0 {
+		return true, oldMessages
 	}
 
 	return false, nil
@@ -212,7 +201,9 @@ func stringToHash(s string) *goimagehash.ExtImageHash {
 	return extHash
 }
 
-func downloadFile(filepath string, url string) error {
+func getFile(url string) (bytes.Buffer, error) {
+	var buf bytes.Buffer
+
 	client := &http.Client{
 		Transport: &http.Transport{
 			TLSNextProto: make(map[string]func(string, *tls.Conn) http.RoundTripper),
@@ -221,37 +212,14 @@ func downloadFile(filepath string, url string) error {
 
 	resp, err := client.Get(url)
 	if err != nil {
-		return err
+		return buf, err
 	}
 	defer resp.Body.Close()
 
-	// Create the file
-	out, err := os.Create(filepath)
+	_, err = io.Copy(&buf, resp.Body)
 	if err != nil {
-		return err
-	}
-	defer out.Close()
-
-	_, err = io.Copy(out, resp.Body)
-	return err
-}
-
-func downloadOpenFile(url string) (*os.File, error) {
-	// Get the data
-	f, err := os.CreateTemp("", "hash"+getFileExt(url))
-	if err != nil {
-		return nil, err
+		return buf, err
 	}
 
-	err = downloadFile(f.Name(), url)
-	if err != nil {
-		return nil, err
-	}
-
-	file, err := os.Open(f.Name())
-	if err != nil {
-		return nil, err
-	}
-
-	return file, nil
+	return buf, nil
 }

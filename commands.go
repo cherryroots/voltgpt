@@ -182,7 +182,7 @@ var (
 			deferResponse(s, i)
 
 			var channelID string
-			var msgCount, hashes int = 0, 0
+			var msgCount, hashCount int = 0, 0
 
 			for _, option := range i.ApplicationCommandData().Options {
 				if option.Name == "channel" {
@@ -207,7 +207,7 @@ var (
 						if hasImageURL(msg) {
 							var count int
 							_, count = hashAttachments(s, msg, true)
-							hashes += count
+							hashCount += count
 						}
 					}
 				}(msgs)
@@ -215,7 +215,7 @@ var (
 
 			wg.Wait()
 
-			outputMessage += fmt.Sprintf("\nHashes: %d", hashes)
+			outputMessage += fmt.Sprintf("Messages: %d\nHashes: %d", msgCount, hashCount)
 
 			editFollowup(s, i, fMsg.ID, outputMessage, []*discordgo.File{})
 

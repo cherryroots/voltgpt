@@ -304,10 +304,10 @@ func getChannelMessages(s *discordgo.Session, channelID string, count int) []*di
 }
 
 func getAllChannelMessages(s *discordgo.Session, i *discordgo.InteractionCreate, channelID string, followupID string, c chan []*discordgo.Message) {
+	defer close(c)
 	var lastMessageID string
 	messagesRetrieved := 100
 	count := 0
-	defer close(c)
 
 	for messagesRetrieved == 100 {
 		var batch []*discordgo.Message = getMessagesBefore(s, channelID, 100, lastMessageID)
@@ -320,8 +320,6 @@ func getAllChannelMessages(s *discordgo.Session, i *discordgo.InteractionCreate,
 		editFollowup(s, i, followupID, fmt.Sprintf("Retrieved %d messages", count), []*discordgo.File{})
 		c <- batch
 	}
-
-	close(c)
 }
 
 func getMessageImages(s *discordgo.Session, m *discordgo.Message) []string {

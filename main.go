@@ -21,10 +21,10 @@ func init() {
 	// try to read, if it fails, write a new one anyways in writeHashToFile() then read in the function
 	readHashFromFile()
 
-	//periodically write to file in a loop with a 1 min interval
 	go func() {
 		for {
 			writeHashToFile()
+			log.Printf("Written %d hashes to file", len(readAllHashes()))
 			time.Sleep(60 * time.Second)
 		}
 	}()
