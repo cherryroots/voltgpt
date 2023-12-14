@@ -86,10 +86,6 @@ func linkFromIMessage(s *discordgo.Session, i *discordgo.InteractionCreate, m *d
 	return fmt.Sprintf("https://discord.com/channels/%s/%s/%s", i.GuildID, m.ChannelID, m.ID)
 }
 
-func linkFromMcMessage(s *discordgo.Session, mc *discordgo.MessageCreate, m *discordgo.Message) string {
-	return fmt.Sprintf("https://discord.com/channels/%s/%s/%s", mc.Message.GuildID, m.ChannelID, m.ID)
-}
-
 func logSendErrorMessage(s *discordgo.Session, m *discordgo.Message, content string) {
 	log.Println(content)
 	_, _ = s.ChannelMessageSendComplex(m.ChannelID, &discordgo.MessageSend{
@@ -315,6 +311,9 @@ func getAllChannelMessages(s *discordgo.Session, i *discordgo.InteractionCreate,
 
 	for messagesRetrieved == 100 {
 		var batch []*discordgo.Message = getMessagesBefore(s, channelID, 100, lastMessageID)
+		if len(batch) == 0 {
+			break
+		}
 		lastMessageID = batch[len(batch)-1].ID
 		messagesRetrieved = len(batch)
 		count += messagesRetrieved

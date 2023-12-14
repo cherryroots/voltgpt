@@ -1,6 +1,7 @@
 package main
 
 import (
+	"crypto/tls"
 	"encoding/gob"
 	"image"
 	_ "image/gif"
@@ -54,6 +55,11 @@ func writeHashToFile() {
 	}
 	defer file.Close()
 
+	gob.Register(&discordgo.ActionsRow{})
+	gob.Register(&discordgo.Button{})
+	gob.Register(&discordgo.SelectMenu{})
+	gob.Register(&discordgo.TextInput{})
+
 	if err := gob.NewEncoder(file).Encode(iHashes.m); err != nil {
 		log.Fatal(err)
 	}
@@ -65,6 +71,11 @@ func readHashFromFile() {
 		return
 	}
 	defer dataFile.Close()
+
+	gob.Register(&discordgo.ActionsRow{})
+	gob.Register(&discordgo.Button{})
+	gob.Register(&discordgo.SelectMenu{})
+	gob.Register(&discordgo.TextInput{})
 
 	if err := gob.NewDecoder(dataFile).Decode(&iHashes.m); err != nil {
 		log.Fatal(err)
@@ -93,8 +104,8 @@ func hashAttachments(s *discordgo.Session, m *discordgo.Message, store bool) []s
 		hash, _ := goimagehash.ExtAverageHash(img, width, height)
 
 		if store && !checkHash(hash.ToString()) && olderHash(hash.ToString(), m) {
-			m.Components = nil
 			writeHash(hash.ToString(), m)
+			log.Printf("Stored hash: %s", hash.ToString())
 		}
 
 		hashes = append(hashes, hash.ToString())
@@ -190,9 +201,13 @@ func stringToHash(s string) *goimagehash.ExtImageHash {
 }
 
 func downloadFile(filepath string, url string) error {
+	client := &http.Client{
+		Transport: &http.Transport{
+			TLSNextProto: make(map[string]func(string, *tls.Conn) http.RoundTripper),
+		},
+	}
 
-	// Get the data
-	resp, err := http.Get(url)
+	resp, err := client.Get(url)
 	if err != nil {
 		return err
 	}
@@ -205,7 +220,6 @@ func downloadFile(filepath string, url string) error {
 	}
 	defer out.Close()
 
-	// Write the body to file
 	_, err = io.Copy(out, resp.Body)
 	return err
 }

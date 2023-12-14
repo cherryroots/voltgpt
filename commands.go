@@ -252,10 +252,19 @@ var (
 			var messageContent string
 			if isSnail {
 				for _, msg := range messages {
-					messageContent += fmt.Sprintf("Snail of %s\n", linkFromIMessage(s, i, msg))
+					if msg.ID == message.ID {
+						continue
+					}
+					if msg.Author.ID == message.Author.ID {
+						messageContent += fmt.Sprintf("Snail of yourself! %s\n", linkFromIMessage(s, i, msg))
+						continue
+					}
+					messageContent += fmt.Sprintf("Snail of %s! %s\n", msg.Author.Username, linkFromIMessage(s, i, msg))
 				}
-			} else {
-				messageContent = "Not a snail"
+			}
+
+			if messageContent == "" {
+				messageContent = "Fresh Content!"
 			}
 
 			s.FollowupMessageCreate(i.Interaction, true, &discordgo.WebhookParams{
@@ -270,9 +279,12 @@ func handleMessage(s *discordgo.Session, m *discordgo.MessageCreate) {
 		return
 	}
 
-	if hasImageURL(m.Message) {
-		hashAttachments(s, m.Message, true)
-	}
+	go func(m *discordgo.MessageCreate) {
+		refetchedMessage, _ := s.ChannelMessage(m.ChannelID, m.ID)
+		if hasImageURL(refetchedMessage) {
+			hashAttachments(s, refetchedMessage, true)
+		}
+	}(m)
 
 	if m.Author.Bot {
 		return
