@@ -43,6 +43,8 @@ func writeHashToFile() {
 			log.Fatal(err)
 		}
 
+		readHashFromFile()
+
 		return
 	}
 
@@ -55,16 +57,12 @@ func writeHashToFile() {
 	if err := gob.NewEncoder(file).Encode(iHashes.m); err != nil {
 		log.Fatal(err)
 	}
-
-	if err := file.Sync(); err != nil {
-		log.Fatal(err)
-	}
 }
 
 func readHashFromFile() {
 	dataFile, err := os.Open("imagehashes.gob")
 	if err != nil {
-		log.Fatal(err)
+		return
 	}
 	defer dataFile.Close()
 
@@ -75,10 +73,10 @@ func readHashFromFile() {
 
 func hashAttachments(s *discordgo.Session, m *discordgo.Message, store bool) []string {
 	// Get the data
-	attachments := getAttachments(s, m)
+	images := getMessageImages(s, m)
 	var hashes []string
 
-	for _, attachment := range attachments {
+	for _, attachment := range images {
 
 		file, err := downloadOpenFile(attachment)
 		if err != nil {
@@ -94,7 +92,8 @@ func hashAttachments(s *discordgo.Session, m *discordgo.Message, store bool) []s
 		width, height := 8, 8
 		hash, _ := goimagehash.ExtAverageHash(img, width, height)
 
-		if store {
+		if store && !checkHash(hash.ToString()) && olderHash(hash.ToString(), m) {
+			m.Components = nil
 			writeHash(hash.ToString(), m)
 		}
 
@@ -134,24 +133,48 @@ func checkHash(hash string) bool {
 	return ok
 }
 
-func checkInHashes(s *discordgo.Session, m *discordgo.Message) (bool, *discordgo.Message) {
+func olderHash(hash string, message *discordgo.Message) bool {
+	iHashes.RLock()
+	defer iHashes.RUnlock()
+
+	if checkHash(hash) {
+		// get the stored message for our hash
+		oldMessage := readHash(hash)
+		// if the message we're parsing is older than the stored message
+		if message.Timestamp.Before(oldMessage.Timestamp) {
+			return true
+		} else {
+			return false
+		}
+	}
+	// return true if the hash doesn't exist
+	return true
+}
+
+func checkInHashes(s *discordgo.Session, m *discordgo.Message) (bool, []*discordgo.Message) {
+	var oldMessages []*discordgo.Message
 	oldHashes := readAllHashes()
 	newHashes := hashAttachments(s, m, false)
 	for _, newHash := range newHashes {
 		if checkHash(newHash) {
-			return true, oldHashes[newHash]
+			oldMessages = append(oldMessages, oldHashes[newHash])
 		}
+	}
+	if len(oldMessages) > 0 {
+		return true, oldMessages
 	}
 
 	for oldHash := range readAllHashes() {
 		for _, newHash := range newHashes {
-			oldMsg := readHash(oldHash)
 			hash1 := stringToHash(oldHash)
 			hash2 := stringToHash(newHash)
 			distance, _ := hash1.Distance(hash2)
 			if distance < 3 {
-				return true, oldMsg
+				oldMessages = append(oldMessages, readHash(oldHash))
 			}
+		}
+		if len(oldMessages) > 0 {
+			return true, oldMessages
 		}
 	}
 

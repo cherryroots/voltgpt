@@ -18,11 +18,14 @@ func init() {
 		log.Print("No .env file found")
 	}
 
+	// try to read, if it fails, write a new one anyways in writeHashToFile() then read in the function
+	readHashFromFile()
+
 	//periodically write to file in a loop with a 1 min interval
 	go func() {
 		for {
-			time.Sleep(1 * time.Minute)
 			writeHashToFile()
+			time.Sleep(30 * time.Second)
 		}
 	}()
 }
@@ -63,7 +66,6 @@ func main() {
 
 	dg.AddHandler(func(s *discordgo.Session, r *discordgo.Ready) {
 		log.Printf("Logged in as: %v#%v", s.State.User.Username, s.State.User.Discriminator)
-		readHashFromFile()
 		log.Println("Hashes: ", len(readAllHashes()))
 	})
 

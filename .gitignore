@@ -1,3 +1,5 @@
 .env
 tmp
 voltgpt
+*.gob
+*debug_bin*

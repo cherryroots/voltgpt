@@ -45,6 +45,18 @@ func deferResponse(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	}
 }
 
+func deferEphemeralResponse(s *discordgo.Session, i *discordgo.InteractionCreate) {
+	err := s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+		Type: discordgo.InteractionResponseDeferredChannelMessageWithSource,
+		Data: &discordgo.InteractionResponseData{
+			Flags: discordgo.MessageFlagsEphemeral,
+		},
+	})
+	if err != nil {
+		log.Println(err)
+	}
+}
+
 func sendMessage(s *discordgo.Session, m *discordgo.Message, content string, files []*discordgo.File) (*discordgo.Message, error) {
 	msg, err := s.ChannelMessageSendComplex(m.ChannelID, &discordgo.MessageSend{
 		Content:   content,
@@ -134,7 +146,7 @@ func createBatchMessages(s *discordgo.Session, messages []*discordgo.Message) []
 	for _, message := range messages {
 		content := requestContent{
 			text: message.Content,
-			url:  getAttachments(s, message),
+			url:  getMessageImages(s, message),
 		}
 		if message.Author.ID == s.State.User.ID {
 			prependMessage(openai.ChatMessageRoleAssistant, message.Author.Username, content, &batchMessages)
@@ -252,7 +264,7 @@ func checkForReplies(s *discordgo.Session, message *discordgo.Message, cache []*
 		replyMessage := cleanMessage(s, message.ReferencedMessage)
 		content := requestContent{
 			text: replyMessage.Content,
-			url:  getAttachments(s, replyMessage),
+			url:  getMessageImages(s, replyMessage),
 		}
 		if replyMessage.Author.ID == s.State.User.ID {
 			prependMessage(openai.ChatMessageRoleAssistant, replyMessage.Author.Username, content, chatMessages)
@@ -295,22 +307,25 @@ func getChannelMessages(s *discordgo.Session, channelID string, count int) []*di
 	return messages
 }
 
-func getAllChannelMessages(s *discordgo.Session, channelID string) []*discordgo.Message {
+func getAllChannelMessages(s *discordgo.Session, i *discordgo.InteractionCreate, channelID string, followupID string) []*discordgo.Message {
 	var messages []*discordgo.Message
 	var lastMessageID string
 	messagesRetrieved := 100
+	count := 0
 
 	for messagesRetrieved == 100 {
 		var batch []*discordgo.Message = getMessagesBefore(s, channelID, 100, lastMessageID)
 		lastMessageID = batch[len(batch)-1].ID
 		messagesRetrieved = len(batch)
+		count += messagesRetrieved
+		editFollowup(s, i, followupID, fmt.Sprintf("Retrieved %d messages", count), []*discordgo.File{})
 		messages = append(messages, batch...)
 	}
 
 	return messages
 }
 
-func getAttachments(s *discordgo.Session, m *discordgo.Message) []string {
+func getMessageImages(s *discordgo.Session, m *discordgo.Message) []string {
 	var attachments []string
 	for _, attachment := range m.Attachments {
 		if attachment.Width > 0 && attachment.Height > 0 {
@@ -319,6 +334,19 @@ func getAttachments(s *discordgo.Session, m *discordgo.Message) []string {
 			}
 		}
 	}
+	for _, embed := range m.Embeds {
+		if embed.Thumbnail != nil {
+			if isImageURL(embed.Thumbnail.URL) {
+				attachments = append(attachments, embed.Thumbnail.URL)
+			}
+		}
+		if embed.Image != nil {
+			if isImageURL(embed.Image.URL) {
+				attachments = append(attachments, embed.Image.URL)
+			}
+		}
+	}
+
 	regex := regexp.MustCompile(`(?m)[<]?(https?:\/\/[^\s<>]+)[>]?\b`)
 	result := regex.FindAllStringSubmatch(m.Content, -1)
 	for _, match := range result {
@@ -371,6 +399,20 @@ func hasImageURL(m *discordgo.Message) bool {
 			}
 		}
 	}
+	for _, embed := range m.Embeds {
+		// check if embed has image
+		if embed.Thumbnail != nil {
+			if isImageURL(embed.Thumbnail.URL) {
+				return true
+			}
+		}
+		if embed.Image != nil {
+			if isImageURL(embed.Image.URL) {
+				return true
+			}
+		}
+	}
+
 	regex := regexp.MustCompile(`(?m)[<]?(https?:\/\/[^\s<>]+)[>]?\b`)
 	result := regex.FindAllStringSubmatch(m.Content, -1)
 	for _, match := range result {

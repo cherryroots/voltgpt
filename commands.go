@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"log"
+	"sync"
 
 	"github.com/bwmarrin/discordgo"
 	"github.com/sashabaranov/go-openai"
@@ -110,6 +111,10 @@ var (
 			Name: "TTS",
 			Type: discordgo.MessageApplicationCommand,
 		},
+		{
+			Name: "CheckSnail",
+			Type: discordgo.MessageApplicationCommand,
+		},
 	}
 
 	commandHandlers = map[string]func(s *discordgo.Session, i *discordgo.InteractionCreate){
@@ -194,8 +199,10 @@ var (
 
 			var messages []*discordgo.Message
 
+			fMsg, _ := sendFollowup(s, i, "Retrieving messages...", []*discordgo.File{})
+
 			if count == 0 {
-				messages = getAllChannelMessages(s, channelID)
+				messages = getAllChannelMessages(s, i, channelID, fMsg.ID)
 			} else {
 				messages = getChannelMessages(s, channelID, count)
 			}
@@ -204,16 +211,24 @@ var (
 
 			var hashes []string
 
+			var wg sync.WaitGroup
+
 			for _, msg := range messages {
-				if hasImageURL(msg) {
-					newHashes := hashAttachments(s, msg, true)
-					hashes = append(hashes, newHashes...)
-				}
+				wg.Add(1)
+				go func(msg *discordgo.Message) {
+					defer wg.Done()
+					if hasImageURL(msg) {
+						newHashes := hashAttachments(s, msg, true)
+						hashes = append(hashes, newHashes...)
+					}
+				}(msg)
 			}
+
+			wg.Wait()
 
 			message += fmt.Sprintf("\nHashes: %d", len(hashes))
 
-			sendFollowup(s, i, message, []*discordgo.File{})
+			editFollowup(s, i, fMsg.ID, message, []*discordgo.File{})
 
 		},
 		"TTS": func(s *discordgo.Session, i *discordgo.InteractionCreate) {
@@ -228,18 +243,31 @@ var (
 				Files:   files,
 			})
 		},
+		"CheckSnail": func(s *discordgo.Session, i *discordgo.InteractionCreate) {
+			deferEphemeralResponse(s, i)
+
+			message := i.ApplicationCommandData().Resolved.Messages[i.ApplicationCommandData().TargetID]
+
+			isSnail, messages := checkInHashes(s, message)
+			var messageContent string
+			if isSnail {
+				for _, msg := range messages {
+					messageContent += fmt.Sprintf("Snail of %s\n", linkFromIMessage(s, i, msg))
+				}
+			} else {
+				messageContent = "Not a snail"
+			}
+
+			s.FollowupMessageCreate(i.Interaction, true, &discordgo.WebhookParams{
+				Content: messageContent,
+			})
+		},
 	}
 )
 
 func handleMessage(s *discordgo.Session, m *discordgo.MessageCreate) {
 	if m.Author.ID == s.State.User.ID {
 		return
-	}
-
-	isSnail, msg := checkInHashes(s, m.Message)
-	if isSnail {
-		messageContent := fmt.Sprintf("Snail of %s", linkFromMcMessage(s, m, msg))
-		sendMessage(s, m.Message, messageContent, []*discordgo.File{})
 	}
 
 	if hasImageURL(m.Message) {
@@ -268,7 +296,7 @@ func handleMessage(s *discordgo.Session, m *discordgo.MessageCreate) {
 			log.Println("reply:", m.Content)
 			content := requestContent{
 				text: m.Content,
-				url:  getAttachments(s, m.Message),
+				url:  getMessageImages(s, m.Message),
 			}
 			var chatMessages []openai.ChatCompletionMessage = createMessage(openai.ChatMessageRoleUser, m.Author.Username, content)
 			checkForReplies(s, m.Message, cache, &chatMessages)
@@ -283,7 +311,7 @@ func handleMessage(s *discordgo.Session, m *discordgo.MessageCreate) {
 			log.Println("mention:", m.Content)
 			content := requestContent{
 				text: m.Content,
-				url:  getAttachments(s, m.Message),
+				url:  getMessageImages(s, m.Message),
 			}
 			var chatMessages []openai.ChatCompletionMessage = createMessage(openai.ChatMessageRoleUser, "", content)
 			sendMessageChatResponse(s, m, chatMessages)
