@@ -356,8 +356,9 @@ func getMessageImages(s *discordgo.Session, m *discordgo.Message) []string {
 	}
 
 	for _, url := range urls {
-		if !seen[url] {
-			seen[url] = true
+		checkUrl := cleanUrl(url)
+		if !seen[checkUrl] {
+			seen[checkUrl] = true
 			uniqueURLs = append(uniqueURLs, url)
 		}
 	}
@@ -447,13 +448,10 @@ func isImageURL(urlStr string) bool {
 	}
 }
 
-func getFileExt(urlStr string) string {
+func cleanUrl(urlStr string) string {
 	parsedURL, err := url.Parse(urlStr)
 	if err != nil {
-		return ""
+		return urlStr
 	}
-	fileExt := filepath.Ext(parsedURL.Path)
-	fileExt = strings.ToLower(fileExt)
-
-	return fileExt
+	return parsedURL.Path
 }

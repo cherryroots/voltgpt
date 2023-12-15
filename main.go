@@ -24,7 +24,7 @@ func init() {
 	go func() {
 		for {
 			writeHashToFile()
-			log.Printf("Written %d hashes to file", len(readAllHashes()))
+			log.Printf("Written %d hashes to file", len(hashStore.m))
 			time.Sleep(60 * time.Second)
 		}
 	}()
@@ -66,7 +66,7 @@ func main() {
 
 	dg.AddHandler(func(s *discordgo.Session, r *discordgo.Ready) {
 		log.Printf("Logged in as: %v#%v", s.State.User.Username, s.State.User.Discriminator)
-		log.Println("Hashes: ", len(readAllHashes()))
+		log.Println("Hashes: ", len(hashStore.m))
 	})
 
 	err = dg.Open()

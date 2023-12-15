@@ -9,6 +9,7 @@ import (
 	_ "image/jpeg"
 	_ "image/png"
 	"log"
+	"sort"
 	"sync"
 
 	_ "golang.org/x/image/webp"
@@ -22,7 +23,7 @@ import (
 )
 
 var (
-	iHashes = struct {
+	hashStore = struct {
 		sync.RWMutex
 		m map[string]*discordgo.Message
 	}{
@@ -30,9 +31,14 @@ var (
 	}
 )
 
+type hashResult struct {
+	distance int
+	message  *discordgo.Message
+}
+
 func writeHashToFile() {
-	iHashes.Lock()
-	defer iHashes.Unlock()
+	hashStore.RLock()
+	defer hashStore.RUnlock()
 
 	if _, err := os.Stat("imagehashes.gob"); os.IsNotExist(err) {
 		file, err := os.Create("imagehashes.gob")
@@ -41,7 +47,7 @@ func writeHashToFile() {
 		}
 		defer file.Close()
 
-		if err := gob.NewEncoder(file).Encode(iHashes.m); err != nil {
+		if err := gob.NewEncoder(file).Encode(hashStore.m); err != nil {
 			log.Fatal(err)
 		}
 
@@ -57,7 +63,7 @@ func writeHashToFile() {
 	gob.Register(&discordgo.SelectMenu{})
 	gob.Register(&discordgo.TextInput{})
 
-	if err := gob.NewEncoder(buf).Encode(iHashes.m); err != nil {
+	if err := gob.NewEncoder(buf).Encode(hashStore.m); err != nil {
 		log.Printf("Encode error: %v\n", err)
 		return
 	}
@@ -87,7 +93,7 @@ func readHashFromFile() {
 	gob.Register(&discordgo.SelectMenu{})
 	gob.Register(&discordgo.TextInput{})
 
-	if err := gob.NewDecoder(dataFile).Decode(&iHashes.m); err != nil {
+	if err := gob.NewDecoder(dataFile).Decode(&hashStore.m); err != nil {
 		log.Fatal(err)
 	}
 }
@@ -110,11 +116,14 @@ func hashAttachments(s *discordgo.Session, m *discordgo.Message, store bool) ([]
 			continue
 		}
 
-		width, height := 8, 8
-		hash, _ := goimagehash.ExtAverageHash(img, width, height)
+		width, height := 16, 16
+		hash, err := goimagehash.ExtAverageHash(img, width, height)
+		if err != nil {
+			continue
+		}
 
-		if store && (!checkHash(hash.ToString()) || olderHash(hash.ToString(), m)) {
-			writeHash(hash.ToString(), m)
+		if store && (!checkHash(hash.ToString(), true) || olderHash(hash.ToString(), m)) {
+			writeHash(hash.ToString(), m, true)
 			count++
 			log.Printf("Stored hash: %s", hash.ToString())
 		}
@@ -124,43 +133,39 @@ func hashAttachments(s *discordgo.Session, m *discordgo.Message, store bool) ([]
 	return hashes, count
 }
 
-func readHash(hashString string) *discordgo.Message {
-	iHashes.RLock()
-	defer iHashes.RUnlock()
+func readHash(hashString string, locking bool) *discordgo.Message {
+	if locking {
+		hashStore.Lock()
+		defer hashStore.Unlock()
+	}
 
-	return iHashes.m[hashString]
+	return hashStore.m[hashString]
 }
 
-func readAllHashes() map[string]*discordgo.Message {
-	iHashes.RLock()
-	defer iHashes.RUnlock()
+func writeHash(hash string, message *discordgo.Message, locking bool) {
+	if locking {
+		hashStore.Lock()
+		defer hashStore.Unlock()
+	}
 
-	return iHashes.m
+	hashStore.m[hash] = message
 }
 
-func writeHash(hash string, message *discordgo.Message) {
-	iHashes.Lock()
-	defer iHashes.Unlock()
+func checkHash(hash string, locking bool) bool {
+	if locking {
+		hashStore.Lock()
+		defer hashStore.Unlock()
+	}
 
-	iHashes.m[hash] = message
-}
-
-func checkHash(hash string) bool {
-	iHashes.RLock()
-	defer iHashes.RUnlock()
-
-	_, ok := iHashes.m[hash]
+	_, ok := hashStore.m[hash]
 
 	return ok
 }
 
 func olderHash(hash string, message *discordgo.Message) bool {
-	iHashes.RLock()
-	defer iHashes.RUnlock()
-
-	if checkHash(hash) {
+	if checkHash(hash, true) {
 		// get the stored message for our hash
-		oldMessage := readHash(hash)
+		oldMessage := readHash(hash, true)
 		// if the message we're parsing is older than the stored message
 		if message.Timestamp.Before(oldMessage.Timestamp) {
 			return true
@@ -172,21 +177,27 @@ func olderHash(hash string, message *discordgo.Message) bool {
 	return true
 }
 
-func checkInHashes(s *discordgo.Session, m *discordgo.Message) (bool, []*discordgo.Message) {
-	var oldMessages []*discordgo.Message
-	newHashes, _ := hashAttachments(s, m, false)
-	for oldHash := range readAllHashes() {
-		hash1 := stringToHash(oldHash)
-		for _, newHash := range newHashes {
-			hash2 := stringToHash(newHash)
+func checkInHashes(s *discordgo.Session, m *discordgo.Message) (bool, []hashResult) {
+	var matchedMessages []hashResult
+	messageHashes, _ := hashAttachments(s, m, false)
+	hashStore.RLock()
+	defer hashStore.RUnlock()
+	// copy the map
+	for hashes := range hashStore.m {
+		hash1 := stringToHash(hashes)
+		for _, messageHash := range messageHashes {
+			hash2 := stringToHash(messageHash)
 			distance, _ := hash1.Distance(hash2)
-			if distance <= 6 {
-				oldMessages = append(oldMessages, readHash(oldHash))
+			if distance <= 10 {
+				matchedMessages = append(matchedMessages, hashResult{distance, readHash(hashes, false)})
 			}
 		}
 	}
-	if len(oldMessages) > 0 {
-		return true, oldMessages
+	if len(matchedMessages) > 0 {
+		sort.SliceStable(matchedMessages, func(i, j int) bool {
+			return matchedMessages[i].distance < matchedMessages[j].distance
+		})
+		return true, matchedMessages
 	}
 
 	return false, nil
@@ -206,7 +217,8 @@ func getFile(url string) (bytes.Buffer, error) {
 
 	client := &http.Client{
 		Transport: &http.Transport{
-			TLSNextProto: make(map[string]func(string, *tls.Conn) http.RoundTripper),
+			TLSNextProto:      make(map[string]func(string, *tls.Conn) http.RoundTripper),
+			DisableKeepAlives: true,
 		},
 	}
 

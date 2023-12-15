@@ -190,10 +190,8 @@ var (
 				}
 			}
 
-			var outputMessage string
-			c := make(chan []*discordgo.Message)
-
 			fMsg, _ := sendFollowup(s, i, "Retrieving messages...", []*discordgo.File{})
+			c := make(chan []*discordgo.Message)
 
 			go getAllChannelMessages(s, i, channelID, fMsg.ID, c)
 
@@ -215,7 +213,7 @@ var (
 
 			wg.Wait()
 
-			outputMessage += fmt.Sprintf("Messages: %d\nHashes: %d", msgCount, hashCount)
+			outputMessage := fmt.Sprintf("Messages: %d\nHashes: %d", msgCount, hashCount)
 
 			editFollowup(s, i, fMsg.ID, outputMessage, []*discordgo.File{})
 
@@ -237,18 +235,21 @@ var (
 
 			message := i.ApplicationCommandData().Resolved.Messages[i.ApplicationCommandData().TargetID]
 
-			isSnail, messages := checkInHashes(s, message)
+			isSnail, results := checkInHashes(s, message)
 			var messageContent string
 			if isSnail {
-				for _, msg := range messages {
-					if msg.ID == message.ID {
+				for _, result := range results {
+					if result.message.ID == message.ID {
 						continue
 					}
-					if msg.Author.ID == message.Author.ID {
-						messageContent += fmt.Sprintf("Snail of yourself! %s\n", linkFromIMessage(s, i, msg))
+					if result.message.Timestamp.After(message.Timestamp) {
 						continue
 					}
-					messageContent += fmt.Sprintf("Snail of %s! %s\n", msg.Author.Username, linkFromIMessage(s, i, msg))
+					if result.message.Author.ID == i.Interaction.Member.User.ID {
+						messageContent += fmt.Sprintf("%dd: Snail of yourself! %s\n", result.distance, linkFromIMessage(s, i, result.message))
+						continue
+					}
+					messageContent += fmt.Sprintf("%dd: Snail of %s! %s\n", result.distance, result.message.Author.Username, linkFromIMessage(s, i, result.message))
 				}
 			}
 
