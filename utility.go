@@ -275,7 +275,10 @@ func getMessagesBefore(s *discordgo.Session, channelID string, count int, messag
 	if messageID == "" {
 		messageID = ""
 	}
-	messages, _ := s.ChannelMessages(channelID, count, messageID, "", "")
+	messages, err := s.ChannelMessages(channelID, count, messageID, "", "")
+	if err != nil {
+		return nil
+	}
 	return messages
 }
 
@@ -303,7 +306,7 @@ func getChannelMessages(s *discordgo.Session, channelID string, count int) []*di
 	return messages
 }
 
-func getAllChannelMessages(s *discordgo.Session, i *discordgo.InteractionCreate, channelID string, followupID string, c chan []*discordgo.Message) {
+func getAllChannelMessages(s *discordgo.Session, i *discordgo.InteractionCreate, m *discordgo.Message, channelID string, c chan []*discordgo.Message) {
 	defer close(c)
 	var lastMessageID string
 	messagesRetrieved := 100
@@ -311,15 +314,18 @@ func getAllChannelMessages(s *discordgo.Session, i *discordgo.InteractionCreate,
 
 	for messagesRetrieved == 100 {
 		var batch []*discordgo.Message = getMessagesBefore(s, channelID, 100, lastMessageID)
-		if len(batch) == 0 {
+		if len(batch) == 0 || batch == nil {
+			log.Println("getAllChannelMessages: no messages retrieved")
 			break
 		}
 		lastMessageID = batch[len(batch)-1].ID
 		messagesRetrieved = len(batch)
 		count += messagesRetrieved
-		editFollowup(s, i, followupID, fmt.Sprintf("Retrieved %d messages", count), []*discordgo.File{})
+		editMessage(s, m, fmt.Sprintf("Retrieved %d messages", count), []*discordgo.File{})
 		c <- batch
 	}
+
+	log.Println("getAllChannelMessages: done")
 }
 
 func getMessageImages(s *discordgo.Session, m *discordgo.Message) []string {

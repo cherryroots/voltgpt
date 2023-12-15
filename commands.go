@@ -115,6 +115,7 @@ var (
 
 	commandHandlers = map[string]func(s *discordgo.Session, i *discordgo.InteractionCreate){
 		"ask": func(s *discordgo.Session, i *discordgo.InteractionCreate) {
+			log.Printf("Received interaction: %s by %s", i.ApplicationCommandData().Name, i.Interaction.Member.User.Username)
 			deferResponse(s, i)
 
 			var options *generationOptions = newGenerationOptions()
@@ -145,6 +146,7 @@ var (
 			sendInteractionChatResponse(s, i, reqMessage, options)
 		},
 		"summarize": func(s *discordgo.Session, i *discordgo.InteractionCreate) {
+			log.Printf("Received interaction: %s by %s", i.ApplicationCommandData().Name, i.Interaction.Member.User.Username)
 			deferResponse(s, i)
 
 			var options *generationOptions = newGenerationOptions()
@@ -179,9 +181,11 @@ var (
 			sendInteractionChatResponse(s, i, chatMessages, options)
 		},
 		"hash_channel": func(s *discordgo.Session, i *discordgo.InteractionCreate) {
+			log.Printf("Received interaction: %s by %s", i.ApplicationCommandData().Name, i.Interaction.Member.User.Username)
 			deferResponse(s, i)
 
 			var channelID string
+			var outputMessage string
 			var msgCount, hashCount int = 0, 0
 
 			for _, option := range i.ApplicationCommandData().Options {
@@ -189,11 +193,12 @@ var (
 					channelID = option.Value.(string)
 				}
 			}
-
-			fMsg, _ := sendFollowup(s, i, "Retrieving messages...", []*discordgo.File{})
+			outputMessage = fmt.Sprintf("Retrieving messages for channel: <#%s>", channelID)
+			iMsg, _ := sendFollowup(s, i, outputMessage, []*discordgo.File{})
+			fMsg, _ := sendMessage(s, iMsg, "Retrieving messages...", []*discordgo.File{})
 			c := make(chan []*discordgo.Message)
 
-			go getAllChannelMessages(s, i, channelID, fMsg.ID, c)
+			go getAllChannelMessages(s, i, fMsg, channelID, c)
 
 			var wg sync.WaitGroup
 			for msgs := range c {
@@ -213,12 +218,13 @@ var (
 
 			wg.Wait()
 
-			outputMessage := fmt.Sprintf("Messages: %d\nHashes: %d", msgCount, hashCount)
+			outputMessage = fmt.Sprintf("Messages: %d\nHashes: %d", msgCount, hashCount)
 
-			editFollowup(s, i, fMsg.ID, outputMessage, []*discordgo.File{})
+			editMessage(s, fMsg, outputMessage, []*discordgo.File{})
 
 		},
 		"TTS": func(s *discordgo.Session, i *discordgo.InteractionCreate) {
+			log.Printf("Received interaction: %s by %s", i.ApplicationCommandData().Name, i.Interaction.Member.User.Username)
 			deferResponse(s, i)
 
 			message := i.ApplicationCommandData().Resolved.Messages[i.ApplicationCommandData().TargetID]
@@ -231,6 +237,7 @@ var (
 			})
 		},
 		"CheckSnail": func(s *discordgo.Session, i *discordgo.InteractionCreate) {
+			log.Printf("Received interaction: %s by %s", i.ApplicationCommandData().Name, i.Interaction.Member.User.Username)
 			deferEphemeralResponse(s, i)
 
 			message := i.ApplicationCommandData().Resolved.Messages[i.ApplicationCommandData().TargetID]
@@ -262,6 +269,7 @@ var (
 			})
 		},
 		"Hash": func(s *discordgo.Session, i *discordgo.InteractionCreate) {
+			log.Printf("Received interaction: %s by %s", i.ApplicationCommandData().Name, i.Interaction.Member.User.Username)
 			deferEphemeralResponse(s, i)
 
 			message := i.ApplicationCommandData().Resolved.Messages[i.ApplicationCommandData().TargetID]
