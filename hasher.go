@@ -195,7 +195,7 @@ func checkInHashes(s *discordgo.Session, m *discordgo.Message) (bool, []hashResu
 	}
 	if len(matchedMessages) > 0 {
 		sort.SliceStable(matchedMessages, func(i, j int) bool {
-			return matchedMessages[i].distance < matchedMessages[j].distance
+			return matchedMessages[i].message.Timestamp.Before(matchedMessages[j].message.Timestamp)
 		})
 		return true, matchedMessages
 	}

@@ -122,7 +122,7 @@ func sendMessageChatResponse(s *discordgo.Session, m *discordgo.MessageCreate, m
 	}
 	defer stream.Close()
 
-	msg, err := sendMessage(s, m.Message, "Responding...", nil)
+	msg, err := sendMessageFile(s, m.Message, "Responding...", nil)
 	if err != nil {
 		logSendErrorMessage(s, m.Message, err.Error())
 		return
@@ -138,9 +138,9 @@ func sendMessageChatResponse(s *discordgo.Session, m *discordgo.MessageCreate, m
 			// At the end of the stream
 			// Send the last message state
 			message = strings.TrimPrefix(message, "...")
-			editMessage(s, msg, message, nil)
+			editMessageFile(s, msg, message, nil)
 			files := splitTTS(fullMessage, false)
-			editMessage(s, msg, message, files)
+			editMessageFile(s, msg, message, files)
 			return
 		}
 		if err != nil {
@@ -161,15 +161,15 @@ func sendMessageChatResponse(s *discordgo.Session, m *discordgo.MessageCreate, m
 					lastPart = "..."
 				}
 
-				editMessage(s, msg, firstPart, nil)
-				msg, err = sendMessage(s, msg, lastPart, nil)
+				editMessageFile(s, msg, firstPart, nil)
+				msg, err = sendMessageFile(s, msg, lastPart, nil)
 				if err != nil {
 					logSendErrorMessage(s, m.Message, err.Error())
 					return
 				}
 				message = lastPart
 			} else {
-				editMessage(s, msg, message, nil)
+				editMessageFile(s, msg, message, nil)
 			}
 		}
 	}
@@ -204,7 +204,7 @@ func sendInteractionChatResponse(s *discordgo.Session, i *discordgo.InteractionC
 		return
 	}
 	defer stream.Close()
-	msg, err := sendFollowup(s, i, "Responding...", nil)
+	msg, err := sendFollowupFile(s, i, "Responding...", nil)
 	if err != nil {
 		log.Printf("sendFollowup error: %v\n", err)
 		return
@@ -216,9 +216,9 @@ func sendInteractionChatResponse(s *discordgo.Session, i *discordgo.InteractionC
 	for {
 		response, err := stream.Recv()
 		if errors.Is(err, io.EOF) {
-			editFollowup(s, i, msg.ID, message, nil)
+			editFollowupFile(s, i, msg.ID, message, nil)
 			files := splitTTS(fullMessage, false)
-			editFollowup(s, i, msg.ID, message, files)
+			editFollowupFile(s, i, msg.ID, message, files)
 			return
 		}
 		if err != nil {
@@ -235,19 +235,19 @@ func sendInteractionChatResponse(s *discordgo.Session, i *discordgo.InteractionC
 				if lastPart == "" {
 					lastPart = "..."
 				}
-				_, err = editFollowup(s, i, msg.ID, firstPart, nil)
+				_, err = editFollowupFile(s, i, msg.ID, firstPart, nil)
 				if err != nil {
 					log.Printf("editFollowup error: %v\n", err)
 					return
 				}
-				msg, err = sendFollowup(s, i, lastPart, nil)
+				msg, err = sendFollowupFile(s, i, lastPart, nil)
 				if err != nil {
 					log.Printf("sendFollowup error: %v\n", err)
 					return
 				}
 				message = lastPart
 			} else {
-				_, err = editFollowup(s, i, msg.ID, message, nil)
+				_, err = editFollowupFile(s, i, msg.ID, message, nil)
 				if err != nil {
 					log.Printf("editFollowup error: %v\n", err)
 					return

@@ -3,6 +3,8 @@ package main
 import (
 	"fmt"
 	"log"
+	"strconv"
+	"strings"
 	"sync"
 
 	"github.com/bwmarrin/discordgo"
@@ -95,6 +97,35 @@ var (
 					Type:        discordgo.ApplicationCommandOptionChannel,
 					Name:        "channel",
 					Description: "Which channel to retrieve messages from",
+					Required:    true,
+				},
+			},
+		},
+		{
+			Name:                     "wheel_status",
+			Description:              "Movie wheel",
+			DefaultMemberPermissions: &writePermission,
+			DMPermission:             &dmPermission,
+			Options: []*discordgo.ApplicationCommandOption{
+				{
+					Type:        discordgo.ApplicationCommandOptionInteger,
+					Name:        "round",
+					Description: "Which round to retrieve messages from",
+					Required:    false,
+					MinValue:    &integerMin,
+				},
+			},
+		},
+		{
+			Name:                     "wheel_add",
+			Description:              "Add a user to the wheel",
+			DefaultMemberPermissions: &writePermission,
+			DMPermission:             &dmPermission,
+			Options: []*discordgo.ApplicationCommandOption{
+				{
+					Type:        discordgo.ApplicationCommandOptionUser,
+					Name:        "user",
+					Description: "User to add to the wheel",
 					Required:    true,
 				},
 			},
@@ -194,8 +225,8 @@ var (
 				}
 			}
 			outputMessage = fmt.Sprintf("Retrieving messages for channel: <#%s>", channelID)
-			iMsg, _ := sendFollowup(s, i, outputMessage, []*discordgo.File{})
-			fMsg, _ := sendMessage(s, iMsg, "Retrieving messages...", []*discordgo.File{})
+			iMsg, _ := sendFollowup(s, i, outputMessage)
+			fMsg, _ := sendMessage(s, iMsg, "Retrieving messages...")
 			c := make(chan []*discordgo.Message)
 
 			go getAllChannelMessages(s, i, fMsg, channelID, c)
@@ -220,7 +251,7 @@ var (
 
 			outputMessage = fmt.Sprintf("Messages: %d\nHashes: %d", msgCount, hashCount)
 
-			editMessage(s, fMsg, outputMessage, []*discordgo.File{})
+			editMessage(s, fMsg, outputMessage)
 
 		},
 		"TTS": func(s *discordgo.Session, i *discordgo.InteractionCreate) {
@@ -282,6 +313,170 @@ var (
 			s.FollowupMessageCreate(i.Interaction, true, &discordgo.WebhookParams{
 				Content: fmt.Sprintf("Hashed: %d", count),
 			})
+		},
+		"wheel_status": func(s *discordgo.Session, i *discordgo.InteractionCreate) {
+			log.Printf("Received interaction: %s by %s", i.ApplicationCommandData().Name, i.Interaction.Member.User.Username)
+			deferResponse(s, i)
+			if len(wheel.Rounds) == 0 {
+				wheel.addRound()
+			}
+
+			var round int
+
+			for _, option := range i.ApplicationCommandData().Options {
+				if option.Name == "round" {
+					round = int(option.Value.(float64))
+				}
+			}
+
+			if round == 0 {
+				round = wheel.currentRound().ID
+			}
+
+			embed := wheel.statusEmbed(wheel.getRound(round))
+			s.FollowupMessageCreate(i.Interaction, true, &discordgo.WebhookParams{
+				Embeds:     []*discordgo.MessageEmbed{&embed},
+				Components: roundMessageComponents,
+			})
+		},
+		"wheel_add": func(s *discordgo.Session, i *discordgo.InteractionCreate) {
+			log.Printf("Received interaction: %s by %s", i.ApplicationCommandData().Name, i.Interaction.Member.User.Username)
+			deferEphemeralResponse(s, i)
+			var userid string
+
+			for _, option := range i.ApplicationCommandData().Options {
+				if option.Name == "user" {
+					userid = option.Value.(string)
+				}
+			}
+
+			if userid == "" {
+				sendFollowup(s, i, "Please specify a user to add to the wheel!")
+			}
+
+			member, _ := s.GuildMember(i.GuildID, userid)
+
+			var player player = player{
+				User: member.User,
+			}
+			wheel.addWheelOption(player)
+			s.FollowupMessageCreate(i.Interaction, true, &discordgo.WebhookParams{
+				Content: fmt.Sprintf("Added %s to the wheel!", player.User.Username),
+			})
+		},
+	}
+
+	componentHandlers = map[string]func(s *discordgo.Session, i *discordgo.InteractionCreate){
+		"button_refresh": func(s *discordgo.Session, i *discordgo.InteractionCreate) {
+			log.Printf("Received interaction: %s by %s", i.MessageComponentData().CustomID, i.Interaction.Member.User.Username)
+
+			embed := wheel.statusEmbed(wheel.currentRound())
+			s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+				Type: discordgo.InteractionResponseUpdateMessage,
+				Data: &discordgo.InteractionResponseData{
+					Embeds:     []*discordgo.MessageEmbed{&embed},
+					Components: roundMessageComponents,
+				},
+			})
+		},
+		"button_claim": func(s *discordgo.Session, i *discordgo.InteractionCreate) {
+			log.Printf("Received interaction: %s by %s", i.MessageComponentData().CustomID, i.Interaction.Member.User.Username)
+			deferEphemeralResponse(s, i)
+
+			var player player = player{
+				User: i.Interaction.Member.User,
+			}
+
+			wheel.addPlayer(player)
+
+			wheel.Rounds[wheel.currentRound().ID].addClaim(player)
+
+			s.FollowupMessageCreate(i.Interaction, true, &discordgo.WebhookParams{
+				Content: fmt.Sprintf("Claimed %s!", i.Interaction.Member.User.Username),
+			})
+		},
+		"button_bet": func(s *discordgo.Session, i *discordgo.InteractionCreate) {
+			log.Printf("Received interaction: %s by %s", i.MessageComponentData().CustomID, i.Interaction.Member.User.Username)
+			var remove bool
+			if strings.Contains(i.MessageComponentData().CustomID, "remove") {
+				remove = true
+			}
+			wheel.sendMenu(s, i, remove, false)
+		},
+		"button_winner": func(s *discordgo.Session, i *discordgo.InteractionCreate) {
+			log.Printf("Received interaction: %s by %s", i.MessageComponentData().CustomID, i.Interaction.Member.User.Username)
+			wheel.sendMenu(s, i, false, true)
+		},
+		"menu_bet": func(s *discordgo.Session, i *discordgo.InteractionCreate) {
+			log.Printf("Received interaction: %s by %s", i.MessageComponentData().CustomID, i.Interaction.Member.User.Username)
+			selectedUseer := i.MessageComponentData().Values
+
+			if strings.Contains(i.MessageComponentData().CustomID, "remove") {
+				member, _ := s.GuildMember(i.GuildID, selectedUseer[0])
+				var by player = player{
+					User: i.Interaction.Member.User,
+				}
+				var on player = player{
+					User: member.User,
+				}
+				wheel.Rounds[wheel.currentRound().ID].removeBetOnPlayer(by, on)
+				updateResponse(s, i, "Removed bet!")
+				return
+			} else if strings.Contains(i.MessageComponentData().CustomID, "winner") {
+				member, _ := s.GuildMember(i.GuildID, selectedUseer[0])
+				var player player = player{
+					User: member.User,
+				}
+				hasWinner := wheel.Rounds[wheel.currentRound().ID].hasWinner()
+				wheel.Rounds[wheel.currentRound().ID].setWinner(player)
+				if !hasWinner {
+					wheel.addRound()
+				}
+				updateResponse(s, i, "Set winner!")
+				return
+			}
+
+			wheel.sendModal(s, i, selectedUseer[0])
+		},
+	}
+
+	modalHandlers = map[string]func(s *discordgo.Session, i *discordgo.InteractionCreate){
+		"modal_bet": func(s *discordgo.Session, i *discordgo.InteractionCreate) {
+			log.Printf("Received interaction: %s by %s", i.ModalSubmitData().CustomID, i.Interaction.Member.User.Username)
+
+			userid := strings.Split(i.ModalSubmitData().CustomID, "-")[1]
+			user, _ := s.GuildMember(i.GuildID, userid)
+
+			var byPlayer player = player{
+				User: i.Interaction.Member.User,
+			}
+			var onPlayer player = player{
+				User: user.User,
+			}
+
+			amountString := i.ModalSubmitData().Components[0].(*discordgo.ActionsRow).Components[0].(*discordgo.TextInput).Value
+			amount, err := strconv.Atoi(amountString)
+			if err != nil {
+				updateResponse(s, i, "Invalid amount")
+				return
+			}
+
+			if amount > wheel.checkPlayerAvailableMoney(byPlayer) {
+				updateResponse(s, i, "You don't have that much money")
+				return
+			}
+
+			bet := bet{
+				By:     byPlayer,
+				On:     onPlayer,
+				Amount: amount,
+			}
+
+			wheel.Rounds[wheel.currentRound().ID].addBet(bet)
+			message := fmt.Sprintf("Bet on %s for %d", onPlayer.User.Username, amount)
+
+			updateResponse(s, i, message)
+
 		},
 	}
 )

@@ -18,70 +18,6 @@ type requestContent struct {
 	url  []string
 }
 
-func sendFollowup(s *discordgo.Session, i *discordgo.InteractionCreate, content string, files []*discordgo.File) (*discordgo.Message, error) {
-	msg, err := s.FollowupMessageCreate(i.Interaction, true, &discordgo.WebhookParams{
-		Content: content,
-		Files:   files,
-	})
-
-	return msg, err
-}
-
-func editFollowup(s *discordgo.Session, i *discordgo.InteractionCreate, followupID string, content string, files []*discordgo.File) (*discordgo.Message, error) {
-	msg, err := s.FollowupMessageEdit(i.Interaction, followupID, &discordgo.WebhookEdit{
-		Content: &content,
-		Files:   files,
-	})
-
-	return msg, err
-}
-
-func deferResponse(s *discordgo.Session, i *discordgo.InteractionCreate) {
-	err := s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
-		Type: discordgo.InteractionResponseDeferredChannelMessageWithSource,
-	})
-	if err != nil {
-		log.Println(err)
-	}
-}
-
-func deferEphemeralResponse(s *discordgo.Session, i *discordgo.InteractionCreate) {
-	err := s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
-		Type: discordgo.InteractionResponseDeferredChannelMessageWithSource,
-		Data: &discordgo.InteractionResponseData{
-			Flags: discordgo.MessageFlagsEphemeral,
-		},
-	})
-	if err != nil {
-		log.Println(err)
-	}
-}
-
-func sendMessage(s *discordgo.Session, m *discordgo.Message, content string, files []*discordgo.File) (*discordgo.Message, error) {
-	msg, err := s.ChannelMessageSendComplex(m.ChannelID, &discordgo.MessageSend{
-		Content:   content,
-		Reference: m.Reference(),
-		Files:     files,
-	})
-
-	return msg, err
-}
-
-// command to edit a given message the bot has sent
-func editMessage(s *discordgo.Session, m *discordgo.Message, content string, files []*discordgo.File) *discordgo.Message {
-	msg, err := s.ChannelMessageEditComplex(&discordgo.MessageEdit{
-		Content: &content,
-		ID:      m.ID,
-		Channel: m.ChannelID,
-		Files:   files,
-	})
-	if err != nil {
-		log.Println(err)
-	}
-
-	return msg
-}
-
 func linkFromIMessage(s *discordgo.Session, i *discordgo.InteractionCreate, m *discordgo.Message) string {
 	return fmt.Sprintf("https://discord.com/channels/%s/%s/%s", i.GuildID, m.ChannelID, m.ID)
 }
@@ -321,7 +257,7 @@ func getAllChannelMessages(s *discordgo.Session, i *discordgo.InteractionCreate,
 		lastMessageID = batch[len(batch)-1].ID
 		messagesRetrieved = len(batch)
 		count += messagesRetrieved
-		editMessage(s, m, fmt.Sprintf("Retrieved %d messages", count), []*discordgo.File{})
+		editMessage(s, m, fmt.Sprintf("Retrieved %d messages", count))
 		c <- batch
 	}
 

@@ -20,11 +20,14 @@ func init() {
 
 	// try to read, if it fails, write a new one anyways in writeHashToFile() then read in the function
 	readHashFromFile()
+	readWheelFromFile()
 
 	go func() {
 		for {
 			writeHashToFile()
 			log.Printf("Written %d hashes to file", len(hashStore.m))
+			writeWheelToFile()
+			log.Printf("Written %d rounds of game to file", len(wheel.Rounds))
 			time.Sleep(60 * time.Second)
 		}
 	}()
@@ -52,9 +55,14 @@ func main() {
 			if h, ok := commandHandlers[i.ApplicationCommandData().Name]; ok {
 				go h(s, i)
 			}
+		case discordgo.InteractionMessageComponent:
+			split := strings.Split(i.MessageComponentData().CustomID, "-")
+			if h, ok := componentHandlers[split[0]]; ok {
+				go h(s, i)
+			}
 		case discordgo.InteractionModalSubmit:
-			prefix := strings.Split(i.ModalSubmitData().CustomID, "-")
-			if h, ok := commandHandlers[prefix[0]]; ok {
+			split := strings.Split(i.ModalSubmitData().CustomID, "-")
+			if h, ok := modalHandlers[split[0]]; ok {
 				go h(s, i)
 			}
 		}
