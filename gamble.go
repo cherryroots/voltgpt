@@ -19,7 +19,6 @@ var (
 )
 
 func writeWheelToFile() {
-
 	if _, err := os.Stat("wheel.gob"); os.IsNotExist(err) {
 		file, err := os.Create("wheel.gob")
 		if err != nil {
@@ -90,7 +89,7 @@ type player struct {
 	User *discordgo.User
 }
 
-func (p player) ID() string {
+func (p player) id() string {
 	return p.User.ID
 }
 
@@ -113,8 +112,8 @@ func (g *game) addPlayer(player player) {
 }
 
 func (g *game) addRound() {
-	id := len(g.Rounds)
-	g.Rounds = append(g.Rounds, round{ID: id})
+	ID := len(g.Rounds)
+	g.Rounds = append(g.Rounds, round{ID: ID})
 }
 
 func (g *game) currentWheelOptions() []player {
@@ -128,7 +127,7 @@ func (g *game) currentWheelOptions() []player {
 			if !round.hasWinner() {
 				continue
 			}
-			if round.Winner.ID() == player.ID() {
+			if round.Winner.id() == player.id() {
 				picked = true
 				break
 			}
@@ -152,11 +151,11 @@ func (g *game) getRound(round int) *round {
 	return &g.Rounds[round-1]
 }
 
-func (g *game) getPlayerMoney(player player) int {
+func (g *game) getPlayerMoney(player player, round int) int {
 	var money int
-	for _, round := range g.Rounds {
+	for _, round := range g.Rounds[0 : round+1] {
 		for _, claim := range round.Claims {
-			if claim.ID() == player.ID() {
+			if claim.id() == player.id() {
 				money += 100
 			}
 		}
@@ -164,7 +163,7 @@ func (g *game) getPlayerMoney(player player) int {
 			if !round.hasWinner() {
 				continue
 			}
-			if bet.On.ID() == round.Winner.ID() {
+			if bet.On.id() == round.Winner.id() {
 				money += bet.Amount
 			} else {
 				money -= bet.Amount
@@ -174,11 +173,11 @@ func (g *game) getPlayerMoney(player player) int {
 	return money
 }
 
-func (g *game) checkPlayerAvailableMoney(player player) int {
-	money := g.getPlayerMoney(player)
+func (g *game) getPlayerAvailableMoney(player player) int {
+	money := g.getPlayerMoney(player, g.currentRound().ID)
 	var usedMoney int
 	for _, bet := range g.currentRound().Bets {
-		if bet.On.ID() == player.ID() {
+		if bet.On.id() == player.id() {
 			usedMoney += bet.Amount
 		}
 	}
@@ -188,7 +187,7 @@ func (g *game) checkPlayerAvailableMoney(player player) int {
 
 func (r *round) addBet(bet bet) {
 	for i, b := range r.Bets {
-		if b.By.ID() == bet.By.ID() && b.On.ID() == bet.On.ID() {
+		if b.By.id() == bet.By.id() && b.On.id() == bet.On.id() {
 			r.Bets[i] = bet
 			return
 		}
@@ -198,7 +197,7 @@ func (r *round) addBet(bet bet) {
 
 func (r *round) removeBetOnPlayer(by player, on player) {
 	for i, bet := range r.Bets {
-		if bet.By.ID() == by.ID() && bet.On.ID() == on.ID() {
+		if bet.By.id() == by.id() && bet.On.id() == on.id() {
 			r.Bets = append(r.Bets[:i], r.Bets[i+1:]...)
 		}
 	}
@@ -218,7 +217,7 @@ func (r *round) getWinners() []player {
 		return winners
 	}
 	for _, bet := range r.Bets {
-		if bet.On.ID() == r.Winner.ID() {
+		if bet.On.id() == r.Winner.id() {
 			winners = append(winners, bet.By)
 		}
 	}
@@ -231,7 +230,7 @@ func (r *round) getLosers() []player {
 		return losers
 	}
 	for _, bet := range r.Bets {
-		if bet.On.ID() == r.Winner.ID() {
+		if bet.On.id() == r.Winner.id() {
 			losers = append(losers, bet.By)
 		}
 	}
@@ -240,7 +239,7 @@ func (r *round) getLosers() []player {
 
 func (r *round) addClaim(player player) {
 	for _, c := range r.Claims {
-		if c.ID() == player.ID() {
+		if c.id() == player.id() {
 			return
 		}
 	}
@@ -261,7 +260,7 @@ func (g *game) statusEmbed(r *round) discordgo.MessageEmbed {
 	var playerNames, playerMoney string
 	for _, player := range g.Players {
 		playerNames += player.User.Username + "\n"
-		playerMoney += strconv.Itoa(g.getPlayerMoney(player)) + "\n"
+		playerMoney += strconv.Itoa(g.getPlayerMoney(player, r.ID)) + "\n"
 	}
 	var playerBetsBy, playerBetsOn, playerBetsAmount string
 	for _, bet := range r.Bets {
@@ -310,8 +309,12 @@ func (g *game) sendMenu(s *discordgo.Session, i *discordgo.InteractionCreate, re
 	for _, player := range g.currentWheelOptions() {
 		options = append(options, discordgo.SelectMenuOption{
 			Label: player.User.Username,
-			Value: player.ID(),
+			Value: player.id(),
 		})
+	}
+	if len(options) == 0 {
+		deferEphemeralResponse(s, i)
+		sendFollowup(s, i, "No players available")
 	}
 
 	var customID = "menu_bet"
@@ -346,11 +349,11 @@ func (g *game) sendMenu(s *discordgo.Session, i *discordgo.InteractionCreate, re
 	})
 }
 
-func (g *game) sendModal(s *discordgo.Session, i *discordgo.InteractionCreate, userid string) {
+func (g *game) sendModal(s *discordgo.Session, i *discordgo.InteractionCreate, userID string) {
 	err := s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 		Type: discordgo.InteractionResponseModal,
 		Data: &discordgo.InteractionResponseData{
-			CustomID: "modal_bet-" + userid,
+			CustomID: "modal_bet-" + userID,
 			Title:    "Place a Bet",
 			Components: []discordgo.MessageComponent{
 				discordgo.ActionsRow{

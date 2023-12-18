@@ -283,11 +283,12 @@ var (
 					if result.message.Timestamp.After(message.Timestamp) {
 						continue
 					}
+					timestamp := result.message.Timestamp.UTC().Format("2006-01-02")
 					if result.message.Author.ID == i.Interaction.Member.User.ID {
-						messageContent += fmt.Sprintf("%dd: Snail of yourself! %s\n", result.distance, linkFromIMessage(s, i, result.message))
+						messageContent += fmt.Sprintf("%dd: %s: Snail of yourself! %s\n", result.distance, timestamp, linkFromIMessage(s, i, result.message))
 						continue
 					}
-					messageContent += fmt.Sprintf("%dd: Snail of %s! %s\n", result.distance, result.message.Author.Username, linkFromIMessage(s, i, result.message))
+					messageContent += fmt.Sprintf("%dd: %s: Snail of %s! %s\n", result.distance, timestamp, result.message.Author.Username, linkFromIMessage(s, i, result.message))
 				}
 			}
 
@@ -330,7 +331,7 @@ var (
 			}
 
 			if round == 0 {
-				round = wheel.currentRound().ID
+				round = wheel.currentRound().ID + 1
 			}
 
 			embed := wheel.statusEmbed(wheel.getRound(round))
@@ -342,19 +343,19 @@ var (
 		"wheel_add": func(s *discordgo.Session, i *discordgo.InteractionCreate) {
 			log.Printf("Received interaction: %s by %s", i.ApplicationCommandData().Name, i.Interaction.Member.User.Username)
 			deferEphemeralResponse(s, i)
-			var userid string
+			var userID string
 
 			for _, option := range i.ApplicationCommandData().Options {
 				if option.Name == "user" {
-					userid = option.Value.(string)
+					userID = option.Value.(string)
 				}
 			}
 
-			if userid == "" {
+			if userID == "" {
 				sendFollowup(s, i, "Please specify a user to add to the wheel!")
 			}
 
-			member, _ := s.GuildMember(i.GuildID, userid)
+			member, _ := s.GuildMember(i.GuildID, userID)
 
 			var player player = player{
 				User: member.User,
@@ -444,8 +445,8 @@ var (
 		"modal_bet": func(s *discordgo.Session, i *discordgo.InteractionCreate) {
 			log.Printf("Received interaction: %s by %s", i.ModalSubmitData().CustomID, i.Interaction.Member.User.Username)
 
-			userid := strings.Split(i.ModalSubmitData().CustomID, "-")[1]
-			user, _ := s.GuildMember(i.GuildID, userid)
+			userID := strings.Split(i.ModalSubmitData().CustomID, "-")[1]
+			user, _ := s.GuildMember(i.GuildID, userID)
 
 			var byPlayer player = player{
 				User: i.Interaction.Member.User,
@@ -461,7 +462,7 @@ var (
 				return
 			}
 
-			if amount > wheel.checkPlayerAvailableMoney(byPlayer) {
+			if amount > wheel.getPlayerAvailableMoney(byPlayer) {
 				updateResponse(s, i, "You don't have that much money")
 				return
 			}
