@@ -8,7 +8,7 @@ import (
 	"syscall"
 	"time"
 
-	discordgo "github.com/bwmarrin/discordgo"
+	"github.com/bwmarrin/discordgo"
 	"github.com/joho/godotenv"
 )
 
@@ -18,7 +18,7 @@ func init() {
 		log.Print("No .env file found")
 	}
 
-	// try to read, if it fails, write a new one anyways in writeHashToFile() then read in the function
+	// try to read, if it fails, write a new one anyway in writeHashToFile() then read in the function
 	readHashFromFile()
 	readWheelFromFile()
 
@@ -28,7 +28,7 @@ func init() {
 			log.Printf("Written %d hashes to file", len(hashStore.m))
 			writeWheelToFile()
 			log.Printf("Written %d rounds of game to file", len(wheel.Rounds))
-			time.Sleep(60 * time.Second)
+			time.Sleep(10 * time.Minute)
 		}
 	}()
 }

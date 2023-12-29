@@ -10,7 +10,7 @@ import (
 	"sync"
 
 	"github.com/bwmarrin/discordgo"
-	openai "github.com/sashabaranov/go-openai"
+	"github.com/sashabaranov/go-openai"
 )
 
 type requestContent struct {
@@ -18,7 +18,7 @@ type requestContent struct {
 	url  []string
 }
 
-func linkFromIMessage(s *discordgo.Session, i *discordgo.InteractionCreate, m *discordgo.Message) string {
+func linkFromIMessage(i *discordgo.InteractionCreate, m *discordgo.Message) string {
 	return fmt.Sprintf("https://discord.com/channels/%s/%s/%s", i.GuildID, m.ChannelID, m.ID)
 }
 
@@ -59,11 +59,11 @@ func createMessage(role string, name string, content requestContent) []openai.Ch
 		})
 	}
 
-	for _, url := range content.url {
+	for _, u := range content.url {
 		message[0].MultiContent = append(message[0].MultiContent, openai.ChatMessagePart{
 			Type: openai.ChatMessagePartTypeImageURL,
 			ImageURL: &openai.ChatMessageImageURL{
-				URL:    url,
+				URL:    u,
 				Detail: openai.ImageURLDetailLow,
 			},
 		})
@@ -78,7 +78,7 @@ func createBatchMessages(s *discordgo.Session, messages []*discordgo.Message) []
 	for _, message := range messages {
 		content := requestContent{
 			text: message.Content,
-			url:  getMessageImages(s, message),
+			url:  getMessageImages(message),
 		}
 		if message.Author.ID == s.State.User.ID {
 			prependMessage(openai.ChatMessageRoleAssistant, message.Author.Username, content, &batchMessages)
@@ -182,7 +182,7 @@ func splitParagraph(message string) (string, string) {
 
 func checkForReplies(s *discordgo.Session, message *discordgo.Message, cache []*discordgo.Message, chatMessages *[]openai.ChatCompletionMessage) {
 	if message.Type == discordgo.MessageTypeReply {
-		// check if the message has a refference, if not get it
+		// check if the message has a reference, if not get it
 		if message.ReferencedMessage == nil {
 			if message.MessageReference != nil {
 				cachedMessage := checkCache(cache, message.MessageReference.MessageID)
@@ -196,7 +196,7 @@ func checkForReplies(s *discordgo.Session, message *discordgo.Message, cache []*
 		replyMessage := cleanMessage(s, message.ReferencedMessage)
 		content := requestContent{
 			text: replyMessage.Content,
-			url:  getMessageImages(s, replyMessage),
+			url:  getMessageImages(replyMessage),
 		}
 		if replyMessage.Author.ID == s.State.User.ID {
 			prependMessage(openai.ChatMessageRoleAssistant, replyMessage.Author.Username, content, chatMessages)
@@ -219,37 +219,37 @@ func getMessagesBefore(s *discordgo.Session, channelID string, count int, messag
 }
 
 func getChannelMessages(s *discordgo.Session, channelID string, count int) []*discordgo.Message {
-	// if the count is over 100 split into multiple runs with the last message id being the beforeid argument
+	// if the count is over 100 split into multiple runs with the last message id being the before id argument
 	var messages []*discordgo.Message
 	var lastMessageID string
 
-	// Calculate the number of full iterations and the remainder, dividing ints floors the result
+	// Calculate the number of full iterations and the remainder, dividing an int floors the result
 	iterations := count / 100
 	remainder := count % 100
 
 	// Fetch full iterations of 100 messages
 	for i := 0; i < iterations; i++ {
-		var batch []*discordgo.Message = getMessagesBefore(s, channelID, 100, lastMessageID)
+		var batch = getMessagesBefore(s, channelID, 100, lastMessageID)
 		lastMessageID = batch[len(batch)-1].ID
 		messages = append(messages, batch...)
 	}
 
 	// Fetch the remainder of messages if there are any
 	if remainder > 0 {
-		var batch []*discordgo.Message = getMessagesBefore(s, channelID, remainder, lastMessageID)
+		var batch = getMessagesBefore(s, channelID, remainder, lastMessageID)
 		messages = append(messages, batch...)
 	}
 	return messages
 }
 
-func getAllChannelMessages(s *discordgo.Session, i *discordgo.InteractionCreate, m *discordgo.Message, channelID string, c chan []*discordgo.Message) {
+func getAllChannelMessages(s *discordgo.Session, m *discordgo.Message, channelID string, c chan []*discordgo.Message) {
 	defer close(c)
 	var lastMessageID string
 	messagesRetrieved := 100
 	count := 0
 
 	for messagesRetrieved == 100 {
-		var batch []*discordgo.Message = getMessagesBefore(s, channelID, 100, lastMessageID)
+		var batch = getMessagesBefore(s, channelID, 100, lastMessageID)
 		if len(batch) == 0 || batch == nil {
 			log.Println("getAllChannelMessages: no messages retrieved")
 			break
@@ -257,14 +257,17 @@ func getAllChannelMessages(s *discordgo.Session, i *discordgo.InteractionCreate,
 		lastMessageID = batch[len(batch)-1].ID
 		messagesRetrieved = len(batch)
 		count += messagesRetrieved
-		editMessage(s, m, fmt.Sprintf("Retrieved %d messages", count))
+		_, err := editMessage(s, m, fmt.Sprintf("Retrieved %d messages", count))
+		if err != nil {
+			log.Println(err)
+		}
 		c <- batch
 	}
 
 	log.Println("getAllChannelMessages: done")
 }
 
-func getMessageImages(s *discordgo.Session, m *discordgo.Message) []string {
+func getMessageImages(m *discordgo.Message) []string {
 	seen := make(map[string]bool)
 	var urls []string
 	var uniqueURLs []string
@@ -289,7 +292,7 @@ func getMessageImages(s *discordgo.Session, m *discordgo.Message) []string {
 		}
 	}
 
-	regex := regexp.MustCompile(`(?m)[<]?(https?:\/\/[^\s<>]+)[>]?\b`)
+	regex := regexp.MustCompile(`(?m)<?(https?://[^\s<>]+)>?\b`)
 	result := regex.FindAllStringSubmatch(m.Content, -1)
 	for _, match := range result {
 		if isImageURL(match[1]) {
@@ -297,11 +300,11 @@ func getMessageImages(s *discordgo.Session, m *discordgo.Message) []string {
 		}
 	}
 
-	for _, url := range urls {
-		checkUrl := cleanUrl(url)
+	for _, u := range urls {
+		checkUrl := cleanUrl(u)
 		if !seen[checkUrl] {
 			seen[checkUrl] = true
-			uniqueURLs = append(uniqueURLs, url)
+			uniqueURLs = append(uniqueURLs, u)
 		}
 	}
 
@@ -318,8 +321,8 @@ func checkCache(cache []*discordgo.Message, messageID string) *discordgo.Message
 }
 
 func cleanMessage(s *discordgo.Session, message *discordgo.Message) *discordgo.Message {
-	botid := fmt.Sprintf("<@%s>", s.State.User.ID)
-	mentionRegex := regexp.MustCompile(botid)
+	botID := fmt.Sprintf("<@%s>", s.State.User.ID)
+	mentionRegex := regexp.MustCompile(botID)
 	message.Content = mentionRegex.ReplaceAllString(message.Content, "")
 	message.Content = strings.TrimSpace(message.Content)
 	return message
@@ -364,7 +367,7 @@ func hasImageURL(m *discordgo.Message) bool {
 		}
 	}
 
-	regex := regexp.MustCompile(`(?m)[<]?(https?:\/\/[^\s<>]+)[>]?\b`)
+	regex := regexp.MustCompile(`(?m)<?(https?://[^\s<>]+)>?\b`)
 	result := regex.FindAllStringSubmatch(m.Content, -1)
 	for _, match := range result {
 		if isImageURL(match[1]) {

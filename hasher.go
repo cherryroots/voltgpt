@@ -98,9 +98,9 @@ func readHashFromFile() {
 	}
 }
 
-func hashAttachments(s *discordgo.Session, m *discordgo.Message, store bool) ([]string, int) {
+func hashAttachments(m *discordgo.Message, store bool) ([]string, int) {
 	// Get the data
-	images := getMessageImages(s, m)
+	images := getMessageImages(m)
 	var hashes []string
 	var count int
 
@@ -179,7 +179,7 @@ func olderHash(hash string, message *discordgo.Message) bool {
 
 func checkInHashes(s *discordgo.Session, m *discordgo.Message) (bool, []hashResult) {
 	var matchedMessages []hashResult
-	messageHashes, _ := hashAttachments(s, m, false)
+	messageHashes, _ := hashAttachments(m, false)
 	hashStore.RLock()
 	defer hashStore.RUnlock()
 	// copy the map

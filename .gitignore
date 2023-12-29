@@ -1,5 +1,10 @@
 .env
 tmp
 voltgpt
+.uuid
 *.gob
 *debug_bin*
+/.idea/.gitignore
+/.idea/modules.xml
+/.idea/vcs.xml
+/.idea/voltgpt.iml

@@ -138,9 +138,17 @@ func sendMessageChatResponse(s *discordgo.Session, m *discordgo.MessageCreate, m
 			// At the end of the stream
 			// Send the last message state
 			message = strings.TrimPrefix(message, "...")
-			editMessageFile(s, msg, message, nil)
+			_, err = editMessageFile(s, msg, message, nil)
+			if err != nil {
+				logSendErrorMessage(s, m.Message, err.Error())
+				return
+			}
 			files := splitTTS(fullMessage, false)
-			editMessageFile(s, msg, message, files)
+			_, err = editMessageFile(s, msg, message, files)
+			if err != nil {
+				logSendErrorMessage(s, m.Message, err.Error())
+				return
+			}
 			return
 		}
 		if err != nil {
@@ -161,7 +169,11 @@ func sendMessageChatResponse(s *discordgo.Session, m *discordgo.MessageCreate, m
 					lastPart = "..."
 				}
 
-				editMessageFile(s, msg, firstPart, nil)
+				_, err = editMessageFile(s, msg, firstPart, nil)
+				if err != nil {
+					logSendErrorMessage(s, m.Message, err.Error())
+					return
+				}
 				msg, err = sendMessageFile(s, msg, lastPart, nil)
 				if err != nil {
 					logSendErrorMessage(s, m.Message, err.Error())
@@ -169,7 +181,11 @@ func sendMessageChatResponse(s *discordgo.Session, m *discordgo.MessageCreate, m
 				}
 				message = lastPart
 			} else {
-				editMessageFile(s, msg, message, nil)
+				_, err = editMessageFile(s, msg, message, nil)
+				if err != nil {
+					logSendErrorMessage(s, m.Message, err.Error())
+					return
+				}
 			}
 		}
 	}
@@ -216,9 +232,17 @@ func sendInteractionChatResponse(s *discordgo.Session, i *discordgo.InteractionC
 	for {
 		response, err := stream.Recv()
 		if errors.Is(err, io.EOF) {
-			editFollowupFile(s, i, msg.ID, message, nil)
+			_, err = editFollowupFile(s, i, msg.ID, message, nil)
+			if err != nil {
+				log.Printf("editFollowup error: %v\n", err)
+				return
+			}
 			files := splitTTS(fullMessage, false)
-			editFollowupFile(s, i, msg.ID, message, files)
+			_, err = editFollowupFile(s, i, msg.ID, message, files)
+			if err != nil {
+				log.Printf("editFollowup error: %v\n", err)
+				return
+			}
 			return
 		}
 		if err != nil {

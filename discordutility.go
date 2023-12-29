@@ -6,13 +6,14 @@ import (
 	"github.com/bwmarrin/discordgo"
 )
 
-func updateResponse(s *discordgo.Session, i *discordgo.InteractionCreate, content string) {
-	s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+func updateResponse(s *discordgo.Session, i *discordgo.InteractionCreate, content string) error {
+	err := s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 		Type: discordgo.InteractionResponseUpdateMessage,
 		Data: &discordgo.InteractionResponseData{
 			Content: content,
 		},
 	})
+	return err
 }
 
 func sendFollowup(s *discordgo.Session, i *discordgo.InteractionCreate, content string) (*discordgo.Message, error) {
@@ -68,32 +69,26 @@ func sendMessageFile(s *discordgo.Session, m *discordgo.Message, content string,
 	return msg, err
 }
 
-func editMessage(s *discordgo.Session, m *discordgo.Message, content string) *discordgo.Message {
+func editMessage(s *discordgo.Session, m *discordgo.Message, content string) (*discordgo.Message, error) {
 	msg, err := s.ChannelMessageEditComplex(&discordgo.MessageEdit{
 		Content: &content,
 		ID:      m.ID,
 		Channel: m.ChannelID,
 	})
-	if err != nil {
-		log.Println(err)
-	}
 
-	return msg
+	return msg, err
 }
 
 // command to edit a given message the bot has sent
-func editMessageFile(s *discordgo.Session, m *discordgo.Message, content string, files []*discordgo.File) *discordgo.Message {
+func editMessageFile(s *discordgo.Session, m *discordgo.Message, content string, files []*discordgo.File) (*discordgo.Message, error) {
 	msg, err := s.ChannelMessageEditComplex(&discordgo.MessageEdit{
 		Content: &content,
 		ID:      m.ID,
 		Channel: m.ChannelID,
 		Files:   files,
 	})
-	if err != nil {
-		log.Println(err)
-	}
 
-	return msg
+	return msg, err
 }
 
 func deferResponse(s *discordgo.Session, i *discordgo.InteractionCreate) {

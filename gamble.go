@@ -203,8 +203,8 @@ func (r *round) removeBetOnPlayer(by player, on player) {
 	}
 }
 
-func (r *round) setWinner(picked player) {
-	r.Winner = picked
+func (r *round) setWinner(winner player) {
+	r.Winner = winner
 }
 
 func (r *round) hasWinner() bool {
@@ -314,7 +314,10 @@ func (g *game) sendMenu(s *discordgo.Session, i *discordgo.InteractionCreate, re
 	}
 	if len(options) == 0 {
 		deferEphemeralResponse(s, i)
-		sendFollowup(s, i, "No players available")
+		_, err := sendFollowup(s, i, "No players available")
+		if err != nil {
+			log.Println(err)
+		}
 	}
 
 	var customID = "menu_bet"
@@ -328,7 +331,7 @@ func (g *game) sendMenu(s *discordgo.Session, i *discordgo.InteractionCreate, re
 		content = "Pick a Winner"
 	}
 
-	s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+	err := s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 		Type: discordgo.InteractionResponseChannelMessageWithSource,
 		Data: &discordgo.InteractionResponseData{
 			Content: content,
@@ -347,6 +350,9 @@ func (g *game) sendMenu(s *discordgo.Session, i *discordgo.InteractionCreate, re
 			},
 		},
 	})
+	if err != nil {
+		log.Println(err)
+	}
 }
 
 func (g *game) sendModal(s *discordgo.Session, i *discordgo.InteractionCreate, userID string) {
