@@ -282,7 +282,7 @@ var (
 
 			message := i.ApplicationCommandData().Resolved.Messages[i.ApplicationCommandData().TargetID]
 
-			isSnail, results := checkInHashes(s, message)
+			isSnail, results := checkInHashes(message)
 			var messageContent string
 			if isSnail {
 				for _, result := range results {

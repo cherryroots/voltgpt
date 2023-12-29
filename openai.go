@@ -11,7 +11,7 @@ import (
 
 	"github.com/bwmarrin/discordgo"
 	"github.com/pkoukk/tiktoken-go"
-	openai "github.com/sashabaranov/go-openai"
+	"github.com/sashabaranov/go-openai"
 )
 
 func getTTSFile(message string, index string, hd bool) []*discordgo.File {

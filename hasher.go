@@ -177,7 +177,7 @@ func olderHash(hash string, message *discordgo.Message) bool {
 	return true
 }
 
-func checkInHashes(s *discordgo.Session, m *discordgo.Message) (bool, []hashResult) {
+func checkInHashes(m *discordgo.Message) (bool, []hashResult) {
 	var matchedMessages []hashResult
 	messageHashes, _ := hashAttachments(m, false)
 	hashStore.RLock()
