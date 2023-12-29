@@ -128,6 +128,12 @@ var (
 					Description: "User to add to the wheel",
 					Required:    true,
 				},
+				{
+					Type:        discordgo.ApplicationCommandOptionBoolean,
+					Name:        "remove",
+					Description: "Remove the user from the wheel",
+					Required:    false,
+				},
 			},
 		},
 		{
@@ -338,7 +344,7 @@ var (
 				round = wheel.currentRound().ID + 1
 			}
 
-			embed := wheel.statusEmbed(wheel.getRound(round))
+			embed := wheel.statusEmbed(wheel.round(round))
 			_, err := s.FollowupMessageCreate(i.Interaction, true, &discordgo.WebhookParams{
 				Embeds:     []*discordgo.MessageEmbed{&embed},
 				Components: roundMessageComponents,
@@ -351,10 +357,14 @@ var (
 			log.Printf("Received interaction: %s by %s", i.ApplicationCommandData().Name, i.Interaction.Member.User.Username)
 			deferEphemeralResponse(s, i)
 			var userID string
+			var remove bool
 
 			for _, option := range i.ApplicationCommandData().Options {
 				if option.Name == "user" {
 					userID = option.Value.(string)
+				}
+				if option.Name == "remove" {
+					remove = option.Value.(bool)
 				}
 			}
 
@@ -367,12 +377,19 @@ var (
 
 			member, _ := s.GuildMember(i.GuildID, userID)
 
+			var message string
 			var player = player{
 				User: member.User,
 			}
-			wheel.addWheelOption(player)
+			if remove {
+				wheel.removeWheelOption(player)
+				message = fmt.Sprintf("Removed %s from the wheel!", player.User.Username)
+			} else {
+				wheel.addWheelOption(player)
+				message = fmt.Sprintf("Added %s to the wheel!", player.User.Username)
+			}
 
-			_, err := sendFollowup(s, i, fmt.Sprintf("Added %s to the wheel!", player.User.Username))
+			_, err := sendFollowup(s, i, message)
 			if err != nil {
 				log.Println(err)
 			}
@@ -407,15 +424,16 @@ var (
 
 			wheel.Rounds[wheel.currentRound().ID].addClaim(player)
 
-			_, err := s.FollowupMessageCreate(i.Interaction, true, &discordgo.WebhookParams{
-				Content: fmt.Sprintf("Claimed %s!", i.Interaction.Member.User.Username),
-			})
+			_, err := sendFollowup(s, i, fmt.Sprintf("Claimed 100!"))
 			if err != nil {
 				log.Println(err)
 			}
 		},
 		"button_bet": func(s *discordgo.Session, i *discordgo.InteractionCreate) {
 			log.Printf("Received interaction: %s by %s", i.MessageComponentData().CustomID, i.Interaction.Member.User.Username)
+
+			wheel.addPlayer(player{User: i.Interaction.Member.User})
+
 			var remove bool
 			if strings.Contains(i.MessageComponentData().CustomID, "remove") {
 				remove = true
@@ -429,6 +447,7 @@ var (
 		"menu_bet": func(s *discordgo.Session, i *discordgo.InteractionCreate) {
 			log.Printf("Received interaction: %s by %s", i.MessageComponentData().CustomID, i.Interaction.Member.User.Username)
 			selectedUser := i.MessageComponentData().Values
+			round := wheel.currentRound().ID
 
 			if strings.Contains(i.MessageComponentData().CustomID, "remove") {
 				member, _ := s.GuildMember(i.GuildID, selectedUser[0])
@@ -438,22 +457,32 @@ var (
 				var on = player{
 					User: member.User,
 				}
-				wheel.Rounds[wheel.currentRound().ID].removeBetOnPlayer(by, on)
+				wheel.Rounds[round].removeBet(by, on)
 				err := updateResponse(s, i, "Removed bet!")
 				if err != nil {
 					log.Println(err)
 				}
 				return
-			} else if strings.Contains(i.MessageComponentData().CustomID, "winner") {
+			}
+			if strings.Contains(i.MessageComponentData().CustomID, "winner") {
 				member, _ := s.GuildMember(i.GuildID, selectedUser[0])
 				var player = player{
 					User: member.User,
 				}
-				hasWinner := wheel.Rounds[wheel.currentRound().ID].hasWinner()
-				wheel.Rounds[wheel.currentRound().ID].setWinner(player)
-				if !hasWinner {
+
+				if len(wheel.Rounds[round].Bets) == 0 {
+					err := updateResponse(s, i, "No bets!")
+					if err != nil {
+						log.Println(err)
+					}
+					return
+				}
+
+				if !wheel.Rounds[round].hasWinner() {
 					wheel.addRound()
 				}
+
+				wheel.Rounds[round].setWinner(player)
 				err := updateResponse(s, i, "Set winner!")
 				if err != nil {
 					log.Println(err)
@@ -479,8 +508,8 @@ var (
 				User: user.User,
 			}
 
-			amountString := i.ModalSubmitData().Components[0].(*discordgo.ActionsRow).Components[0].(*discordgo.TextInput).Value
-			amount, err := strconv.Atoi(amountString)
+			modalInput := i.ModalSubmitData().Components[0].(*discordgo.ActionsRow).Components[0].(*discordgo.TextInput).Value
+			amount, err := strconv.Atoi(modalInput)
 			if err != nil {
 				err := updateResponse(s, i, "Invalid amount")
 				if err != nil {
@@ -489,8 +518,30 @@ var (
 				return
 			}
 
-			if amount > wheel.getPlayerAvailableMoney(byPlayer) {
+			options := len(wheel.currentWheelOptions())
+			playerBets := wheel.playerBets(byPlayer)
+			if options%2 == 1 {
+				options += 1
+			}
+			if playerBets >= (options / 2) {
+				err := updateResponse(s, i, "You can only bet on half of the players")
+				if err != nil {
+					log.Println(err)
+				}
+				return
+
+			}
+
+			if amount > wheel.playerUsableMoney(byPlayer) {
 				err := updateResponse(s, i, "You don't have that much money")
+				if err != nil {
+					log.Println(err)
+				}
+				return
+			}
+
+			if amount <= 0 {
+				err := updateResponse(s, i, "You can't place a bet of 0 or lower")
 				if err != nil {
 					log.Println(err)
 				}

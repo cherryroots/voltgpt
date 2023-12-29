@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"encoding/gob"
+	"fmt"
 	"log"
 	"os"
 	"strconv"
@@ -73,7 +74,7 @@ type game struct {
 	Players      []player
 }
 type round struct {
-	ID     int
+	ID     int // id is 0-indexed
 	Winner player
 	Claims []player
 	Bets   []bet
@@ -83,6 +84,12 @@ type bet struct {
 	Amount int
 	By     player
 	On     player
+}
+
+type result struct {
+	player player
+	bet    bet
+	won    bool
 }
 
 type player struct {
@@ -100,6 +107,15 @@ func (g *game) addWheelOption(option player) {
 		}
 	}
 	g.WheelOptions = append(g.WheelOptions, option)
+}
+
+func (g *game) removeWheelOption(option player) {
+	for i, player := range g.WheelOptions {
+		if player.User.ID == option.User.ID {
+			g.WheelOptions = append(g.WheelOptions[:i], g.WheelOptions[i+1:]...)
+			return
+		}
+	}
 }
 
 func (g *game) addPlayer(player player) {
@@ -140,41 +156,85 @@ func (g *game) currentWheelOptions() []player {
 	return currentPlayers
 }
 
+func (g *game) wheelOptions(round int) []player {
+	if round >= len(g.Rounds) {
+		return g.currentWheelOptions()
+	}
+
+	players := g.WheelOptions
+	var currentPlayers []player
+	for _, player := range players {
+		var picked bool
+		for _, round := range g.Rounds[0:round] {
+			// if no round winner
+			if !round.hasWinner() {
+				continue
+			}
+			if round.Winner.id() == player.id() {
+				picked = true
+				break
+			}
+		}
+		if !picked {
+			currentPlayers = append(currentPlayers, player)
+		}
+	}
+
+	return currentPlayers
+}
+
 func (g *game) currentRound() *round {
+	if len(g.Rounds) == 0 {
+		return nil
+	}
 	return &g.Rounds[len(g.Rounds)-1]
 }
 
-func (g *game) getRound(round int) *round {
+func (g *game) round(round int) *round {
 	if round >= len(g.Rounds) {
 		return g.currentRound()
 	}
 	return &g.Rounds[round-1]
 }
 
-func (g *game) getPlayerMoney(player player, round int) int {
+func (g *game) playerMoney(player player, round int, skipLast bool) int {
 	var money int
-	for _, round := range g.Rounds[0 : round+1] {
-		for _, claim := range round.Claims {
+	for _, r := range g.Rounds[0 : round+1] {
+		for _, claim := range r.Claims {
 			if claim.id() == player.id() {
 				money += 100
 			}
 		}
-		for _, bet := range round.Bets {
-			if !round.hasWinner() {
-				continue
-			}
-			if bet.On.id() == round.Winner.id() {
-				money += bet.Amount
-			} else {
-				money -= bet.Amount
-			}
+		if skipLast && r.ID == g.Rounds[round].ID {
+			continue
+		}
+		money += g.payout(player, r)
+	}
+	return money
+}
+
+func (g *game) payout(player player, r round) int {
+	if !r.hasWinner() {
+		return 0
+	}
+
+	var money int
+	options := len(g.wheelOptions(r.ID))
+	for _, bet := range r.Bets {
+		if bet.By.id() != player.id() {
+			continue
+		}
+		if bet.On.id() == r.Winner.id() {
+			money += bet.Amount * max(options-1, 0)
+		} else {
+			money -= bet.Amount
 		}
 	}
 	return money
 }
 
-func (g *game) getPlayerAvailableMoney(player player) int {
-	money := g.getPlayerMoney(player, g.currentRound().ID)
+func (g *game) playerUsableMoney(player player) int {
+	money := g.playerMoney(player, g.currentRound().ID, false)
 	var usedMoney int
 	for _, bet := range g.currentRound().Bets {
 		if bet.On.id() == player.id() {
@@ -183,6 +243,18 @@ func (g *game) getPlayerAvailableMoney(player player) int {
 	}
 
 	return money - usedMoney
+}
+
+func (g *game) playerBets(player player) int {
+	round := g.currentRound()
+	var bets int
+	for _, bet := range round.Bets {
+		if bet.By.id() == player.id() {
+			bets += 1
+		}
+	}
+
+	return bets
 }
 
 func (r *round) addBet(bet bet) {
@@ -195,7 +267,7 @@ func (r *round) addBet(bet bet) {
 	r.Bets = append(r.Bets, bet)
 }
 
-func (r *round) removeBetOnPlayer(by player, on player) {
+func (r *round) removeBet(by player, on player) {
 	for i, bet := range r.Bets {
 		if bet.By.id() == by.id() && bet.On.id() == on.id() {
 			r.Bets = append(r.Bets[:i], r.Bets[i+1:]...)
@@ -211,30 +283,30 @@ func (r *round) hasWinner() bool {
 	return r.Winner.User != nil
 }
 
-func (r *round) getWinners() []player {
-	var winners []player
+func (r *round) roundOutcome() []result {
+	var results []result
 	if !r.hasWinner() {
-		return winners
+		return results
 	}
 	for _, bet := range r.Bets {
+		var outcome result
 		if bet.On.id() == r.Winner.id() {
-			winners = append(winners, bet.By)
+			outcome = result{
+				player: bet.By,
+				bet:    bet,
+				won:    true,
+			}
+		} else {
+			outcome = result{
+				player: bet.By,
+				bet:    bet,
+				won:    false,
+			}
 		}
+		results = append(results, outcome)
 	}
-	return winners
-}
 
-func (r *round) getLosers() []player {
-	var losers []player
-	if !r.hasWinner() {
-		return losers
-	}
-	for _, bet := range r.Bets {
-		if bet.On.id() == r.Winner.id() {
-			losers = append(losers, bet.By)
-		}
-	}
-	return losers
+	return results
 }
 
 func (r *round) addClaim(player player) {
@@ -247,6 +319,15 @@ func (r *round) addClaim(player player) {
 }
 
 func (g *game) statusEmbed(r *round) discordgo.MessageEmbed {
+	if r == nil {
+		return discordgo.MessageEmbed{
+			Author: &discordgo.MessageEmbedAuthor{},
+			Color:  0x00ff00,
+			Title:  "Round " + strconv.Itoa(len(g.Rounds)),
+			Fields: []*discordgo.MessageEmbedField{},
+		}
+	}
+
 	embed := discordgo.MessageEmbed{
 		Author: &discordgo.MessageEmbedAuthor{},
 		Color:  0x00ff00,
@@ -255,12 +336,12 @@ func (g *game) statusEmbed(r *round) discordgo.MessageEmbed {
 	}
 	var winner string
 	if r.hasWinner() {
-		winner = r.Winner.User.Username
+		winner = "Winner: " + r.Winner.User.Username
 	}
 	var playerNames, playerMoney string
 	for _, player := range g.Players {
 		playerNames += player.User.Username + "\n"
-		playerMoney += strconv.Itoa(g.getPlayerMoney(player, r.ID)) + "\n"
+		playerMoney += strconv.Itoa(g.playerMoney(player, r.ID, true)) + "\n"
 	}
 	var playerBetsBy, playerBetsOn, playerBetsAmount string
 	for _, bet := range r.Bets {
@@ -268,9 +349,19 @@ func (g *game) statusEmbed(r *round) discordgo.MessageEmbed {
 		playerBetsOn += bet.On.User.Username + "\n"
 		playerBetsAmount += strconv.Itoa(bet.Amount) + "\n"
 	}
+	var outcome, outcomeAmount string
+	for _, result := range r.roundOutcome() {
+		if result.won {
+			outcome += fmt.Sprintf("Won: %s\n", result.player.User.Username)
+			outcomeAmount += strconv.Itoa(g.payout(result.player, *r)) + "\n"
+		} else {
+			outcome += fmt.Sprintf("Lost: %s\n", result.player.User.Username)
+			outcomeAmount += strconv.Itoa(g.payout(result.player, *r)) + "\n"
+		}
+	}
 	embed.Fields = append(embed.Fields, &discordgo.MessageEmbedField{
-		Name:  "Player Statuses",
-		Value: "Winner: " + winner,
+		Name:  "✨ Player Statuses ✨",
+		Value: winner,
 	})
 	embed.Fields = append(embed.Fields, &discordgo.MessageEmbedField{
 		Name:   "Players",
@@ -283,7 +374,7 @@ func (g *game) statusEmbed(r *round) discordgo.MessageEmbed {
 		Inline: true,
 	})
 	embed.Fields = append(embed.Fields, &discordgo.MessageEmbedField{
-		Name:  "Round bets",
+		Name:  "✨ Round bets ✨",
 		Value: "",
 	})
 	embed.Fields = append(embed.Fields, &discordgo.MessageEmbedField{
@@ -299,6 +390,16 @@ func (g *game) statusEmbed(r *round) discordgo.MessageEmbed {
 	embed.Fields = append(embed.Fields, &discordgo.MessageEmbedField{
 		Name:   "Amount",
 		Value:  playerBetsAmount,
+		Inline: true,
+	})
+	embed.Fields = append(embed.Fields, &discordgo.MessageEmbedField{
+		Name:   "Outcome",
+		Value:  outcome,
+		Inline: true,
+	})
+	embed.Fields = append(embed.Fields, &discordgo.MessageEmbedField{
+		Name:   "Amount",
+		Value:  outcomeAmount,
 		Inline: true,
 	})
 	return embed
