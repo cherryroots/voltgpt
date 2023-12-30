@@ -409,6 +409,10 @@ var (
 		"button_refresh": func(s *discordgo.Session, i *discordgo.InteractionCreate) {
 			log.Printf("Received interaction: %s by %s", i.MessageComponentData().CustomID, i.Interaction.Member.User.Username)
 
+			if len(wheel.Rounds) == 0 {
+				wheel.addRound()
+			}
+
 			embed := wheel.statusEmbed(wheel.currentRound())
 			err := s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 				Type: discordgo.InteractionResponseUpdateMessage,
@@ -535,7 +539,7 @@ var (
 			}
 
 			options := len(wheel.currentWheelOptions())
-			playerBets := wheel.playerBets(byPlayer)
+			playerBets, _ := wheel.playerBets(byPlayer, wheel.currentRound())
 			if options%2 == 1 {
 				options += 1
 			}
