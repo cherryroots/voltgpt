@@ -336,7 +336,7 @@ func (g *game) statusEmbed(r *round) discordgo.MessageEmbed {
 	}
 	var winner string
 	if r.hasWinner() {
-		winner = "Winner: " + r.Winner.User.Username
+		winner = "Winner: " + r.Winner.User.Mention()
 	}
 	var playerNames, playerMoney string
 	for _, player := range g.Players {

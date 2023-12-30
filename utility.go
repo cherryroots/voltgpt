@@ -18,6 +18,15 @@ type requestContent struct {
 	url  []string
 }
 
+func isAdmin(id string) bool {
+	for _, admin := range admins {
+		if admin == id {
+			return true
+		}
+	}
+	return false
+}
+
 func linkFromIMessage(i *discordgo.InteractionCreate, m *discordgo.Message) string {
 	return fmt.Sprintf("https://discord.com/channels/%s/%s/%s", i.GuildID, m.ChannelID, m.ID)
 }

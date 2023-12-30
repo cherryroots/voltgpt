@@ -6,8 +6,9 @@ import (
 )
 
 var (
-	defaultTemp  float32 = 0.7
-	defaultModel         = openai.GPT4VisionPreview
+	admins       []string = []string{"102087943627243520", "123116664207179777", "95681688914366464"}
+	defaultTemp  float32  = 0.7
+	defaultModel          = openai.GPT4VisionPreview
 
 	modelChoices = []*discordgo.ApplicationCommandOptionChoice{
 		{

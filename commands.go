@@ -348,6 +348,7 @@ var (
 			_, err := s.FollowupMessageCreate(i.Interaction, true, &discordgo.WebhookParams{
 				Embeds:     []*discordgo.MessageEmbed{&embed},
 				Components: roundMessageComponents,
+				Flags:      1 << 12,
 			})
 			if err != nil {
 				log.Println(err)
@@ -366,6 +367,14 @@ var (
 				if option.Name == "remove" {
 					remove = option.Value.(bool)
 				}
+			}
+
+			if !isAdmin(i.Interaction.Member.User.ID) {
+				_, err := sendFollowup(s, i, "Only admins can add players to the wheel!")
+				if err != nil {
+					log.Println(err)
+				}
+				return
 			}
 
 			if userID == "" {
@@ -442,6 +451,13 @@ var (
 		},
 		"button_winner": func(s *discordgo.Session, i *discordgo.InteractionCreate) {
 			log.Printf("Received interaction: %s by %s", i.MessageComponentData().CustomID, i.Interaction.Member.User.Username)
+			if !isAdmin(i.Interaction.Member.User.ID) {
+				err := updateEphemeralResponse(s, i, "Only admins can pick winners!")
+				if err != nil {
+					log.Println(err)
+				}
+				return
+			}
 			wheel.sendMenu(s, i, false, true)
 		},
 		"menu_bet": func(s *discordgo.Session, i *discordgo.InteractionCreate) {
