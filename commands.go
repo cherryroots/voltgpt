@@ -456,7 +456,8 @@ var (
 		"button_winner": func(s *discordgo.Session, i *discordgo.InteractionCreate) {
 			log.Printf("Received interaction: %s by %s", i.MessageComponentData().CustomID, i.Interaction.Member.User.Username)
 			if !isAdmin(i.Interaction.Member.User.ID) {
-				err := updateEphemeralResponse(s, i, "Only admins can pick winners!")
+				deferEphemeralResponse(s, i)
+				_, err := sendFollowup(s, i, "Only admins can pick winners!")
 				if err != nil {
 					log.Println(err)
 				}

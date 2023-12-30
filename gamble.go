@@ -30,8 +30,7 @@ func writeWheelToFile() {
 		if err := gob.NewEncoder(file).Encode(wheel); err != nil {
 			log.Fatal(err)
 		}
-
-		readHashFromFile()
+		readWheelFromFile()
 
 		return
 	}
@@ -208,9 +207,19 @@ func (g *game) playerMoney(player player, toRound round, skipLast bool) int {
 		if skipLast && r.ID == toRound.ID {
 			continue
 		}
+		if g.underThreshold(player, r) {
+			money -= g.playerTax(player, r)
+		}
 		money += g.payout(player, r)
 	}
 	return money
+}
+
+func (g *game) playerTax(player player, r round) int {
+	money := g.playerMoney(player, r, true)
+	betPercentage := 10 - g.betsPercentage(player, r)
+	taxed := (money * 3 * betPercentage) / 100
+	return taxed
 }
 
 func (g *game) payout(player player, r round) int {
@@ -253,6 +262,32 @@ func (g *game) playerBets(player player, round round) (int, int) {
 		}
 	}
 	return bets, betAmount
+}
+
+func (g *game) betsPercentage(player player, r round) int {
+	_, amount := g.playerBets(player, r)
+	betPercentage := amount * 100 / g.playerMoney(player, r, true)
+
+	return betPercentage
+}
+
+func (g *game) underThresholdPlayers(r round) []player {
+	var noBets []player
+	for _, player := range g.Players {
+		if g.betsPercentage(player, r) < 10 {
+			noBets = append(noBets, player)
+		}
+	}
+	return noBets
+}
+
+func (g *game) underThreshold(player player, r round) bool {
+	for _, p := range g.Players {
+		if g.betsPercentage(p, r) < 10 && p.id() == player.id() {
+			return true
+		}
+	}
+	return false
 }
 
 func (r *round) addBet(bet bet) {
@@ -303,7 +338,6 @@ func (r *round) roundOutcome() []result {
 		}
 		results = append(results, outcome)
 	}
-
 	return results
 }
 
@@ -331,8 +365,7 @@ func (g *game) statusEmbed(r round) discordgo.MessageEmbed {
 	for _, player := range g.Players {
 		playerNames += player.User.Username + "\n"
 		playerMoney += strconv.Itoa(g.playerMoney(player, r, true)) + "\n"
-		_, amount := g.playerBets(player, r)
-		betPercentage += strconv.Itoa(amount*100/g.playerMoney(player, r, true)) + "%" + "\n"
+		betPercentage += strconv.Itoa(g.betsPercentage(player, r)) + "%" + "\n"
 	}
 	var playerBetsBy, playerBetsOn, playerBetsAmount string
 	for _, bet := range r.Bets {
@@ -349,6 +382,10 @@ func (g *game) statusEmbed(r round) discordgo.MessageEmbed {
 			outcome += fmt.Sprintf("Lost: %s\n", result.player.User.Username)
 			outcomeAmount += strconv.Itoa(g.payout(result.player, r)) + "\n"
 		}
+	}
+	for _, player := range g.underThresholdPlayers(r) {
+		outcome += fmt.Sprintf("Taxed: %s\n", player.User.Username)
+		outcomeAmount += "-" + strconv.Itoa(g.playerTax(player, r)) + "\n"
 	}
 	embed.Fields = append(embed.Fields, &discordgo.MessageEmbedField{
 		Name:  "✨ Player Statuses ✨",
@@ -415,6 +452,7 @@ func (g *game) sendMenu(s *discordgo.Session, i *discordgo.InteractionCreate, re
 		if err != nil {
 			log.Println(err)
 		}
+		return
 	}
 
 	var customID = "menu_bet"

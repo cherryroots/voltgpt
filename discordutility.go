@@ -16,17 +16,6 @@ func updateResponse(s *discordgo.Session, i *discordgo.InteractionCreate, conten
 	return err
 }
 
-func updateEphemeralResponse(s *discordgo.Session, i *discordgo.InteractionCreate, content string) error {
-	err := s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
-		Type: discordgo.InteractionResponseUpdateMessage,
-		Data: &discordgo.InteractionResponseData{
-			Content: content,
-			Flags:   discordgo.MessageFlagsEphemeral,
-		},
-	})
-	return err
-}
-
 func sendFollowup(s *discordgo.Session, i *discordgo.InteractionCreate, content string) (*discordgo.Message, error) {
 	msg, err := s.FollowupMessageCreate(i.Interaction, true, &discordgo.WebhookParams{
 		Content: content,
