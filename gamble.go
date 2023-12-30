@@ -367,6 +367,11 @@ func (g *game) statusEmbed(r round) discordgo.MessageEmbed {
 		playerMoney += strconv.Itoa(g.playerMoney(player, r, true)) + "\n"
 		betPercentage += strconv.Itoa(g.betsPercentage(player, r)) + "%" + "\n"
 	}
+	var claims, claimAmount string
+	for _, claim := range r.Claims {
+		claims += claim.User.Username + "\n"
+		claimAmount += strconv.Itoa(100) + "\n"
+	}
 	var playerBetsBy, playerBetsOn, playerBetsAmount string
 	for _, bet := range r.Bets {
 		playerBetsBy += bet.By.User.Username + "\n"
@@ -404,6 +409,16 @@ func (g *game) statusEmbed(r round) discordgo.MessageEmbed {
 	embed.Fields = append(embed.Fields, &discordgo.MessageEmbedField{
 		Name:   "Bet%",
 		Value:  betPercentage,
+		Inline: true,
+	})
+	embed.Fields = append(embed.Fields, &discordgo.MessageEmbedField{
+		Name:   "Claims",
+		Value:  claims,
+		Inline: true,
+	})
+	embed.Fields = append(embed.Fields, &discordgo.MessageEmbedField{
+		Name:   "Amount",
+		Value:  claimAmount,
 		Inline: true,
 	})
 	embed.Fields = append(embed.Fields, &discordgo.MessageEmbedField{
@@ -516,48 +531,23 @@ func (g *game) sendModal(s *discordgo.Session, i *discordgo.InteractionCreate, u
 	}
 }
 
-var retryButton = &discordgo.Button{
-	Style:    discordgo.PrimaryButton,
-	Emoji:    discordgo.ComponentEmoji{Name: "🔄"},
-	CustomID: "button_refresh",
-}
-
-var claimButton = &discordgo.Button{
-	Style:    discordgo.PrimaryButton,
-	Label:    "Claim!",
-	Emoji:    discordgo.ComponentEmoji{Name: "📈"},
-	CustomID: "button_claim",
-}
-
-var betButton = &discordgo.Button{
-	Style:    discordgo.SecondaryButton,
-	Label:    "Place Bet!",
-	Emoji:    discordgo.ComponentEmoji{Name: "💸"},
-	CustomID: "button_bet",
-}
-
-var removeBetButton = &discordgo.Button{
-	Style:    discordgo.SecondaryButton,
-	Label:    "Remove Bet!",
-	Emoji:    discordgo.ComponentEmoji{Name: "💰"},
-	CustomID: "button_bet-remove",
-}
-
-var pickWinnerButton = &discordgo.Button{
-	Style:    discordgo.SuccessButton,
-	Emoji:    discordgo.ComponentEmoji{Name: "✨"},
-	Label:    "Set Winner!",
-	CustomID: "button_winner",
+func makeButton(style discordgo.ButtonStyle, label string, emoji string, customID string) *discordgo.Button {
+	return &discordgo.Button{
+		Style:    style,
+		Label:    label,
+		Emoji:    discordgo.ComponentEmoji{Name: emoji},
+		CustomID: customID,
+	}
 }
 
 var roundMessageComponents = []discordgo.MessageComponent{
 	&discordgo.ActionsRow{
 		Components: []discordgo.MessageComponent{
-			retryButton,
-			claimButton,
-			betButton,
-			removeBetButton,
-			pickWinnerButton,
+			makeButton(discordgo.PrimaryButton, "", "🔄", "button_refresh"),
+			makeButton(discordgo.PrimaryButton, "Claim!", "📈", "button_claim"),
+			makeButton(discordgo.SecondaryButton, "Place Bet!", "💸", "button_bet"),
+			makeButton(discordgo.SecondaryButton, "Remove Bet!", "💰", "button_bet-remove"),
+			makeButton(discordgo.SuccessButton, "Set Winner!", "✨", "button_winner"),
 		},
 	},
 }

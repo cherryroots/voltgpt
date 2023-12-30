@@ -203,14 +203,14 @@ func checkForReplies(s *discordgo.Session, message *discordgo.Message, cache []*
 			}
 		}
 		replyMessage := cleanMessage(s, message.ReferencedMessage)
-		content := requestContent{
+		replyContent := requestContent{
 			text: replyMessage.Content,
 			url:  getMessageImages(replyMessage),
 		}
 		if replyMessage.Author.ID == s.State.User.ID {
-			prependMessage(openai.ChatMessageRoleAssistant, replyMessage.Author.Username, content, chatMessages)
+			prependMessage(openai.ChatMessageRoleAssistant, replyMessage.Author.Username, replyContent, chatMessages)
 		} else {
-			prependMessage(openai.ChatMessageRoleUser, replyMessage.Author.Username, content, chatMessages)
+			prependMessage(openai.ChatMessageRoleUser, replyMessage.Author.Username, replyContent, chatMessages)
 		}
 		checkForReplies(s, message.ReferencedMessage, cache, chatMessages)
 	}
@@ -338,8 +338,6 @@ func cleanMessage(s *discordgo.Session, message *discordgo.Message) *discordgo.M
 }
 
 func cleanName(name string) string {
-	// '^[a-zA-Z0-9_-]{1,64}$' are the only characters the name can contain
-
 	if len(name) > 64 {
 		name = name[:64]
 	}
