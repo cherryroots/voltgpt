@@ -13,9 +13,9 @@ import (
 
 var (
 	wheel = game{
-		Rounds:       []round{},
-		WheelOptions: []player{},
-		Players:      []player{},
+		Rounds:     []round{},
+		BetOptions: []player{},
+		Players:    []player{},
 	}
 )
 
@@ -68,9 +68,9 @@ func readWheelFromFile() {
 }
 
 type game struct {
-	Rounds       []round
-	WheelOptions []player
-	Players      []player
+	Rounds     []round
+	BetOptions []player
+	Players    []player
 }
 type round struct {
 	ID     int // id is 0-indexed
@@ -100,18 +100,18 @@ func (p player) id() string {
 }
 
 func (g *game) addWheelOption(option player) {
-	for _, player := range g.WheelOptions {
+	for _, player := range g.BetOptions {
 		if player.User.ID == option.User.ID {
 			return
 		}
 	}
-	g.WheelOptions = append(g.WheelOptions, option)
+	g.BetOptions = append(g.BetOptions, option)
 }
 
 func (g *game) removeWheelOption(option player) {
-	for i, player := range g.WheelOptions {
+	for i, player := range g.BetOptions {
 		if player.User.ID == option.User.ID {
-			g.WheelOptions = append(g.WheelOptions[:i], g.WheelOptions[i+1:]...)
+			g.BetOptions = append(g.BetOptions[:i], g.BetOptions[i+1:]...)
 			return
 		}
 	}
@@ -132,7 +132,7 @@ func (g *game) addRound() {
 }
 
 func (g *game) currentWheelOptions() []player {
-	players := g.WheelOptions
+	players := g.BetOptions
 	var currentPlayers []player
 	// add everyone who's not been picked
 	for _, player := range players {
@@ -160,7 +160,7 @@ func (g *game) wheelOptions(round round) []player {
 		return g.currentWheelOptions()
 	}
 
-	players := g.WheelOptions
+	players := g.BetOptions
 	var currentPlayers []player
 	for _, player := range players {
 		var picked bool
@@ -216,9 +216,9 @@ func (g *game) playerMoney(player player, toRound round, skipLast bool) int {
 }
 
 func (g *game) playerTax(player player, r round) int {
-	money := g.playerMoney(player, r, true)
+	playerMoney := g.playerMoney(player, r, true)
 	betPercentage := 10 - g.betsPercentage(player, r)
-	taxed := (money * 3 * betPercentage) / 100
+	taxed := (playerMoney * 3 * betPercentage) / 100
 	return taxed
 }
 
@@ -379,13 +379,14 @@ func (g *game) statusEmbed(r round) discordgo.MessageEmbed {
 		playerBetsAmount += strconv.Itoa(bet.Amount) + "\n"
 	}
 	var outcome, outcomeAmount string
+	options := len(g.wheelOptions(r))
 	for _, result := range r.roundOutcome() {
 		if result.won {
 			outcome += fmt.Sprintf("Won: %s\n", result.player.User.Username)
-			outcomeAmount += strconv.Itoa(g.payout(result.player, r)) + "\n"
+			outcomeAmount += strconv.Itoa(result.bet.Amount*max(options-1, 0)) + "\n"
 		} else {
 			outcome += fmt.Sprintf("Lost: %s\n", result.player.User.Username)
-			outcomeAmount += strconv.Itoa(g.payout(result.player, r)) + "\n"
+			outcomeAmount += strconv.Itoa(-result.bet.Amount) + "\n"
 		}
 	}
 	for _, player := range g.underThresholdPlayers(r) {
