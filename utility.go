@@ -73,7 +73,7 @@ func createMessage(role string, name string, content requestContent) []openai.Ch
 			Type: openai.ChatMessagePartTypeImageURL,
 			ImageURL: &openai.ChatMessageImageURL{
 				URL:    u,
-				Detail: openai.ImageURLDetailLow,
+				Detail: openai.ImageURLDetailAuto,
 			},
 		})
 	}
@@ -96,6 +96,14 @@ func createBatchMessages(s *discordgo.Session, messages []*discordgo.Message) []
 	}
 
 	return batchMessages
+}
+
+func messagesToString(messages []openai.ChatCompletionMessage) string {
+	var sb strings.Builder
+	for _, message := range messages {
+		sb.WriteString(fmt.Sprintf("From: %s, Role: %s: %s\n", message.Name, message.Role, message.MultiContent[0].Text))
+	}
+	return sb.String()
 }
 
 func splitTTS(message string, hd bool) []*discordgo.File {

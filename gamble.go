@@ -266,6 +266,9 @@ func (g *game) playerBets(player player, round round) (int, int) {
 
 func (g *game) betsPercentage(player player, r round) int {
 	_, amount := g.playerBets(player, r)
+	if g.playerMoney(player, r, true) == 0 {
+		return 0
+	}
 	betPercentage := amount * 100 / g.playerMoney(player, r, true)
 
 	return betPercentage
@@ -460,6 +463,7 @@ func (g *game) sendMenu(s *discordgo.Session, i *discordgo.InteractionCreate, re
 		options = append(options, discordgo.SelectMenuOption{
 			Label: player.User.Username,
 			Value: player.id(),
+			Emoji: discordgo.ComponentEmoji{Name: "👤"},
 		})
 	}
 	if len(options) == 0 {

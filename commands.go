@@ -604,6 +604,12 @@ func handleMessage(s *discordgo.Session, m *discordgo.MessageCreate) {
 	}
 
 	m.Message = cleanMessage(s, m.Message)
+	systemMessage := requestContent{
+		text: "You're able to draw images if the user asks for it. \n" +
+			"The image request will be processed after you reply and attached to the reply.",
+	}
+
+	var chatMessages []openai.ChatCompletionMessage
 
 	if m.Type == discordgo.MessageTypeReply {
 		if m.ReferencedMessage == nil {
@@ -623,8 +629,9 @@ func handleMessage(s *discordgo.Session, m *discordgo.MessageCreate) {
 				text: m.Content,
 				url:  getMessageImages(m.Message),
 			}
-			var chatMessages = createMessage(openai.ChatMessageRoleUser, m.Author.Username, content)
+			appendMessage(openai.ChatMessageRoleUser, m.Author.Username, content, &chatMessages)
 			checkForReplies(s, m.Message, cache, &chatMessages)
+			prependMessage(openai.ChatMessageRoleSystem, "", systemMessage, &chatMessages)
 			sendMessageChatResponse(s, m, chatMessages)
 			return
 		}
@@ -632,13 +639,13 @@ func handleMessage(s *discordgo.Session, m *discordgo.MessageCreate) {
 
 	for _, mention := range m.Mentions {
 		if mention.ID == s.State.User.ID {
-			m.Message = cleanMessage(s, m.Message)
 			log.Println("mention:", m.Content)
 			content := requestContent{
 				text: m.Content,
 				url:  getMessageImages(m.Message),
 			}
-			var chatMessages = createMessage(openai.ChatMessageRoleUser, "", content)
+			appendMessage(openai.ChatMessageRoleSystem, "", systemMessage, &chatMessages)
+			appendMessage(openai.ChatMessageRoleUser, m.Author.Username, content, &chatMessages)
 			sendMessageChatResponse(s, m, chatMessages)
 			return
 		}

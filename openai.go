@@ -1,7 +1,9 @@
 package main
 
 import (
+	"bytes"
 	"context"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"io"
@@ -55,6 +57,43 @@ func getTTSFile(message string, index string, hd bool) []*discordgo.File {
 	return files
 }
 
+func getIntents(message string) string {
+	// OpenAI API key
+	openaiToken := os.Getenv("OPENAI_TOKEN")
+	if openaiToken == "" {
+		log.Fatal("OPENAI_TOKEN is not set")
+	}
+	// Create a new OpenAI client
+	c := openai.NewClient(openaiToken)
+	ctx := context.Background()
+
+	prompt := "What's the intent in this message? Intents can be 'draw' or 'none'. " +
+		"The draw intent is for when the message asks to draw or generate some kind of image. " +
+		"none intent is for when nothing image generation related is asked. " +
+		"Don't include anything except the intent in the generated text: " + message
+
+	maxTokens, err := getRequestMaxTokensString(prompt, openai.GPT3Dot5Turbo1106)
+	if err != nil {
+		log.Printf("getRequestMaxTokens error: %v\n", err)
+		return ""
+	}
+
+	req := openai.ChatCompletionRequest{
+		Model:       openai.GPT3Dot5Turbo1106,
+		Messages:    createMessage(openai.ChatMessageRoleUser, "", requestContent{text: prompt}),
+		Temperature: defaultTemp,
+		MaxTokens:   maxTokens,
+	}
+
+	resp, err := c.CreateChatCompletion(ctx, req)
+	if err != nil {
+		log.Printf("CreateCompletion error: %v\n", err)
+		return ""
+	}
+
+	return resp.Choices[0].Message.Content
+}
+
 func getFilenameSummary(message string) string {
 	// OpenAI API key
 	openaiToken := os.Getenv("OPENAI_TOKEN")
@@ -65,13 +104,13 @@ func getFilenameSummary(message string) string {
 	c := openai.NewClient(openaiToken)
 	ctx := context.Background()
 
-	maxTokens, err := getRequestMaxTokensString(message, defaultModel)
+	prompt := "Summarize this text as a filename but without a file extension: " + message
+
+	maxTokens, err := getRequestMaxTokensString(prompt, openai.GPT3Dot5Turbo1106)
 	if err != nil {
 		log.Printf("getRequestMaxTokens error: %v\n", err)
 		return "file"
 	}
-
-	prompt := "Summarize this text as a filename but without a file extension: " + message
 
 	req := openai.ChatCompletionRequest{
 		Model:       openai.GPT3Dot5Turbo1106,
@@ -87,6 +126,47 @@ func getFilenameSummary(message string) string {
 	}
 
 	return resp.Choices[0].Message.Content
+}
+
+func drawImage(message string) []*discordgo.File {
+	// OpenAI API key
+	openaiToken := os.Getenv("OPENAI_TOKEN")
+	if openaiToken == "" {
+		log.Fatal("OPENAI_TOKEN is not set")
+	}
+	// Create a new OpenAI client
+	c := openai.NewClient(openaiToken)
+	ctx := context.Background()
+
+	reqUrl := openai.ImageRequest{
+		Prompt:         message,
+		Model:          openai.CreateImageModelDallE3,
+		Quality:        openai.CreateImageQualityStandard,
+		Size:           openai.CreateImageSize1024x1024,
+		ResponseFormat: openai.CreateImageResponseFormatB64JSON,
+		N:              1,
+	}
+
+	respBase64, err := c.CreateImage(ctx, reqUrl)
+	if err != nil {
+		log.Printf("CreateImage error: %v\n", err)
+		return nil
+	}
+
+	resp, err := base64.StdEncoding.DecodeString(respBase64.Data[0].B64JSON)
+	if err != nil {
+		log.Printf("base64.StdEncoding.DecodeString error: %v\n", err)
+		return nil
+	}
+
+	files := []*discordgo.File{
+		{
+			Name:   "image.png",
+			Reader: bytes.NewReader(resp),
+		},
+	}
+
+	return files
 }
 
 func sendMessageChatResponse(s *discordgo.Session, m *discordgo.MessageCreate, messages []openai.ChatCompletionMessage) {
@@ -143,12 +223,31 @@ func sendMessageChatResponse(s *discordgo.Session, m *discordgo.MessageCreate, m
 				logSendErrorMessage(s, m.Message, err.Error())
 				return
 			}
-			files := splitTTS(fullMessage, false)
-			_, err = editMessageFile(s, msg, message, files)
-			if err != nil {
-				logSendErrorMessage(s, m.Message, err.Error())
-				return
-			}
+			go func() {
+				appendMessage(openai.ChatMessageRoleAssistant, s.State.User.Username, requestContent{text: fullMessage}, &messages)
+				request := messagesToString(messages)
+				if len(request) > 4000 {
+					request = request[len(request)-4000:]
+				}
+				intent := getIntents(request)
+				log.Printf("Intent: %s\n", intent)
+				if intent == "draw" {
+					files := drawImage(request)
+					_, err = editMessageFile(s, msg, message, files)
+					if err != nil {
+						logSendErrorMessage(s, m.Message, err.Error())
+						return
+					}
+				}
+			}()
+			go func() {
+				files := splitTTS(fullMessage, true)
+				_, err = editMessageFile(s, msg, message, files)
+				if err != nil {
+					logSendErrorMessage(s, m.Message, err.Error())
+					return
+				}
+			}()
 			return
 		}
 		if err != nil {
@@ -237,12 +336,31 @@ func sendInteractionChatResponse(s *discordgo.Session, i *discordgo.InteractionC
 				log.Printf("editFollowup error: %v\n", err)
 				return
 			}
-			files := splitTTS(fullMessage, false)
-			_, err = editFollowupFile(s, i, msg.ID, message, files)
-			if err != nil {
-				log.Printf("editFollowup error: %v\n", err)
-				return
-			}
+			go func() {
+				appendMessage(openai.ChatMessageRoleAssistant, s.State.User.Username, requestContent{text: fullMessage}, &reqMessage)
+				request := messagesToString(reqMessage)
+				if len(request) > 4000 {
+					request = request[len(request)-4000:]
+				}
+				intent := getIntents(request)
+				log.Printf("Intent: %s\n", intent)
+				if intent == "draw" {
+					files := drawImage(request)
+					_, err = editFollowupFile(s, i, msg.ID, message, files)
+					if err != nil {
+						log.Printf("editFollowup error: %v\n", err)
+						return
+					}
+				}
+			}()
+			go func() {
+				files := splitTTS(fullMessage, true)
+				_, err = editFollowupFile(s, i, msg.ID, message, files)
+				if err != nil {
+					log.Printf("editFollowup error: %v\n", err)
+					return
+				}
+			}()
 			return
 		}
 		if err != nil {
