@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"encoding/gob"
+	"errors"
 	"fmt"
 	"log"
 	"os"
@@ -101,7 +102,7 @@ func (p player) id() string {
 
 func (g *game) addWheelOption(option player) {
 	for _, player := range g.BetOptions {
-		if player.User.ID == option.User.ID {
+		if player.id() == option.id() {
 			return
 		}
 	}
@@ -110,7 +111,7 @@ func (g *game) addWheelOption(option player) {
 
 func (g *game) removeWheelOption(option player) {
 	for i, player := range g.BetOptions {
-		if player.User.ID == option.User.ID {
+		if player.id() == option.id() {
 			g.BetOptions = append(g.BetOptions[:i], g.BetOptions[i+1:]...)
 			return
 		}
@@ -119,7 +120,7 @@ func (g *game) removeWheelOption(option player) {
 
 func (g *game) addPlayer(player player) {
 	for _, p := range g.Players {
-		if p.User.ID == player.User.ID {
+		if p.id() == player.id() {
 			return
 		}
 	}
@@ -196,7 +197,7 @@ func (g *game) round(round int) round {
 	return g.Rounds[round-1]
 }
 
-func (g *game) playerMoney(player player, toRound round, skipLast bool) int {
+func (g *game) playerMoney(player player, toRound round) int {
 	var money int
 	for _, r := range g.Rounds[0 : toRound.ID+1] {
 		for _, claim := range r.Claims {
@@ -204,22 +205,24 @@ func (g *game) playerMoney(player player, toRound round, skipLast bool) int {
 				money += 100
 			}
 		}
-		if skipLast && r.ID == toRound.ID {
+		if r.ID == toRound.ID {
 			continue
 		}
-		if g.underThreshold(player, r) {
+
+		if g.betsPercentage(player, r) < 10 {
 			money -= g.playerTax(player, r)
 		}
+
 		money += g.payout(player, r)
 	}
 	return money
 }
 
 func (g *game) playerTax(player player, r round) int {
-	playerMoney := g.playerMoney(player, r, true)
+	playerMoney := g.playerMoney(player, r)
 	betPercentage := 10 - g.betsPercentage(player, r)
-	taxed := (playerMoney * 3 * betPercentage) / 100
-	return taxed
+	taxAmount := (playerMoney * 3 * betPercentage) / 100
+	return taxAmount
 }
 
 func (g *game) payout(player player, r round) int {
@@ -243,10 +246,10 @@ func (g *game) payout(player player, r round) int {
 }
 
 func (g *game) playerUsableMoney(player player) int {
-	money := g.playerMoney(player, g.currentRound(), false)
+	money := g.playerMoney(player, g.currentRound())
 	var usedMoney int
 	for _, bet := range g.currentRound().Bets {
-		if bet.On.id() == player.id() {
+		if bet.By.id() == player.id() {
 			usedMoney += bet.Amount
 		}
 	}
@@ -266,10 +269,11 @@ func (g *game) playerBets(player player, round round) (int, int) {
 
 func (g *game) betsPercentage(player player, r round) int {
 	_, amount := g.playerBets(player, r)
-	if g.playerMoney(player, r, true) == 0 {
+	curMoney := g.playerMoney(player, r)
+	if curMoney == 0 {
 		return 0
 	}
-	betPercentage := amount * 100 / g.playerMoney(player, r, true)
+	betPercentage := amount * 100 / curMoney
 
 	return betPercentage
 }
@@ -282,15 +286,6 @@ func (g *game) underThresholdPlayers(r round) []player {
 		}
 	}
 	return noBets
-}
-
-func (g *game) underThreshold(player player, r round) bool {
-	for _, p := range g.Players {
-		if g.betsPercentage(p, r) < 10 && p.id() == player.id() {
-			return true
-		}
-	}
-	return false
 }
 
 func (r *round) addBet(bet bet) {
@@ -309,6 +304,15 @@ func (r *round) removeBet(by player, on player) {
 			r.Bets = append(r.Bets[:i], r.Bets[i+1:]...)
 		}
 	}
+}
+
+func (r *round) hasBet(newBet bet) (bet, error) {
+	for _, b := range r.Bets {
+		if b.By.id() == newBet.By.id() && b.On.id() == newBet.On.id() {
+			return b, nil
+		}
+	}
+	return bet{}, errors.New("No bet found")
 }
 
 func (r *round) setWinner(winner player) {
@@ -367,7 +371,7 @@ func (g *game) statusEmbed(r round) discordgo.MessageEmbed {
 	var playerNames, playerMoney, betPercentage string
 	for _, player := range g.Players {
 		playerNames += player.User.Username + "\n"
-		playerMoney += strconv.Itoa(g.playerMoney(player, r, true)) + "\n"
+		playerMoney += strconv.Itoa(g.playerMoney(player, r)) + "\n"
 		betPercentage += strconv.Itoa(g.betsPercentage(player, r)) + "%" + "\n"
 	}
 	var claims, claimAmount string

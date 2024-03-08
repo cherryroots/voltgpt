@@ -35,7 +35,7 @@ func getTTSFile(message string, index string, hd bool) []*discordgo.File {
 	res, err := c.CreateSpeech(ctx, openai.CreateSpeechRequest{
 		Model: model,
 		Input: message,
-		Voice: openai.VoiceAlloy,
+		Voice: openai.VoiceNova,
 	})
 	if err != nil {
 		log.Printf("CreateSpeech error: %v\n", err)
@@ -128,7 +128,7 @@ func getFilenameSummary(message string) string {
 	return resp.Choices[0].Message.Content
 }
 
-func drawImage(message string) []*discordgo.File {
+func drawImage(message string, size string) ([]*discordgo.File, error) {
 	// OpenAI API key
 	openaiToken := os.Getenv("OPENAI_TOKEN")
 	if openaiToken == "" {
@@ -142,21 +142,19 @@ func drawImage(message string) []*discordgo.File {
 		Prompt:         message,
 		Model:          openai.CreateImageModelDallE3,
 		Quality:        openai.CreateImageQualityStandard,
-		Size:           openai.CreateImageSize1024x1024,
+		Size:           size,
 		ResponseFormat: openai.CreateImageResponseFormatB64JSON,
 		N:              1,
 	}
 
 	respBase64, err := c.CreateImage(ctx, reqUrl)
 	if err != nil {
-		log.Printf("CreateImage error: %v\n", err)
-		return nil
+		return nil, err
 	}
 
 	resp, err := base64.StdEncoding.DecodeString(respBase64.Data[0].B64JSON)
 	if err != nil {
-		log.Printf("base64.StdEncoding.DecodeString error: %v\n", err)
-		return nil
+		return nil, err
 	}
 
 	files := []*discordgo.File{
@@ -166,7 +164,7 @@ func drawImage(message string) []*discordgo.File {
 		},
 	}
 
-	return files
+	return files, nil
 }
 
 func sendMessageChatResponse(s *discordgo.Session, m *discordgo.MessageCreate, messages []openai.ChatCompletionMessage) {
@@ -232,7 +230,10 @@ func sendMessageChatResponse(s *discordgo.Session, m *discordgo.MessageCreate, m
 				intent := getIntents(request)
 				log.Printf("Intent: %s\n", intent)
 				if intent == "draw" {
-					files := drawImage(request)
+					files, err := drawImage(request, openai.CreateImageSize1024x1024)
+					if err != nil {
+						logSendErrorMessage(s, m.Message, err.Error())
+					}
 					_, err = editMessageFile(s, msg, message, files)
 					if err != nil {
 						logSendErrorMessage(s, m.Message, err.Error())
@@ -240,14 +241,16 @@ func sendMessageChatResponse(s *discordgo.Session, m *discordgo.MessageCreate, m
 					}
 				}
 			}()
-			go func() {
-				files := splitTTS(fullMessage, true)
-				_, err = editMessageFile(s, msg, message, files)
-				if err != nil {
-					logSendErrorMessage(s, m.Message, err.Error())
-					return
-				}
-			}()
+			/*
+				go func() {
+					files := splitTTS(fullMessage, true)
+					_, err = editMessageFile(s, msg, message, files)
+					if err != nil {
+						logSendErrorMessage(s, m.Message, err.Error())
+						return
+					}
+				}()
+			*/
 			return
 		}
 		if err != nil {
@@ -336,31 +339,37 @@ func sendInteractionChatResponse(s *discordgo.Session, i *discordgo.InteractionC
 				log.Printf("editFollowup error: %v\n", err)
 				return
 			}
-			go func() {
-				appendMessage(openai.ChatMessageRoleAssistant, s.State.User.Username, requestContent{text: fullMessage}, &reqMessage)
-				request := messagesToString(reqMessage)
-				if len(request) > 4000 {
-					request = request[len(request)-4000:]
-				}
-				intent := getIntents(request)
-				log.Printf("Intent: %s\n", intent)
-				if intent == "draw" {
-					files := drawImage(request)
+			/*
+				go func() {
+					appendMessage(openai.ChatMessageRoleAssistant, s.State.User.Username, requestContent{text: fullMessage}, &reqMessage)
+					request := messagesToString(reqMessage)
+					if len(request) > 4000 {
+						request = request[len(request)-4000:]
+					}
+					intent := getIntents(request)
+					log.Printf("Intent: %s\n", intent)
+					if intent == "draw" {
+						files, err := drawImage(request, openai.CreateImageSize1024x1024)
+						if err != nil {
+							log.Printf("draw error: %v\n", err)
+						}
+						_, err = editFollowupFile(s, i, msg.ID, message, files)
+						if err != nil {
+							log.Printf("editFollowup error: %v\n", err)
+							return
+						}
+					}
+				}()
+
+				go func() {
+					files := splitTTS(fullMessage, true)
 					_, err = editFollowupFile(s, i, msg.ID, message, files)
 					if err != nil {
 						log.Printf("editFollowup error: %v\n", err)
 						return
 					}
-				}
-			}()
-			go func() {
-				files := splitTTS(fullMessage, true)
-				_, err = editFollowupFile(s, i, msg.ID, message, files)
-				if err != nil {
-					log.Printf("editFollowup error: %v\n", err)
-					return
-				}
-			}()
+				}()
+			*/
 			return
 		}
 		if err != nil {

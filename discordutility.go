@@ -2,6 +2,7 @@ package main
 
 import (
 	"log"
+	"time"
 
 	"github.com/bwmarrin/discordgo"
 )
@@ -89,6 +90,17 @@ func editMessageFile(s *discordgo.Session, m *discordgo.Message, content string,
 	})
 
 	return msg, err
+}
+
+func sleepDeleteInteraction(s *discordgo.Session, i *discordgo.InteractionCreate, seconds int) error {
+	time.Sleep(time.Duration(seconds) * time.Second)
+
+	err := s.InteractionResponseDelete(i.Interaction)
+	if err != nil {
+		return err
+	}
+
+	return nil
 }
 
 func deferResponse(s *discordgo.Session, i *discordgo.InteractionCreate) {
