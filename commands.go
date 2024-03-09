@@ -787,7 +787,6 @@ func handleMessage(s *discordgo.Session, m *discordgo.MessageCreate) {
 		return
 	}
 
-	m.Message = cleanMessage(s, m.Message)
 	systemMessage := requestContent{
 		text: "You're able to draw images if the user asks for it, don't offer to draw images unprompted. \n" +
 			"The image request will be processed after you reply and attached to the reply. \n" +
@@ -822,6 +821,8 @@ func handleMessage(s *discordgo.Session, m *discordgo.MessageCreate) {
 			log.Printf("mention: %s", m.Content)
 		}
 
+		m.Message = cleanMessage(s, m.Message)
+
 		content := requestContent{
 			text: m.Content,
 			url:  getMessageImages(m.Message),
@@ -831,7 +832,8 @@ func handleMessage(s *discordgo.Session, m *discordgo.MessageCreate) {
 		if isReply { // insert replies before the message sent to the bot
 			checkForReplies(s, m.ReferencedMessage, cache, &chatMessages)
 		}
-		instructionMessage := instructionSwitch(content)
+		// check the switch after replies, the switch checks the first and last inserted message
+		instructionMessage := instructionSwitch(chatMessages)
 		if instructionMessage.text != "" { // get the instruction and if it exists prepend it
 			prependMessage(openai.ChatMessageRoleSystem, m.Author.Username, instructionMessage, &chatMessages)
 		}
