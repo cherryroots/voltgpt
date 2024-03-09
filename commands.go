@@ -806,8 +806,7 @@ func handleMessage(s *discordgo.Session, m *discordgo.MessageCreate) {
 
 	if m.Type == discordgo.MessageTypeReply {
 		if (m.ReferencedMessage.Author.ID == s.State.User.ID || botMentioned) && m.ReferencedMessage != nil {
-			cache = getMessagesBefore(s, m.ChannelID, 100, m.ID)
-			log.Printf("cache size: %d", len(cache))
+			cache = getMessagesBefore(s, m.ChannelID, 50, m.ID)
 			isReply = true
 		}
 	}
@@ -828,7 +827,7 @@ func handleMessage(s *discordgo.Session, m *discordgo.MessageCreate) {
 
 		appendMessage(openai.ChatMessageRoleUser, m.Author.Username, content, &chatMessages)
 		if isReply { // insert replies before the message sent to the bot
-			prependReplies(s, m.ReferencedMessage, cache, &chatMessages)
+			prependReplies(s, m.Message, cache, &chatMessages)
 		}
 		instructionMessage := instructionSwitch(chatMessages)
 		if instructionMessage.text != "" { // get the instruction and if it exists prepend it

@@ -198,47 +198,34 @@ func splitParagraph(message string) (string, string) {
 }
 
 func prependReplies(s *discordgo.Session, message *discordgo.Message, cache []*discordgo.Message, chatMessages *[]openai.ChatCompletionMessage) {
-	if message.Type == discordgo.MessageTypeReply {
-		// check if the message has a reference, if not get it
-		if message.ReferencedMessage == nil {
-			if message.MessageReference != nil {
-				cachedMessage := checkCache(cache, message.MessageReference.MessageID)
-				if cachedMessage != nil {
-					message.ReferencedMessage = cachedMessage
-				} else {
-					message.ReferencedMessage, _ = s.ChannelMessage(message.MessageReference.ChannelID, message.MessageReference.MessageID)
-				}
+	// check if the message has a reference, if not get it
+	if message.ReferencedMessage == nil {
+		if message.MessageReference != nil {
+			cachedMessage := checkCache(cache, message.MessageReference.MessageID)
+			if cachedMessage != nil {
+				message.ReferencedMessage = cachedMessage
+			} else {
+				message.ReferencedMessage, _ = s.ChannelMessage(message.MessageReference.ChannelID, message.MessageReference.MessageID)
 			}
 		}
-		replyMessage := cleanMessage(s, message.ReferencedMessage)
-		replyContent := requestContent{
-			text: replyMessage.Content,
-			url:  getMessageImages(replyMessage),
-		}
-		if replyMessage.Author.ID == s.State.User.ID {
-			prependMessage(openai.ChatMessageRoleAssistant, replyMessage.Author.Username, replyContent, chatMessages)
-		} else {
-			prependMessage(openai.ChatMessageRoleUser, replyMessage.Author.Username, replyContent, chatMessages)
-		}
-		prependReplies(s, message.ReferencedMessage, cache, chatMessages)
+	}
+	replyMessage := cleanMessage(s, message.ReferencedMessage)
+	replyContent := requestContent{
+		text: replyMessage.Content,
+		url:  getMessageImages(replyMessage),
+	}
+	if replyMessage.Author.ID == s.State.User.ID {
+		prependMessage(openai.ChatMessageRoleAssistant, replyMessage.Author.Username, replyContent, chatMessages)
 	} else {
-		message = cleanMessage(s, message)
-		content := requestContent{
-			text: message.Content,
-			url:  getMessageImages(message),
-		}
-		if message.Author.ID == s.State.User.ID {
-			prependMessage(openai.ChatMessageRoleAssistant, message.Author.Username, content, chatMessages)
-		} else {
-			prependMessage(openai.ChatMessageRoleUser, message.Author.Username, content, chatMessages)
-		}
+		prependMessage(openai.ChatMessageRoleUser, replyMessage.Author.Username, replyContent, chatMessages)
+	}
+
+	if replyMessage.Type == discordgo.MessageTypeReply {
+		prependReplies(s, message.ReferencedMessage, cache, chatMessages)
 	}
 }
 
 func getMessagesBefore(s *discordgo.Session, channelID string, count int, messageID string) []*discordgo.Message {
-	if messageID == "" {
-		messageID = ""
-	}
 	messages, err := s.ChannelMessages(channelID, count, messageID, "", "")
 	if err != nil {
 		return nil
