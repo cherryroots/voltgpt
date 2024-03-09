@@ -244,7 +244,7 @@ var (
 				content.url = append(content.url, options.imageUrl)
 			}
 			var reqMessage = createMessage(openai.ChatMessageRoleUser, "", content)
-			sendInteractionChatResponse(s, i, reqMessage, options)
+			streamInteractionResponse(s, i, reqMessage, options)
 		},
 		"draw": func(s *discordgo.Session, i *discordgo.InteractionCreate) {
 			log.Printf("Received interaction: %s by %s", i.ApplicationCommandData().Name, i.Interaction.Member.User.Username)
@@ -311,7 +311,7 @@ var (
 				text: options.message,
 			}
 			appendMessage(openai.ChatMessageRoleUser, i.Member.User.Username, content, &chatMessages)
-			sendInteractionChatResponse(s, i, chatMessages, options)
+			streamInteractionResponse(s, i, chatMessages, options)
 		},
 		"hash_channel": func(s *discordgo.Session, i *discordgo.InteractionCreate) {
 			log.Printf("Received interaction: %s by %s", i.ApplicationCommandData().Name, i.Interaction.Member.User.Username)
@@ -805,11 +805,9 @@ func handleMessage(s *discordgo.Session, m *discordgo.MessageCreate) {
 	}
 
 	if m.Type == discordgo.MessageTypeReply {
-		if m.ReferencedMessage == nil {
-			return
-		}
-		if m.ReferencedMessage.Author.ID == s.State.User.ID || botMentioned {
+		if (m.ReferencedMessage.Author.ID == s.State.User.ID || botMentioned) && m.ReferencedMessage != nil {
 			cache = getMessagesBefore(s, m.ChannelID, 100, m.ID)
+			log.Printf("cache size: %d", len(cache))
 			isReply = true
 		}
 	}
@@ -830,15 +828,14 @@ func handleMessage(s *discordgo.Session, m *discordgo.MessageCreate) {
 
 		appendMessage(openai.ChatMessageRoleUser, m.Author.Username, content, &chatMessages)
 		if isReply { // insert replies before the message sent to the bot
-			checkForReplies(s, m.ReferencedMessage, cache, &chatMessages)
+			prependReplies(s, m.ReferencedMessage, cache, &chatMessages)
 		}
-		// check the switch after replies, the switch checks the first and last inserted message
 		instructionMessage := instructionSwitch(chatMessages)
 		if instructionMessage.text != "" { // get the instruction and if it exists prepend it
 			prependMessage(openai.ChatMessageRoleSystem, m.Author.Username, instructionMessage, &chatMessages)
 		}
 		prependMessage(openai.ChatMessageRoleSystem, "", systemMessage, &chatMessages)
-		sendMessageChatResponse(s, m, chatMessages)
+		streamMessageResponse(s, m, chatMessages)
 		return
 	}
 }

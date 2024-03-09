@@ -197,7 +197,7 @@ func splitParagraph(message string) (string, string) {
 	return firstPart, lastPart
 }
 
-func checkForReplies(s *discordgo.Session, message *discordgo.Message, cache []*discordgo.Message, chatMessages *[]openai.ChatCompletionMessage) {
+func prependReplies(s *discordgo.Session, message *discordgo.Message, cache []*discordgo.Message, chatMessages *[]openai.ChatCompletionMessage) {
 	if message.Type == discordgo.MessageTypeReply {
 		// check if the message has a reference, if not get it
 		if message.ReferencedMessage == nil {
@@ -220,7 +220,18 @@ func checkForReplies(s *discordgo.Session, message *discordgo.Message, cache []*
 		} else {
 			prependMessage(openai.ChatMessageRoleUser, replyMessage.Author.Username, replyContent, chatMessages)
 		}
-		checkForReplies(s, message.ReferencedMessage, cache, chatMessages)
+		prependReplies(s, message.ReferencedMessage, cache, chatMessages)
+	} else {
+		message = cleanMessage(s, message)
+		content := requestContent{
+			text: message.Content,
+			url:  getMessageImages(message),
+		}
+		if message.Author.ID == s.State.User.ID {
+			prependMessage(openai.ChatMessageRoleAssistant, message.Author.Username, content, chatMessages)
+		} else {
+			prependMessage(openai.ChatMessageRoleUser, message.Author.Username, content, chatMessages)
+		}
 	}
 }
 

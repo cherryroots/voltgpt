@@ -312,7 +312,7 @@ func (r *round) hasBet(newBet bet) (bet, error) {
 			return b, nil
 		}
 	}
-	return bet{}, errors.New("No bet found")
+	return bet{}, errors.New("no bet found")
 }
 
 func (r *round) setWinner(winner player) {

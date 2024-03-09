@@ -16,16 +16,16 @@ var (
 			Value: openai.GPT4,
 		},
 		{
-			Name:  "gpt-4-1106-preview",
-			Value: openai.GPT4TurboPreview,
+			Name:  "gpt-4-0125-preview",
+			Value: openai.GPT4Turbo0125,
 		},
 		{
 			Name:  "gpt-4-vision-preview",
 			Value: openai.GPT4VisionPreview,
 		},
 		{
-			Name:  "gpt-3.5-turbo-1106",
-			Value: openai.GPT3Dot5Turbo1106,
+			Name:  "gpt-3.5-turbo-0125",
+			Value: openai.GPT3Dot5Turbo0125,
 		},
 	}
 )
