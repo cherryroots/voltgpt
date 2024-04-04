@@ -2,12 +2,13 @@ package main
 
 import (
 	"fmt"
-	"github.com/bwmarrin/discordgo"
-	"github.com/sashabaranov/go-openai"
 	"log"
 	"strconv"
 	"strings"
 	"sync"
+
+	"github.com/bwmarrin/discordgo"
+	"github.com/sashabaranov/go-openai"
 )
 
 var (
@@ -569,8 +570,8 @@ var (
 			_, err := s.ChannelMessageEditComplex(&discordgo.MessageEdit{
 				Channel:    i.ChannelID,
 				ID:         i.Message.ID,
-				Embeds:     []*discordgo.MessageEmbed{&embed},
-				Components: roundMessageComponents,
+				Embeds:     &[]*discordgo.MessageEmbed{&embed},
+				Components: &roundMessageComponents,
 			})
 			if err != nil {
 				log.Println(err)
@@ -787,12 +788,6 @@ func handleMessage(s *discordgo.Session, m *discordgo.MessageCreate) {
 		return
 	}
 
-	systemMessage := requestContent{
-		text: "You're able to draw images if the user asks for it, don't offer to draw images unprompted. \n" +
-			"The image request will be processed after you reply and attached to the reply. \n" +
-			"For any message from the user that has a ❤ in it just treat it as not being there and reply normally.",
-	}
-
 	var chatMessages []openai.ChatCompletionMessage
 	var cache []*discordgo.Message
 	botMentioned, isReply := false, false
@@ -806,7 +801,7 @@ func handleMessage(s *discordgo.Session, m *discordgo.MessageCreate) {
 
 	if m.Type == discordgo.MessageTypeReply {
 		if (m.ReferencedMessage.Author.ID == s.State.User.ID || botMentioned) && m.ReferencedMessage != nil {
-			cache = getMessagesBefore(s, m.ChannelID, 50, m.ID)
+			cache = getMessagesBefore(s, m.ChannelID, 100, m.ID)
 			isReply = true
 		}
 	}
@@ -833,7 +828,7 @@ func handleMessage(s *discordgo.Session, m *discordgo.MessageCreate) {
 		if instructionMessage.text != "" { // get the instruction and if it exists prepend it
 			prependMessage(openai.ChatMessageRoleSystem, m.Author.Username, instructionMessage, &chatMessages)
 		}
-		prependMessage(openai.ChatMessageRoleSystem, "", systemMessage, &chatMessages)
+		prependMessage(openai.ChatMessageRoleSystem, "", systemMessageDefault, &chatMessages)
 		streamMessageResponse(s, m, chatMessages)
 		return
 	}

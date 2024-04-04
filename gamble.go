@@ -467,7 +467,6 @@ func (g *game) sendMenu(s *discordgo.Session, i *discordgo.InteractionCreate, re
 		options = append(options, discordgo.SelectMenuOption{
 			Label: player.User.Username,
 			Value: player.id(),
-			Emoji: discordgo.ComponentEmoji{Name: "👤"},
 		})
 	}
 	if len(options) == 0 {
@@ -544,7 +543,7 @@ func makeButton(style discordgo.ButtonStyle, label string, emoji string, customI
 	return &discordgo.Button{
 		Style:    style,
 		Label:    label,
-		Emoji:    discordgo.ComponentEmoji{Name: emoji},
+		Emoji:    &discordgo.ComponentEmoji{Name: emoji},
 		CustomID: customID,
 	}
 }

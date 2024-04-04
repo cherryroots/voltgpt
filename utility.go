@@ -207,6 +207,8 @@ func prependReplies(s *discordgo.Session, message *discordgo.Message, cache []*d
 			} else {
 				message.ReferencedMessage, _ = s.ChannelMessage(message.MessageReference.ChannelID, message.MessageReference.MessageID)
 			}
+		} else {
+			return
 		}
 	}
 	replyMessage := cleanMessage(s, message.ReferencedMessage)
