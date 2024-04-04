@@ -12,13 +12,11 @@ import (
 	"github.com/bwmarrin/discordgo"
 )
 
-var (
-	wheel = game{
-		Rounds:     []round{},
-		BetOptions: []player{},
-		Players:    []player{},
-	}
-)
+var wheel = game{
+	Rounds:     []round{},
+	BetOptions: []player{},
+	Players:    []player{},
+}
 
 func writeWheelToFile() {
 	if _, err := os.Stat("wheel.gob"); os.IsNotExist(err) {
@@ -43,7 +41,7 @@ func writeWheelToFile() {
 		return
 	}
 
-	file, err := os.OpenFile("wheel.gob", os.O_WRONLY|os.O_TRUNC, 0644)
+	file, err := os.OpenFile("wheel.gob", os.O_WRONLY|os.O_TRUNC, 0o644)
 	if err != nil {
 		log.Printf("OpenFile error: %v\n", err)
 		return
@@ -260,7 +258,7 @@ func (g *game) playerBets(player player, round round) (int, int) {
 	var bets, betAmount int
 	for _, bet := range round.Bets {
 		if bet.By.id() == player.id() {
-			bets += 1
+			bets++
 			betAmount += bet.Amount
 		}
 	}
@@ -478,8 +476,8 @@ func (g *game) sendMenu(s *discordgo.Session, i *discordgo.InteractionCreate, re
 		return
 	}
 
-	var customID = "menu_bet"
-	var content = "Place a Bet"
+	customID := "menu_bet"
+	content := "Place a Bet"
 	if remove {
 		customID = "menu_bet-remove"
 		content = "Remove a Bet"
@@ -533,7 +531,6 @@ func (g *game) sendModal(s *discordgo.Session, i *discordgo.InteractionCreate, u
 			},
 		},
 	})
-
 	if err != nil {
 		log.Println(err)
 	}

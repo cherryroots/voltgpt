@@ -6,13 +6,14 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
-	"github.com/bwmarrin/discordgo"
-	"github.com/pkoukk/tiktoken-go"
-	"github.com/sashabaranov/go-openai"
 	"io"
 	"log"
 	"os"
 	"strings"
+
+	"github.com/bwmarrin/discordgo"
+	"github.com/pkoukk/tiktoken-go"
+	"github.com/sashabaranov/go-openai"
 )
 
 var (
@@ -172,7 +173,7 @@ func drawImage(message string, size string) ([]*discordgo.File, error) {
 	c := openai.NewClient(openaiToken)
 	ctx := context.Background()
 
-	reqUrl := openai.ImageRequest{
+	reqURL := openai.ImageRequest{
 		Prompt:         message,
 		Model:          openai.CreateImageModelDallE3,
 		Quality:        openai.CreateImageQualityStandard,
@@ -181,7 +182,7 @@ func drawImage(message string, size string) ([]*discordgo.File, error) {
 		N:              1,
 	}
 
-	respBase64, err := c.CreateImage(ctx, reqUrl)
+	respBase64, err := c.CreateImage(ctx, reqURL)
 	if err != nil {
 		return nil, err
 	}

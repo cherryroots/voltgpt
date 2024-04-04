@@ -13,7 +13,7 @@ import (
 
 var (
 	writePermission int64 = discordgo.PermissionSendMessages
-	//adminPermission int64   = discordgo.PermissionAdministrator
+	// adminPermission int64   = discordgo.PermissionAdministrator
 	dmPermission         = false
 	tempMin              = 0.01
 	integerMin   float64 = 1
@@ -220,7 +220,7 @@ var (
 			log.Printf("Received interaction: %s by %s", i.ApplicationCommandData().Name, i.Interaction.Member.User.Username)
 			deferResponse(s, i)
 
-			var options = newGenerationOptions()
+			options := newGenerationOptions()
 
 			for _, option := range i.ApplicationCommandData().Options {
 				if option.Name == "question" {
@@ -228,7 +228,7 @@ var (
 					log.Println("ask:", options.message)
 				}
 				if option.Name == "image" {
-					options.imageUrl = option.StringValue()
+					options.imageURL = option.StringValue()
 				}
 				if option.Name == "temperature" {
 					options.temperature = float32(option.Value.(float64))
@@ -241,10 +241,10 @@ var (
 			content := requestContent{
 				text: options.message,
 			}
-			if options.imageUrl != "" {
-				content.url = append(content.url, options.imageUrl)
+			if options.imageURL != "" {
+				content.url = append(content.url, options.imageURL)
 			}
-			var reqMessage = createMessage(openai.ChatMessageRoleUser, "", content)
+			reqMessage := createMessage(openai.ChatMessageRoleUser, "", content)
 			streamInteractionResponse(s, i, reqMessage, options)
 		},
 		"draw": func(s *discordgo.Session, i *discordgo.InteractionCreate) {
@@ -283,8 +283,8 @@ var (
 			log.Printf("Received interaction: %s by %s", i.ApplicationCommandData().Name, i.Interaction.Member.User.Username)
 			deferResponse(s, i)
 
-			var options = newGenerationOptions()
-			var count = 0
+			options := newGenerationOptions()
+			count := 0
 			for _, option := range i.ApplicationCommandData().Options {
 				if option.Name == "question" {
 					options.message = option.Value.(string)
@@ -304,10 +304,10 @@ var (
 				count = 20
 			}
 
-			var messages = getChannelMessages(s, i.ChannelID, count)
+			messages := getChannelMessages(s, i.ChannelID, count)
 			messages = cleanMessages(s, messages)
 
-			var chatMessages = createBatchMessages(s, messages)
+			chatMessages := createBatchMessages(s, messages)
 			content := requestContent{
 				text: options.message,
 			}
@@ -320,7 +320,7 @@ var (
 
 			var channelID string
 			var outputMessage string
-			var msgCount, hashCount = 0, 0
+			msgCount, hashCount := 0, 0
 
 			for _, option := range i.ApplicationCommandData().Options {
 				if option.Name == "channel" {
@@ -367,7 +367,6 @@ var (
 			if err != nil {
 				log.Println(err)
 			}
-
 		},
 		"TTS": func(s *discordgo.Session, i *discordgo.InteractionCreate) {
 			log.Printf("Received interaction: %s by %s", i.ApplicationCommandData().Name, i.Interaction.Member.User.Username)
@@ -375,7 +374,7 @@ var (
 
 			message := i.ApplicationCommandData().Resolved.Messages[i.ApplicationCommandData().TargetID]
 
-			var files = splitTTS(message.Content, true)
+			files := splitTTS(message.Content, true)
 
 			_, err := sendFollowupFile(s, i, linkFromIMessage(i, message), files)
 			if err != nil {
@@ -484,7 +483,7 @@ var (
 			}
 
 			var message string
-			var player = player{
+			player := player{
 				User: user,
 			}
 			if remove {
@@ -551,7 +550,6 @@ var (
 			if err != nil {
 				log.Println(err)
 			}
-
 		},
 	}
 
@@ -594,7 +592,7 @@ var (
 			log.Printf("Received interaction: %s by %s", i.MessageComponentData().CustomID, i.Interaction.Member.User.Username)
 			deferEphemeralResponse(s, i)
 
-			var player = player{
+			player := player{
 				User: i.Interaction.Member.User,
 			}
 
@@ -651,10 +649,10 @@ var (
 
 			if strings.Contains(i.MessageComponentData().CustomID, "remove") {
 				member, _ := s.GuildMember(i.GuildID, selectedUser[0])
-				var by = player{
+				by := player{
 					User: i.Interaction.Member.User,
 				}
-				var on = player{
+				on := player{
 					User: member.User,
 				}
 				wheel.Rounds[round].removeBet(by, on)
@@ -666,7 +664,7 @@ var (
 			}
 			if strings.Contains(i.MessageComponentData().CustomID, "winner") {
 				member, _ := s.GuildMember(i.GuildID, selectedUser[0])
-				var player = player{
+				player := player{
 					User: member.User,
 				}
 
@@ -701,10 +699,10 @@ var (
 			userID := strings.Split(i.ModalSubmitData().CustomID, "-")[1]
 			user, _ := s.GuildMember(i.GuildID, userID)
 
-			var byPlayer = player{
+			byPlayer := player{
 				User: i.Interaction.Member.User,
 			}
-			var onPlayer = player{
+			onPlayer := player{
 				User: user.User,
 			}
 
@@ -733,7 +731,7 @@ var (
 			options := len(wheel.currentWheelOptions())
 			playerBets, _ := wheel.playerBets(byPlayer, wheel.currentRound())
 			if options%2 == 1 {
-				options += 1
+				options++
 			}
 			if playerBets >= (options / 2) {
 				err := updateResponse(s, i, "You can only bet on half of the players")
@@ -767,7 +765,6 @@ var (
 			if err != nil {
 				log.Println(err)
 			}
-
 		},
 	}
 )

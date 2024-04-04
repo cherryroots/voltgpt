@@ -8,28 +8,25 @@ import (
 	_ "image/gif"
 	_ "image/jpeg"
 	_ "image/png"
+	"io"
 	"log"
+	"net/http"
+	"os"
 	"sort"
 	"sync"
 
 	_ "golang.org/x/image/webp"
 
-	"io"
-	"net/http"
-	"os"
-
 	"github.com/bwmarrin/discordgo"
 	"github.com/corona10/goimagehash"
 )
 
-var (
-	hashStore = struct {
-		sync.RWMutex
-		m map[string]*discordgo.Message
-	}{
-		m: make(map[string]*discordgo.Message),
-	}
-)
+var hashStore = struct {
+	sync.RWMutex
+	m map[string]*discordgo.Message
+}{
+	m: make(map[string]*discordgo.Message),
+}
 
 type hashResult struct {
 	distance int
@@ -68,7 +65,7 @@ func writeHashToFile() {
 		return
 	}
 
-	file, err := os.OpenFile("imagehashes.gob", os.O_WRONLY|os.O_TRUNC, 0644)
+	file, err := os.OpenFile("imagehashes.gob", os.O_WRONLY|os.O_TRUNC, 0o644)
 	if err != nil {
 		log.Printf("OpenFile error: %v\n", err)
 		return
@@ -169,9 +166,8 @@ func olderHash(hash string, message *discordgo.Message) bool {
 		// if the message we're parsing is older than the stored message
 		if message.Timestamp.Before(oldMessage.Timestamp) {
 			return true
-		} else {
-			return false
 		}
+		return false
 	}
 	// return true if the hash doesn't exist
 	return true

@@ -1,3 +1,4 @@
+// Package main is the entry point for the application.
 package main
 
 import (
@@ -72,7 +73,7 @@ func main() {
 		go handleMessage(s, m)
 	})
 
-	dg.AddHandler(func(s *discordgo.Session, r *discordgo.Ready) {
+	dg.AddHandler(func(s *discordgo.Session, _ *discordgo.Ready) {
 		log.Printf("Logged in as: %v#%v", s.State.User.Username, s.State.User.Discriminator)
 		log.Println("Hashes: ", len(hashStore.m))
 	})

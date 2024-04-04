@@ -246,14 +246,14 @@ func getChannelMessages(s *discordgo.Session, channelID string, count int) []*di
 
 	// Fetch full iterations of 100 messages
 	for i := 0; i < iterations; i++ {
-		var batch = getMessagesBefore(s, channelID, 100, lastMessageID)
+		batch := getMessagesBefore(s, channelID, 100, lastMessageID)
 		lastMessageID = batch[len(batch)-1].ID
 		messages = append(messages, batch...)
 	}
 
 	// Fetch the remainder of messages if there are any
 	if remainder > 0 {
-		var batch = getMessagesBefore(s, channelID, remainder, lastMessageID)
+		batch := getMessagesBefore(s, channelID, remainder, lastMessageID)
 		messages = append(messages, batch...)
 	}
 	return messages
@@ -266,7 +266,7 @@ func getAllChannelMessages(s *discordgo.Session, m *discordgo.Message, channelID
 	count := 0
 
 	for messagesRetrieved == 100 {
-		var batch = getMessagesBefore(s, channelID, 100, lastMessageID)
+		batch := getMessagesBefore(s, channelID, 100, lastMessageID)
 		if len(batch) == 0 || batch == nil {
 			log.Println("getAllChannelMessages: no messages retrieved")
 			break
@@ -318,9 +318,9 @@ func getMessageImages(m *discordgo.Message) []string {
 	}
 
 	for _, u := range urls {
-		checkUrl := cleanUrl(u)
-		if !seen[checkUrl] {
-			seen[checkUrl] = true
+		checkURL := cleanURL(u)
+		if !seen[checkURL] {
+			seen[checkURL] = true
 			uniqueURLs = append(uniqueURLs, u)
 		}
 	}
@@ -408,7 +408,7 @@ func isImageURL(urlStr string) bool {
 	}
 }
 
-func cleanUrl(urlStr string) string {
+func cleanURL(urlStr string) string {
 	parsedURL, err := url.Parse(urlStr)
 	if err != nil {
 		return urlStr

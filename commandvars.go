@@ -6,9 +6,9 @@ import (
 )
 
 var (
-	admins       []string = []string{"102087943627243520", "123116664207179777", "95681688914366464"}
-	defaultTemp  float32  = 0.7
-	defaultModel          = openai.GPT4VisionPreview
+	admins               = []string{"102087943627243520", "123116664207179777", "95681688914366464"}
+	defaultTemp  float32 = 0.7
+	defaultModel         = openai.GPT4VisionPreview
 
 	modelChoices = []*discordgo.ApplicationCommandOptionChoice{
 		{
@@ -32,7 +32,7 @@ var (
 
 type generationOptions struct {
 	message     string
-	imageUrl    string
+	imageURL    string
 	temperature float32
 	model       string
 }
@@ -40,7 +40,7 @@ type generationOptions struct {
 func newGenerationOptions() *generationOptions {
 	return &generationOptions{
 		message:     "",
-		imageUrl:    "",
+		imageURL:    "",
 		temperature: defaultTemp,
 		model:       defaultModel,
 	}
