@@ -91,7 +91,7 @@ func getANTIntents(message string) string {
 	return resp.Content[0].Text
 }
 
-func streamMessageANTResponse(s *discordgo.Session, m *discordgo.MessageCreate, messages []anthropic.Message) {
+func streamMessageANTResponse(s *discordgo.Session, m *discordgo.Message, messages []anthropic.Message, refMsg *discordgo.Message) {
 	token := os.Getenv("ANTHROPIC_TOKEN")
 	if token == "" {
 		log.Fatal("ANTHROPIC_TOKEN is not set")
@@ -101,18 +101,24 @@ func streamMessageANTResponse(s *discordgo.Session, m *discordgo.MessageCreate, 
 
 	maxTokens, err := getRequestMaxTokensANT(messages, defaultOAIModel)
 	if err != nil {
-		logSendErrorMessage(s, m.Message, err.Error())
-		return
-	}
-
-	msg, err := sendMessageFile(s, m.Message, "Responding...", nil)
-	if err != nil {
-		logSendErrorMessage(s, m.Message, err.Error())
+		logSendErrorMessage(s, m, err.Error())
 		return
 	}
 
 	var i int
-	var message, fullMessage string
+	var currentMessage, fullMessage string
+	var msg *discordgo.Message
+
+	if refMsg == nil {
+		msg, err = sendMessageFile(s, m, "Responding...", nil)
+		if err != nil {
+			logSendErrorMessage(s, m, err.Error())
+			return
+		}
+	} else {
+		currentMessage = getANTMessageText(messages[len(messages)-1])
+		msg = refMsg
+	}
 
 	replacementStrings := []string{"⚙️", "⚙"}
 	instructionSwitchMessage := instructionSwitchANT(messages)
@@ -126,42 +132,42 @@ func streamMessageANTResponse(s *discordgo.Session, m *discordgo.MessageCreate, 
 			MaxTokens: maxTokens,
 		},
 		OnContentBlockDelta: func(data anthropic.MessagesEventContentBlockDeltaData) {
-			message = message + data.Delta.Text
+			currentMessage = currentMessage + data.Delta.Text
 			fullMessage = fullMessage + data.Delta.Text
 			i++
 			if i%25 == 0 || i == 5 {
 				// If the message is too long, split it into a new message
-				if len(message) > 1800 {
-					firstPart, lastPart := splitParagraph(message)
+				if len(currentMessage) > 1800 {
+					firstPart, lastPart := splitParagraph(currentMessage)
 					if lastPart == "" {
 						lastPart = "..."
 					}
 
 					_, err = editMessageFile(s, msg, firstPart, nil)
 					if err != nil {
-						logSendErrorMessage(s, m.Message, err.Error())
+						logSendErrorMessage(s, m, err.Error())
 						return
 					}
 					msg, err = sendMessageFile(s, msg, lastPart, nil)
 					if err != nil {
-						logSendErrorMessage(s, m.Message, err.Error())
+						logSendErrorMessage(s, m, err.Error())
 						return
 					}
-					message = lastPart
+					currentMessage = lastPart
 				} else {
-					_, err = editMessageFile(s, msg, message, nil)
+					_, err = editMessageFile(s, msg, currentMessage, nil)
 					if err != nil {
-						logSendErrorMessage(s, m.Message, err.Error())
+						logSendErrorMessage(s, m, err.Error())
 						return
 					}
 				}
 			}
 		},
 		OnMessageStop: func(_ anthropic.MessagesEventMessageStopData) {
-			message = strings.TrimPrefix(message, "...")
-			_, err = editMessageFile(s, msg, message, nil)
+			currentMessage = strings.TrimPrefix(currentMessage, "...")
+			_, err = editMessageFile(s, msg, currentMessage, nil)
 			if err != nil {
-				logSendErrorMessage(s, m.Message, err.Error())
+				logSendErrorMessage(s, m, err.Error())
 				return
 			}
 			go func() {
@@ -175,11 +181,11 @@ func streamMessageANTResponse(s *discordgo.Session, m *discordgo.MessageCreate, 
 				if intent == "draw" {
 					files, err := drawImage(request, openai.CreateImageSize1024x1024)
 					if err != nil {
-						logSendErrorMessage(s, m.Message, err.Error())
+						logSendErrorMessage(s, m, err.Error())
 					}
-					_, err = editMessageFile(s, msg, message, files)
+					_, err = editMessageFile(s, msg, currentMessage, files)
 					if err != nil {
-						logSendErrorMessage(s, m.Message, err.Error())
+						logSendErrorMessage(s, m, err.Error())
 						return
 					}
 				}
@@ -191,10 +197,10 @@ func streamMessageANTResponse(s *discordgo.Session, m *discordgo.MessageCreate, 
 		var e *anthropic.APIError
 		if errors.As(err, &e) {
 			errmsg := fmt.Sprintf("\nMessages stream error, type: %s, message: %s", e.Type, e.Message)
-			logSendErrorMessage(s, m.Message, errmsg)
+			logSendErrorMessage(s, m, errmsg)
 		} else {
 			errmsg := fmt.Sprintf("\nStream error: %v\n", err)
-			logSendErrorMessage(s, m.Message, errmsg)
+			logSendErrorMessage(s, m, errmsg)
 		}
 		return
 	}

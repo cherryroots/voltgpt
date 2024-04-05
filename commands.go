@@ -181,6 +181,10 @@ var (
 			Name: "Hash",
 			Type: discordgo.MessageApplicationCommand,
 		},
+		{
+			Name: "Continue",
+			Type: discordgo.MessageApplicationCommand,
+		},
 	}
 
 	commandHandlers = map[string]func(s *discordgo.Session, i *discordgo.InteractionCreate){
@@ -366,6 +370,57 @@ var (
 			if err != nil {
 				log.Println(err)
 			}
+		},
+		"Continue": func(s *discordgo.Session, i *discordgo.InteractionCreate) {
+			log.Printf("Received interaction: %s by %s", i.ApplicationCommandData().Name, i.Interaction.Member.User.Username)
+			deferEphemeralResponse(s, i)
+
+			m := i.ApplicationCommandData().Resolved.Messages[i.ApplicationCommandData().TargetID]
+
+			if m.Author.ID != s.State.User.ID {
+				_, err := sendFollowup(s, i, fmt.Sprint("Not a voltbot message"))
+				if err != nil {
+					log.Println(err)
+				}
+				return
+			}
+
+			_, err := sendFollowup(s, i, fmt.Sprint("Continuing..."))
+			if err != nil {
+				log.Println(err)
+			}
+			err = sleepDeleteInteraction(s, i, 3)
+			if err != nil {
+				log.Println(err)
+			}
+
+			var chatMessages []anthropic.Message
+			var cache []*discordgo.Message
+			isReply := false
+
+			if m.Type == discordgo.MessageTypeReply {
+				cache = getMessagesBefore(s, m.ChannelID, 100, m.ID)
+				isReply = true
+			}
+
+			if !isReply {
+				return
+			}
+
+			log.Printf("%s continue: %s", i.Interaction.Member.User.Username, m.Content)
+
+			m = cleanMessage(s, m)
+
+			content := requestContent{
+				text: fmt.Sprintf("%s", m.Content),
+				url:  getMessageImages(m),
+			}
+
+			appendANTMessage(anthropic.RoleAssistant, content, &chatMessages)
+			if isReply { // insert replies before the message sent to the bot
+				prependRepliesANTMessages(s, m, cache, &chatMessages)
+			}
+			streamMessageANTResponse(s, m, chatMessages, m)
 		},
 		"wheel_status": func(s *discordgo.Session, i *discordgo.InteractionCreate) {
 			log.Printf("Received interaction: %s by %s", i.ApplicationCommandData().Name, i.Interaction.Member.User.Username)
@@ -722,7 +777,6 @@ func handleMessage(s *discordgo.Session, m *discordgo.MessageCreate) {
 		return
 	}
 
-	// var chatMessages []openai.ChatCompletionMessage
 	var chatMessages []anthropic.Message
 	var cache []*discordgo.Message
 	botMentioned, isReply := false, false
@@ -755,21 +809,11 @@ func handleMessage(s *discordgo.Session, m *discordgo.MessageCreate) {
 			url:  getMessageImages(m.Message),
 		}
 
-		// appendOAIMessage(openai.ChatMessageRoleUser, m.Author.Username, content, &chatMessages)
 		appendANTMessage(anthropic.RoleUser, content, &chatMessages)
-		if isReply { // insert replies before the message sent to the bot
-			// prependRepliesOAIMessages(s, m.Message, cache, &chatMessages)
+		if isReply {
 			prependRepliesANTMessages(s, m.Message, cache, &chatMessages)
 		}
-		/*
-			instructionMessage := instructionSwitchOAI(chatMessages)
-			if instructionMessage.text != "" { // get the instruction and if it exists prepend it
-				prependOAIMessage(openai.ChatMessageRoleSystem, m.Author.Username, instructionMessage, &chatMessages)
-			}
-		*/
-		// prependOAIMessage(openai.ChatMessageRoleSystem, "", systemMessageDefault, &chatMessages)
-		// streamMessageOAIResponse(s, m, chatMessages)
-		streamMessageANTResponse(s, m, chatMessages)
+		streamMessageANTResponse(s, m.Message, chatMessages, nil)
 		return
 	}
 }
