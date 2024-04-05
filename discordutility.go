@@ -7,6 +7,14 @@ import (
 	"github.com/bwmarrin/discordgo"
 )
 
+func logSendErrorMessage(s *discordgo.Session, m *discordgo.Message, content string) {
+	log.Println(content)
+	_, _ = s.ChannelMessageSendComplex(m.ChannelID, &discordgo.MessageSend{
+		Content:   content,
+		Reference: m.Reference(),
+	})
+}
+
 func updateResponse(s *discordgo.Session, i *discordgo.InteractionCreate, content string) error {
 	err := s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 		Type: discordgo.InteractionResponseUpdateMessage,

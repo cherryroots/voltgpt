@@ -8,6 +8,7 @@ import (
 	"sync"
 
 	"github.com/bwmarrin/discordgo"
+	"github.com/liushuangls/go-anthropic"
 	"github.com/sashabaranov/go-openai"
 )
 
@@ -220,7 +221,7 @@ var (
 			log.Printf("Received interaction: %s by %s", i.ApplicationCommandData().Name, i.Interaction.Member.User.Username)
 			deferResponse(s, i)
 
-			options := newGenerationOptions()
+			options := newOAIGenerationOptions()
 
 			for _, option := range i.ApplicationCommandData().Options {
 				if option.Name == "question" {
@@ -244,7 +245,7 @@ var (
 			if options.imageURL != "" {
 				content.url = append(content.url, options.imageURL)
 			}
-			reqMessage := createMessage(openai.ChatMessageRoleUser, "", content)
+			reqMessage := createOAIMessage(openai.ChatMessageRoleUser, "", content)
 			streamInteractionResponse(s, i, reqMessage, options)
 		},
 		"draw": func(s *discordgo.Session, i *discordgo.InteractionCreate) {
@@ -283,7 +284,7 @@ var (
 			log.Printf("Received interaction: %s by %s", i.ApplicationCommandData().Name, i.Interaction.Member.User.Username)
 			deferResponse(s, i)
 
-			options := newGenerationOptions()
+			options := newOAIGenerationOptions()
 			count := 0
 			for _, option := range i.ApplicationCommandData().Options {
 				if option.Name == "question" {
@@ -307,11 +308,11 @@ var (
 			messages := getChannelMessages(s, i.ChannelID, count)
 			messages = cleanMessages(s, messages)
 
-			chatMessages := createBatchMessages(s, messages)
+			chatMessages := createBatchOAIMessages(s, messages)
 			content := requestContent{
 				text: options.message,
 			}
-			appendMessage(openai.ChatMessageRoleUser, i.Member.User.Username, content, &chatMessages)
+			appendOAIMessage(openai.ChatMessageRoleUser, i.Member.User.Username, content, &chatMessages)
 			streamInteractionResponse(s, i, chatMessages, options)
 		},
 		"hash_channel": func(s *discordgo.Session, i *discordgo.InteractionCreate) {
@@ -785,7 +786,8 @@ func handleMessage(s *discordgo.Session, m *discordgo.MessageCreate) {
 		return
 	}
 
-	var chatMessages []openai.ChatCompletionMessage
+	// var chatMessages []openai.ChatCompletionMessage
+	var chatMessages []anthropic.Message
 	var cache []*discordgo.Message
 	botMentioned, isReply := false, false
 
@@ -813,20 +815,25 @@ func handleMessage(s *discordgo.Session, m *discordgo.MessageCreate) {
 		m.Message = cleanMessage(s, m.Message)
 
 		content := requestContent{
-			text: m.Content,
+			text: fmt.Sprintf("%s: %s", m.Author.Username, m.Message.Content),
 			url:  getMessageImages(m.Message),
 		}
 
-		appendMessage(openai.ChatMessageRoleUser, m.Author.Username, content, &chatMessages)
+		// appendOAIMessage(openai.ChatMessageRoleUser, m.Author.Username, content, &chatMessages)
+		appendANTMessage(anthropic.RoleUser, content, &chatMessages)
 		if isReply { // insert replies before the message sent to the bot
-			prependReplies(s, m.Message, cache, &chatMessages)
+			// prependRepliesOAIMessages(s, m.Message, cache, &chatMessages)
+			prependRepliesANTMessages(s, m.Message, cache, &chatMessages)
 		}
-		instructionMessage := instructionSwitch(chatMessages)
-		if instructionMessage.text != "" { // get the instruction and if it exists prepend it
-			prependMessage(openai.ChatMessageRoleSystem, m.Author.Username, instructionMessage, &chatMessages)
-		}
-		prependMessage(openai.ChatMessageRoleSystem, "", systemMessageDefault, &chatMessages)
-		streamMessageResponse(s, m, chatMessages)
+		/*
+			instructionMessage := instructionSwitchOAI(chatMessages)
+			if instructionMessage.text != "" { // get the instruction and if it exists prepend it
+				prependOAIMessage(openai.ChatMessageRoleSystem, m.Author.Username, instructionMessage, &chatMessages)
+			}
+		*/
+		// prependOAIMessage(openai.ChatMessageRoleSystem, "", systemMessageDefault, &chatMessages)
+		// streamMessageOAIResponse(s, m, chatMessages)
+		streamMessageANTResponse(s, m, chatMessages)
 		return
 	}
 }

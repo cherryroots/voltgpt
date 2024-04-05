@@ -2,7 +2,9 @@ package main
 
 import (
 	"fmt"
+	"io"
 	"log"
+	"net/http"
 	"net/url"
 	"path/filepath"
 	"regexp"
@@ -10,7 +12,7 @@ import (
 	"sync"
 
 	"github.com/bwmarrin/discordgo"
-	"github.com/sashabaranov/go-openai"
+	"github.com/lithdew/nicehttp"
 )
 
 type requestContent struct {
@@ -29,81 +31,6 @@ func isAdmin(id string) bool {
 
 func linkFromIMessage(i *discordgo.InteractionCreate, m *discordgo.Message) string {
 	return fmt.Sprintf("https://discord.com/channels/%s/%s/%s", i.GuildID, m.ChannelID, m.ID)
-}
-
-func logSendErrorMessage(s *discordgo.Session, m *discordgo.Message, content string) {
-	log.Println(content)
-	_, _ = s.ChannelMessageSendComplex(m.ChannelID, &discordgo.MessageSend{
-		Content:   content,
-		Reference: m.Reference(),
-	})
-}
-
-func appendMessage(role string, name string, content requestContent, messages *[]openai.ChatCompletionMessage) {
-	newMessages := append(*messages, createMessage(role, name, content)...)
-	*messages = newMessages
-}
-
-func prependMessage(role string, name string, content requestContent, messages *[]openai.ChatCompletionMessage) {
-	newMessages := append(createMessage(role, name, content), *messages...)
-	*messages = newMessages
-}
-
-func createMessage(role string, name string, content requestContent) []openai.ChatCompletionMessage {
-	message := []openai.ChatCompletionMessage{
-		{
-			Role:         role,
-			MultiContent: []openai.ChatMessagePart{},
-		},
-	}
-
-	if name != "" {
-		message[0].Name = cleanName(name)
-	}
-
-	if content.text != "" {
-		message[0].MultiContent = append(message[0].MultiContent, openai.ChatMessagePart{
-			Type: openai.ChatMessagePartTypeText,
-			Text: content.text,
-		})
-	}
-
-	for _, u := range content.url {
-		message[0].MultiContent = append(message[0].MultiContent, openai.ChatMessagePart{
-			Type: openai.ChatMessagePartTypeImageURL,
-			ImageURL: &openai.ChatMessageImageURL{
-				URL:    u,
-				Detail: openai.ImageURLDetailAuto,
-			},
-		})
-	}
-
-	return message
-}
-
-func createBatchMessages(s *discordgo.Session, messages []*discordgo.Message) []openai.ChatCompletionMessage {
-	var batchMessages []openai.ChatCompletionMessage
-
-	for _, message := range messages {
-		content := requestContent{
-			text: message.Content,
-			url:  getMessageImages(message),
-		}
-		if message.Author.ID == s.State.User.ID {
-			prependMessage(openai.ChatMessageRoleAssistant, message.Author.Username, content, &batchMessages)
-		}
-		prependMessage(openai.ChatMessageRoleUser, message.Author.Username, content, &batchMessages)
-	}
-
-	return batchMessages
-}
-
-func messagesToString(messages []openai.ChatCompletionMessage) string {
-	var sb strings.Builder
-	for _, message := range messages {
-		sb.WriteString(fmt.Sprintf("From: %s, Role: %s: %s\n", message.Name, message.Role, message.MultiContent[0].Text))
-	}
-	return sb.String()
 }
 
 func splitTTS(message string, hd bool) []*discordgo.File {
@@ -195,36 +122,6 @@ func splitParagraph(message string) (string, string) {
 	}
 
 	return firstPart, lastPart
-}
-
-func prependReplies(s *discordgo.Session, message *discordgo.Message, cache []*discordgo.Message, chatMessages *[]openai.ChatCompletionMessage) {
-	// check if the message has a reference, if not get it
-	if message.ReferencedMessage == nil {
-		if message.MessageReference != nil {
-			cachedMessage := checkCache(cache, message.MessageReference.MessageID)
-			if cachedMessage != nil {
-				message.ReferencedMessage = cachedMessage
-			} else {
-				message.ReferencedMessage, _ = s.ChannelMessage(message.MessageReference.ChannelID, message.MessageReference.MessageID)
-			}
-		} else {
-			return
-		}
-	}
-	replyMessage := cleanMessage(s, message.ReferencedMessage)
-	replyContent := requestContent{
-		text: replyMessage.Content,
-		url:  getMessageImages(replyMessage),
-	}
-	if replyMessage.Author.ID == s.State.User.ID {
-		prependMessage(openai.ChatMessageRoleAssistant, replyMessage.Author.Username, replyContent, chatMessages)
-	} else {
-		prependMessage(openai.ChatMessageRoleUser, replyMessage.Author.Username, replyContent, chatMessages)
-	}
-
-	if replyMessage.Type == discordgo.MessageTypeReply {
-		prependReplies(s, message.ReferencedMessage, cache, chatMessages)
-	}
 }
 
 func getMessagesBefore(s *discordgo.Session, channelID string, count int, messageID string) []*discordgo.Message {
@@ -408,10 +305,60 @@ func isImageURL(urlStr string) bool {
 	}
 }
 
+func mediaType(urlStr string) string {
+	parsedURL, err := url.Parse(urlStr)
+	if err != nil {
+		return ""
+	}
+	fileExt := filepath.Ext(parsedURL.Path)
+	fileExt = strings.ToLower(fileExt)
+
+	switch fileExt {
+	case ".jpg", ".jpeg":
+		return "image/jpeg"
+	case ".png":
+		return "image/png"
+	case ".gif":
+		return "image/gif"
+	case ".webp":
+		return "image/webp"
+	default:
+		return ""
+	}
+}
+
 func cleanURL(urlStr string) string {
 	parsedURL, err := url.Parse(urlStr)
 	if err != nil {
 		return urlStr
 	}
 	return parsedURL.Path
+}
+
+func downloadBytes(client *nicehttp.Client, url string) ([]byte, error) {
+	buf, err := client.DownloadBytes(nil, url)
+	if err != nil {
+		return nil, err
+	}
+
+	return buf, nil
+}
+
+func downloadURL(url string) ([]byte, error) {
+	resp, err := http.Get(url)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("bad status: %s", resp.Status)
+	}
+
+	data, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+
+	return data, nil
 }
