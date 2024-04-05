@@ -33,10 +33,10 @@ var (
 
 	systemMessageDefault = requestContent{
 		text: "You're able to draw images if the user asks for it, don't offer to draw images unprompted. \n" +
-			"The image request will be processed after you reply and attached to the reply. \n" +
-			"For any message from the user that has a ❤ in it just treat it as not being there and reply normally. `n" +
-			"If the role is assistant but the message text starts with 'Username:', then the role is actually user," +
-			" and the message text is the username of previous messages. \n",
+			"The image request will be processed after you respond and attached to the response. \n" +
+			"For any message from the user that has a ❤️ or ⚙️ in it just treat it as not being there and reply normally. \n" +
+			"If a message starts like 'username: message' and the usernames are different, then it can be multiple users talking, " +
+			"in that user role message.",
 	}
 	instructionMessageDefault = requestContent{text: ""}
 	instructionMessageMean    = requestContent{

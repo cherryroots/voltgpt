@@ -743,9 +743,9 @@ func handleMessage(s *discordgo.Session, m *discordgo.MessageCreate) {
 
 	if botMentioned || isReply {
 		if isReply {
-			log.Printf("reply: %s", m.Content)
+			log.Printf("%s reply: %s", m.Author.Username, m.Content)
 		} else {
-			log.Printf("mention: %s", m.Content)
+			log.Printf("%s mention: %s", m.Author.Username, m.Content)
 		}
 
 		m.Message = cleanMessage(s, m.Message)

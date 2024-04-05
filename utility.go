@@ -362,3 +362,20 @@ func downloadURL(url string) ([]byte, error) {
 
 	return data, nil
 }
+
+func replaceMultiple(str string, oldStrings []string, newString string) string {
+	for _, oldStr := range oldStrings {
+		str = strings.ReplaceAll(str, oldStr, newString)
+	}
+	return str
+}
+
+func extractText(text string, lookup string) string {
+	firstIndex := strings.Index(text, lookup)
+	lastIndex := strings.LastIndex(text, lookup)
+	return text[firstIndex : lastIndex+len(lookup)]
+}
+
+func containsPair(text string, lookup string) bool {
+	return strings.Contains(text, lookup) && strings.Count(text, lookup)%2 == 0
+}

@@ -23,6 +23,22 @@ func getANTMessageText(msg anthropic.Message) string {
 	return sb.String()
 }
 
+func cleanInstructionsANTMessages(messages []anthropic.Message) []anthropic.Message {
+	var newMessages []anthropic.Message
+	for _, message := range messages {
+		text := getANTMessageText(message)
+		tempMesessages := createANTMessage(message.Role, requestContent{text: text})
+		instruction := instructionSwitchANT(tempMesessages)
+		if !strings.Contains(text, instruction.text) {
+			newMessages = append(newMessages, message)
+		} else {
+			text = strings.ReplaceAll(text, instruction.text, "")
+			newMessages = append(newMessages, createANTMessage(message.Role, requestContent{text: text})...)
+		}
+	}
+	return newMessages
+}
+
 func instructionSwitchANT(m []anthropic.Message) requestContent {
 	firstMessageText := getANTMessageText(m[0])
 	lastMessageText := getANTMessageText(m[len(m)-1])
@@ -33,6 +49,15 @@ func instructionSwitchANT(m []anthropic.Message) requestContent {
 	if strings.Contains(text, "❤️") || strings.Contains(text, "❤") || strings.Contains(text, ":heart:") {
 		return instructionMessageDefault
 	}
+
+	if containsPair(text, "⚙️") {
+		return requestContent{text: strings.TrimSpace(extractText(text, "⚙️"))}
+	} else if containsPair(text, "⚙") {
+		return requestContent{text: strings.TrimSpace(extractText(text, "⚙"))}
+	} else if containsPair(text, ":gear:") {
+		return requestContent{text: strings.TrimSpace(extractText(text, ":gear:"))}
+	}
+
 	return instructionMessageMean
 }
 
@@ -89,18 +114,22 @@ func streamMessageANTResponse(s *discordgo.Session, m *discordgo.MessageCreate, 
 	var i int
 	var message, fullMessage string
 
+	replacementStrings := []string{"⚙️", "⚙"}
+	instructionSwitchMessage := instructionSwitchANT(messages)
+	instructionSwitchMessage.text = strings.TrimSpace(replaceMultiple(instructionSwitchMessage.text, replacementStrings, ""))
+
 	_, err = c.CreateMessagesStream(ctx, anthropic.MessagesStreamRequest{
 		MessagesRequest: anthropic.MessagesRequest{
 			Model:     defaultANTModel,
-			System:    fmt.Sprintf("%s\n\n%s", systemMessageDefault.text, instructionSwitchANT(messages).text),
-			Messages:  messages,
+			System:    fmt.Sprintf("%s\n\n%s", systemMessageDefault.text, instructionSwitchMessage.text),
+			Messages:  cleanInstructionsANTMessages(messages),
 			MaxTokens: maxTokens,
 		},
 		OnContentBlockDelta: func(data anthropic.MessagesEventContentBlockDeltaData) {
 			message = message + data.Delta.Text
 			fullMessage = fullMessage + data.Delta.Text
 			i++
-			if i%25 == 0 {
+			if i%25 == 0 || i == 5 {
 				// If the message is too long, split it into a new message
 				if len(message) > 1800 {
 					firstPart, lastPart := splitParagraph(message)
