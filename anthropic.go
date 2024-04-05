@@ -16,27 +16,27 @@ import (
 func getANTMessageText(msg anthropic.Message) string {
 	var sb strings.Builder
 	for _, content := range msg.Content {
-		if content.Text != nil {
-			sb.WriteString(*content.Text + "\n")
-		}
+		sb.WriteString(content.GetText() + "\n")
 	}
 	return sb.String()
 }
 
 func cleanInstructionsANTMessages(messages []anthropic.Message) []anthropic.Message {
-	var newMessages []anthropic.Message
-	for _, message := range messages {
+	for i, message := range messages {
 		text := getANTMessageText(message)
-		tempMesessages := createANTMessage(message.Role, requestContent{text: text})
-		instruction := instructionSwitchANT(tempMesessages)
+		tempMessage := createANTMessage(message.Role, requestContent{text: text})
+		instruction := instructionSwitchANT(tempMessage)
 		if !strings.Contains(text, instruction.text) {
-			newMessages = append(newMessages, message)
-		} else {
-			text = strings.ReplaceAll(text, instruction.text, "")
-			newMessages = append(newMessages, createANTMessage(message.Role, requestContent{text: text})...)
+			continue
+		}
+		for j, content := range message.Content {
+			if content.IsTextContent() {
+				replacedText := strings.ReplaceAll(content.GetText(), instruction.text, "")
+				messages[i].Content[j].Text = &replacedText
+			}
 		}
 	}
-	return newMessages
+	return messages
 }
 
 func instructionSwitchANT(m []anthropic.Message) requestContent {

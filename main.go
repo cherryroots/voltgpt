@@ -26,10 +26,8 @@ func init() {
 	go func() {
 		for {
 			writeHashToFile()
-			log.Printf("Written %d hashes to file", len(hashStore.m))
 			writeWheelToFile()
-			log.Printf("Written %d rounds of game to file", len(wheel.Rounds))
-			time.Sleep(10 * time.Minute)
+			time.Sleep(1 * time.Minute)
 		}
 	}()
 }
@@ -75,7 +73,8 @@ func main() {
 
 	dg.AddHandler(func(s *discordgo.Session, _ *discordgo.Ready) {
 		log.Printf("Logged in as: %v#%v", s.State.User.Username, s.State.User.Discriminator)
-		log.Println("Hashes: ", len(hashStore.m))
+		log.Printf("Hashes: %d", len(hashStore.m))
+		log.Printf("Rounds: %d", len(wheel.Rounds))
 	})
 
 	err = dg.Open()
