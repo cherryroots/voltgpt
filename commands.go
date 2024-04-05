@@ -21,39 +21,6 @@ var (
 
 	commands = []*discordgo.ApplicationCommand{
 		{
-			Name:                     "ask",
-			Description:              "Ask a question (default gpt-4-0314 and 0.7 temperature)",
-			DefaultMemberPermissions: &writePermission,
-			DMPermission:             &dmPermission,
-			Options: []*discordgo.ApplicationCommandOption{
-				{
-					Type:        discordgo.ApplicationCommandOptionString,
-					Name:        "question",
-					Description: "question to ask",
-					Required:    true,
-				},
-				{
-					Type:        discordgo.ApplicationCommandOptionAttachment,
-					Name:        "image",
-					Description: "image to use as context",
-					Required:    false,
-				},
-				{
-					Type:        discordgo.ApplicationCommandOptionNumber,
-					Name:        "temperature",
-					Description: "Choose a number between 0 and 2. Higher values are more random, lower values are more factual.",
-					MinValue:    &tempMin,
-					MaxValue:    2,
-				},
-				{
-					Type:        discordgo.ApplicationCommandOptionString,
-					Name:        "model",
-					Description: "Pick a model to use",
-					Choices:     modelChoices,
-				},
-			},
-		},
-		{
 			Name:                     "draw",
 			Description:              "Draw an image",
 			DefaultMemberPermissions: &writePermission,
@@ -217,37 +184,6 @@ var (
 	}
 
 	commandHandlers = map[string]func(s *discordgo.Session, i *discordgo.InteractionCreate){
-		"ask": func(s *discordgo.Session, i *discordgo.InteractionCreate) {
-			log.Printf("Received interaction: %s by %s", i.ApplicationCommandData().Name, i.Interaction.Member.User.Username)
-			deferResponse(s, i)
-
-			options := newOAIGenerationOptions()
-
-			for _, option := range i.ApplicationCommandData().Options {
-				if option.Name == "question" {
-					options.message = option.StringValue()
-					log.Println("ask:", options.message)
-				}
-				if option.Name == "image" {
-					options.imageURL = option.StringValue()
-				}
-				if option.Name == "temperature" {
-					options.temperature = float32(option.Value.(float64))
-				}
-				if option.Name == "model" {
-					options.model = option.StringValue()
-				}
-			}
-
-			content := requestContent{
-				text: options.message,
-			}
-			if options.imageURL != "" {
-				content.url = append(content.url, options.imageURL)
-			}
-			reqMessage := createOAIMessage(openai.ChatMessageRoleUser, "", content)
-			streamInteractionResponse(s, i, reqMessage, options)
-		},
 		"draw": func(s *discordgo.Session, i *discordgo.InteractionCreate) {
 			log.Printf("Received interaction: %s by %s", i.ApplicationCommandData().Name, i.Interaction.Member.User.Username)
 			deferResponse(s, i)

@@ -100,7 +100,7 @@ func streamMessageANTResponse(s *discordgo.Session, m *discordgo.MessageCreate, 
 			message = message + data.Delta.Text
 			fullMessage = fullMessage + data.Delta.Text
 			i++
-			if i%20 == 0 {
+			if i%25 == 0 {
 				// If the message is too long, split it into a new message
 				if len(message) > 1800 {
 					firstPart, lastPart := splitParagraph(message)
