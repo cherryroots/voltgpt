@@ -407,7 +407,7 @@ var (
 				return
 			}
 
-			log.Printf("%s continue: %s", i.Interaction.Member.User.Username, m.Content)
+			log.Printf("%s continue: %s", i.Interaction.Member.User.Username, linkFromIMessage(i, m))
 
 			m = cleanMessage(s, m)
 

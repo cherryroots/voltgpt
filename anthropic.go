@@ -15,8 +15,12 @@ import (
 
 func getANTMessageText(msg anthropic.Message) string {
 	var sb strings.Builder
-	for _, content := range msg.Content {
-		sb.WriteString(content.GetText() + "\n")
+	for i, content := range msg.Content {
+		if i == len(msg.Content)-1 {
+			sb.WriteString(content.GetText())
+		} else {
+			sb.WriteString(content.GetText() + "\n")
+		}
 	}
 	return sb.String()
 }
