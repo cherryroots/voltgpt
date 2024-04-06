@@ -280,14 +280,14 @@ var (
 			outputMessage = fmt.Sprintf("Retrieving messages for channel: <#%s>", channelID)
 			iMsg, _ := sendFollowup(s, i, outputMessage)
 			fMsg, _ := sendMessage(s, iMsg, "Retrieving messages...")
-			c := make(chan []*discordgo.Message)
+			messsageStream := make(chan []*discordgo.Message)
 
-			go getAllChannelMessages(s, fMsg, channelID, c)
+			go getAllChannelMessages(s, fMsg, channelID, messsageStream)
 
 			var wg sync.WaitGroup
-			for messageStream := range c {
+			for messages := range messsageStream {
 				wg.Add(1)
-				go func(messages []*discordgo.Message) {
+				go func() {
 					defer wg.Done()
 					msgCount += len(messages)
 					for _, message := range messages {
@@ -297,7 +297,7 @@ var (
 							hashCount += count
 						}
 					}
-				}(messageStream)
+				}()
 			}
 
 			wg.Wait()
@@ -761,12 +761,12 @@ func handleMessage(s *discordgo.Session, m *discordgo.MessageCreate) {
 		return
 	}
 
-	go func(m *discordgo.MessageCreate) {
+	go func() {
 		fetchedMessage, _ := s.ChannelMessage(m.Message.ChannelID, m.Message.ID)
 		if hasImageURL(fetchedMessage) {
 			hashAttachments(fetchedMessage, true)
 		}
-	}(m)
+	}()
 
 	if m.Author.Bot {
 		return

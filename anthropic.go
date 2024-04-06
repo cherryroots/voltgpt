@@ -283,7 +283,7 @@ func prependRepliesANTMessages(s *discordgo.Session, message *discordgo.Message,
 				// attach the image to the user message after the assistant message (the newer message)
 				newMessage := createANTMessage(anthropic.RoleUser, requestContent{url: replyContent.url})
 				combineANTMessages(newMessage, chatMessages)
-
+				// add only the text to the assistant message
 				prependANTMessage(anthropic.RoleAssistant, requestContent{text: replyContent.text}, chatMessages)
 			} else {
 				prependANTMessage(anthropic.RoleAssistant, replyContent, chatMessages)

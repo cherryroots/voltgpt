@@ -12,7 +12,6 @@ import (
 	"sync"
 
 	"github.com/bwmarrin/discordgo"
-	"github.com/lithdew/nicehttp"
 )
 
 type requestContent struct {
@@ -65,13 +64,13 @@ func splitTTS(message string, hd bool) []*discordgo.File {
 
 	for count, chunk := range messageChunks {
 		wg.Add(1)
-		go func(chunk string, index int) {
+		go func() {
 			defer wg.Done()
-			files := getTTSFile(chunk, fmt.Sprintf("%d", index+1), hd)
+			files := getTTSFile(chunk, fmt.Sprintf("%d", count+1), hd)
 			for _, file := range files {
 				filesChan <- file
 			}
-		}(chunk, count)
+		}()
 	}
 
 	wg.Wait()
@@ -142,7 +141,7 @@ func getChannelMessages(s *discordgo.Session, channelID string, count int) []*di
 	remainder := count % 100
 
 	// Fetch full iterations of 100 messages
-	for i := 0; i < iterations; i++ {
+	for range iterations {
 		batch := getMessagesBefore(s, channelID, 100, lastMessageID)
 		lastMessageID = batch[len(batch)-1].ID
 		messages = append(messages, batch...)
@@ -333,15 +332,6 @@ func cleanURL(urlStr string) string {
 		return urlStr
 	}
 	return parsedURL.Path
-}
-
-func downloadBytes(client *nicehttp.Client, url string) ([]byte, error) {
-	buf, err := client.DownloadBytes(nil, url)
-	if err != nil {
-		return nil, err
-	}
-
-	return buf, nil
 }
 
 func downloadURL(url string) ([]byte, error) {
