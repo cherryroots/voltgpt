@@ -383,8 +383,15 @@ var (
 					log.Println(err)
 				}
 				return
+			} else if m.Type != discordgo.MessageTypeReply {
+				_, err := sendFollowup(s, i, fmt.Sprint("Not a reply message"))
+				if err != nil {
+					log.Println(err)
+				}
+				return
 			}
 
+			log.Printf("%s continue: %s", i.Interaction.Member.User.Username, linkFromIMessage(i, m))
 			_, err := sendFollowup(s, i, fmt.Sprint("Continuing..."))
 			if err != nil {
 				log.Println(err)
@@ -396,30 +403,18 @@ var (
 
 			var chatMessages []anthropic.Message
 			var cache []*discordgo.Message
-			isReply := false
-
-			if m.Type == discordgo.MessageTypeReply {
-				cache = getMessagesBefore(s, m.ChannelID, 100, m.ID)
-				isReply = true
-			}
-
-			if !isReply {
-				return
-			}
-
-			log.Printf("%s continue: %s", i.Interaction.Member.User.Username, linkFromIMessage(i, m))
 
 			m = cleanMessage(s, m)
-
 			content := requestContent{
 				text: fmt.Sprintf("%s", m.Content),
 				url:  getMessageImages(m),
 			}
 
 			appendANTMessage(anthropic.RoleAssistant, content, &chatMessages)
-			if isReply { // insert replies before the message sent to the bot
-				prependRepliesANTMessages(s, m, cache, &chatMessages)
-			}
+
+			cache = getMessagesBefore(s, m.ChannelID, 100, m.ID)
+			prependRepliesANTMessages(s, m, cache, &chatMessages)
+
 			streamMessageANTResponse(s, m, chatMessages, m)
 		},
 		"wheel_status": func(s *discordgo.Session, i *discordgo.InteractionCreate) {

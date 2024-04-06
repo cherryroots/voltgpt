@@ -178,14 +178,13 @@ func streamMessageANTResponse(s *discordgo.Session, m *discordgo.Message, messag
 				return
 			}
 			go func() {
-				appendANTMessage(anthropic.RoleAssistant, requestContent{text: fullMessage}, &messages)
 				request := antMessagesToString(messages)
-				if len(request) > 4000 {
-					request = request[len(request)-4000:]
-				}
 				intent := getOAIIntents(request)
 				log.Printf("Intent: %s\n", intent)
 				if intent == "draw" {
+					if len(request) > 4000 {
+						request = request[len(request)-4000:]
+					}
 					files, err := drawImage(request, openai.CreateImageSize1024x1024)
 					if err != nil {
 						logSendErrorMessage(s, m, err.Error())

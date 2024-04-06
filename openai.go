@@ -83,8 +83,9 @@ func getOAIIntents(message string) string {
 
 	prompt := "What's the intent in this message? Intents can be 'draw' or 'none'. " +
 		"The draw intent is for when the message asks to draw or generate some kind of image. " +
-		"none intent is for when nothing image generation related is asked. " +
-		"Don't include anything except the intent in the generated text: " + message
+		"none intent is for when nothing image generation related is asked. Focus more on the last part of the message. " +
+		"Don't include anything except the intent in the generated text: \n\n" +
+		message
 
 	maxTokens, err := getRequestMaxTokensString(prompt, openai.GPT3Dot5Turbo0125)
 	if err != nil {
