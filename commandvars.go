@@ -31,6 +31,116 @@ var (
 		},
 	}
 
+	ratioChoices = []*discordgo.ApplicationCommandOptionChoice{
+		{
+			Name:  "1:1",
+			Value: "1:1",
+		},
+		{
+			Name:  "16:9",
+			Value: "16:9",
+		},
+		{
+			Name:  "21:9",
+			Value: "21:9",
+		},
+		{
+			Name:  "2:3",
+			Value: "2:3",
+		},
+		{
+			Name:  "3:2",
+			Value: "3:2",
+		},
+		{
+			Name:  "4:5",
+			Value: "4:5",
+		},
+		{
+			Name:  "5:4",
+			Value: "5:4",
+		},
+		{
+			Name:  "9:16",
+			Value: "9:16",
+		},
+		{
+			Name:  "9:21",
+			Value: "9:21",
+		},
+	}
+
+	styleChoices = []*discordgo.ApplicationCommandOptionChoice{
+		{
+			Name:  "3d-model",
+			Value: "3d-model",
+		},
+		{
+			Name:  "analog-film",
+			Value: "analog-film",
+		},
+		{
+			Name:  "anime",
+			Value: "anime",
+		},
+		{
+			Name:  "cinematic",
+			Value: "cinematic",
+		},
+		{
+			Name:  "comic-book",
+			Value: "comic-book",
+		},
+		{
+			Name:  "digital-art",
+			Value: "digital-art",
+		},
+		{
+			Name:  "enhance",
+			Value: "enhance",
+		},
+		{
+			Name:  "fantasy-art",
+			Value: "fantasy-art",
+		},
+		{
+			Name:  "isometric",
+			Value: "isometric",
+		},
+		{
+			Name:  "line-art",
+			Value: "line-art",
+		},
+		{
+			Name:  "low-poly",
+			Value: "low-poly",
+		},
+		{
+			Name:  "modeling-compound",
+			Value: "modeling-compound",
+		},
+		{
+			Name:  "neon-punk",
+			Value: "neon-punk",
+		},
+		{
+			Name:  "origami",
+			Value: "origami",
+		},
+		{
+			Name:  "photographic",
+			Value: "photographic",
+		},
+		{
+			Name:  "pixel-art",
+			Value: "pixel-art",
+		},
+		{
+			Name:  "tile-texture",
+			Value: "tile-texture",
+		},
+	}
+
 	systemMessageDefault = requestContent{
 		text: "You're able to draw images if the user asks for it, don't offer to draw images unprompted. \n" +
 			"The image request will be processed after you respond and attached to the response. \n" +

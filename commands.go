@@ -34,22 +34,20 @@ var (
 				},
 				{
 					Type:        discordgo.ApplicationCommandOptionString,
-					Name:        "size",
-					Description: "image size",
-					Choices: []*discordgo.ApplicationCommandOptionChoice{
-						{
-							Name:  "1024x1024",
-							Value: openai.CreateImageSize1024x1024,
-						},
-						{
-							Name:  "1792x1024",
-							Value: openai.CreateImageSize1792x1024,
-						},
-						{
-							Name:  "1024x1792",
-							Value: openai.CreateImageSize1024x1792,
-						},
-					},
+					Name:        "negative-prompt",
+					Description: "negative prompt to use",
+				},
+				{
+					Type:        discordgo.ApplicationCommandOptionString,
+					Name:        "ratio",
+					Description: "ratio to use",
+					Choices:     ratioChoices,
+				},
+				{
+					Type:        discordgo.ApplicationCommandOptionString,
+					Name:        "style",
+					Description: "style to use",
+					Choices:     styleChoices,
 				},
 			},
 		},
@@ -192,21 +190,33 @@ var (
 			log.Printf("Received interaction: %s by %s", i.ApplicationCommandData().Name, i.Interaction.Member.User.Username)
 			deferResponse(s, i)
 
-			var prompt, size string
+			var prompt, negativePrompt, ratio, style string
 			for _, option := range i.ApplicationCommandData().Options {
 				if option.Name == "prompt" {
 					prompt = option.StringValue()
 					log.Println("draw:", prompt)
 				}
-				if option.Name == "size" {
-					size = option.StringValue()
+				if option.Name == "negative_prompt" {
+					negativePrompt = option.StringValue()
+				}
+				if option.Name == "ratio" {
+					ratio = option.StringValue()
+				}
+				if option.Name == "style" {
+					style = option.StringValue()
 				}
 			}
-			if size == "" {
-				size = openai.CreateImageSize1024x1024
+			if negativePrompt == "" {
+				negativePrompt = "none"
+			}
+			if ratio == "" {
+				ratio = "1:1"
+			}
+			if style == "" {
+				style = "none"
 			}
 
-			image, err := drawImage(prompt, size)
+			image, err := drawSAIImage(prompt, negativePrompt, ratio, style)
 			if err != nil {
 				log.Println(err)
 				_, err = sendFollowup(s, i, err.Error())
@@ -215,7 +225,8 @@ var (
 				}
 				return
 			}
-			_, err = sendFollowupFile(s, i, prompt, image)
+			message := fmt.Sprintf("Prompt: %s\nNegative prompt: %s\nRatio: %s\nStyle: %s", prompt, negativePrompt, ratio, style)
+			_, err = sendFollowupFile(s, i, message, image)
 			if err != nil {
 				log.Println(err)
 			}
