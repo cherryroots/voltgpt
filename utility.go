@@ -370,7 +370,10 @@ func replaceMultiple(str string, oldStrings []string, newString string) string {
 	return str
 }
 
-func extractText(text string, lookup string) string {
+func extractPairText(text string, lookup string) string {
+	if !containsPair(text, lookup) {
+		return ""
+	}
 	firstIndex := strings.Index(text, lookup)
 	lastIndex := strings.LastIndex(text, lookup)
 	return text[firstIndex : lastIndex+len(lookup)]

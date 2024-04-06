@@ -44,22 +44,25 @@ func cleanInstructionsANTMessages(messages []anthropic.Message) []anthropic.Mess
 }
 
 func instructionSwitchANT(m []anthropic.Message) requestContent {
+	var text string
+
 	firstMessageText := getANTMessageText(m[0])
 	lastMessageText := getANTMessageText(m[len(m)-1])
-	text := lastMessageText
-	if firstMessageText != lastMessageText { // if there are multiple messages
+
+	if firstMessageText == lastMessageText {
+		text = lastMessageText
+	} else {
 		text = fmt.Sprintf("%s\n%s", firstMessageText, lastMessageText)
 	}
-	if strings.Contains(text, "❤️") || strings.Contains(text, "❤") || strings.Contains(text, ":heart:") {
+
+	if strings.Contains(text, "❤️") || strings.Contains(text, "❤") {
 		return instructionMessageDefault
 	}
 
-	if containsPair(text, "⚙️") {
-		return requestContent{text: strings.TrimSpace(extractText(text, "⚙️"))}
-	} else if containsPair(text, "⚙") {
-		return requestContent{text: strings.TrimSpace(extractText(text, "⚙"))}
-	} else if containsPair(text, ":gear:") {
-		return requestContent{text: strings.TrimSpace(extractText(text, ":gear:"))}
+	if sysMsg := extractPairText(text, "⚙️"); sysMsg != "" {
+		return requestContent{text: strings.TrimSpace(sysMsg)}
+	} else if sysMsg := extractPairText(text, "⚙"); sysMsg != "" {
+		return requestContent{text: strings.TrimSpace(sysMsg)}
 	}
 
 	return instructionMessageMean
