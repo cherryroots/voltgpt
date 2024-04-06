@@ -77,7 +77,7 @@ func getANTIntents(message string) string {
 	ctx := context.Background()
 
 	prompt := requestContent{text: "What's the intent in this message? Intents can be 'draw' or 'none'. " +
-		"The draw intent is for when the message asks to draw or generate some kind of image. " +
+		"The draw intent is for when the message asks to draw, generate, or change some kind of image" +
 		"none intent is for when nothing image generation related is asked. " +
 		"Don't include anything except the intent in the generated text: " + message}
 
@@ -142,7 +142,7 @@ func streamMessageANTResponse(s *discordgo.Session, m *discordgo.Message, messag
 			currentMessage = currentMessage + data.Delta.Text
 			fullMessage = fullMessage + data.Delta.Text
 			i++
-			if i%25 == 0 || i == 5 {
+			if i%20 == 0 || i == 5 {
 				// If the message is too long, split it into a new message
 				if len(currentMessage) > 1800 {
 					firstPart, lastPart := splitParagraph(currentMessage)
@@ -257,53 +257,74 @@ func createANTMessage(role string, content requestContent) []anthropic.Message {
 }
 
 func prependRepliesANTMessages(s *discordgo.Session, message *discordgo.Message, cache []*discordgo.Message, chatMessages *[]anthropic.Message) {
-	// check if the message has a reference, if not get it
-	if message.ReferencedMessage == nil {
-		if message.MessageReference != nil {
-			cachedMessage := checkCache(cache, message.MessageReference.MessageID)
-			if cachedMessage != nil {
-				message.ReferencedMessage = cachedMessage
-			} else {
-				message.ReferencedMessage, _ = s.ChannelMessage(message.MessageReference.ChannelID, message.MessageReference.MessageID)
-			}
-		} else {
-			return
-		}
+	// Get the referenced message
+	referencedMessage := getReferencedMessage(s, message, cache)
+	if referencedMessage == nil {
+		return
 	}
-	replyMessage := cleanMessage(s, message.ReferencedMessage)
+
+	// Clean and prepare the reply message content
+	replyMessage := cleanMessage(s, referencedMessage)
 	replyContent := requestContent{
 		text: replyMessage.Content,
 		url:  getMessageImages(replyMessage),
 	}
 
-	// we check the 0th message since we're pushing a new message to the beginning of the array
-	if replyMessage.Author.ID == s.State.User.ID {
-		if len(*chatMessages) == 0 || (*chatMessages)[0].Role == anthropic.RoleUser {
-			if len(replyContent.url) > 0 {
-				// attach the image to the user message after the assistant message (the newer message)
-				newMessage := createANTMessage(anthropic.RoleUser, requestContent{url: replyContent.url})
-				combineANTMessages(newMessage, chatMessages)
-				// add only the text to the assistant message
-				prependANTMessage(anthropic.RoleAssistant, requestContent{text: replyContent.text}, chatMessages)
-			} else {
-				prependANTMessage(anthropic.RoleAssistant, replyContent, chatMessages)
-			}
-		} else {
-			newMessage := createANTMessage(anthropic.RoleAssistant, replyContent)
-			combineANTMessages(newMessage, chatMessages)
-		}
-	} else {
+	// Determine the role and format the reply content accordingly
+	role := determineRole(s, replyMessage)
+	if role == anthropic.RoleUser {
 		replyContent.text = fmt.Sprintf("%s: %s", replyMessage.Author.Username, replyContent.text)
-		if len(*chatMessages) == 0 || (*chatMessages)[0].Role == anthropic.RoleAssistant {
-			prependANTMessage(anthropic.RoleUser, replyContent, chatMessages)
-		} else {
-			newMessage := createANTMessage(anthropic.RoleUser, replyContent)
-			combineANTMessages(newMessage, chatMessages)
-		}
 	}
 
+	// Create and prepend the ANT message based on the role and content
+	prependANTMessageByRole(role, replyContent, chatMessages)
+
+	// Recursively process the referenced message if it's a reply
 	if replyMessage.Type == discordgo.MessageTypeReply {
-		prependRepliesANTMessages(s, message.ReferencedMessage, cache, chatMessages)
+		prependRepliesANTMessages(s, referencedMessage, cache, chatMessages)
+	}
+}
+
+func getReferencedMessage(s *discordgo.Session, message *discordgo.Message, cache []*discordgo.Message) *discordgo.Message {
+	if message.ReferencedMessage != nil {
+		return message.ReferencedMessage
+	}
+
+	if message.MessageReference != nil {
+		cachedMessage := checkCache(cache, message.MessageReference.MessageID)
+		if cachedMessage != nil {
+			return cachedMessage
+		}
+
+		referencedMessage, _ := s.ChannelMessage(message.MessageReference.ChannelID, message.MessageReference.MessageID)
+		return referencedMessage
+	}
+
+	return nil
+}
+
+func determineRole(s *discordgo.Session, message *discordgo.Message) string {
+	if message.Author.ID == s.State.User.ID {
+		return anthropic.RoleAssistant
+	}
+	return anthropic.RoleUser
+}
+
+func prependANTMessageByRole(role string, content requestContent, chatMessages *[]anthropic.Message) {
+	if len(*chatMessages) == 0 || (*chatMessages)[0].Role != role {
+		prependANTMessage(role, content, chatMessages)
+		return
+	}
+
+	if role == anthropic.RoleAssistant && len(content.url) > 0 {
+		// Attach the image to the user message after the assistant message (the newer message)
+		newMessage := createANTMessage(anthropic.RoleUser, requestContent{url: content.url})
+		combineANTMessages(newMessage, chatMessages)
+		// Add only the text to the assistant message
+		prependANTMessage(anthropic.RoleAssistant, requestContent{text: content.text}, chatMessages)
+	} else {
+		newMessage := createANTMessage(role, content)
+		combineANTMessages(newMessage, chatMessages)
 	}
 }
 
