@@ -275,9 +275,19 @@ func prependRepliesANTMessages(s *discordgo.Session, message *discordgo.Message,
 		text: replyMessage.Content,
 		url:  getMessageImages(replyMessage),
 	}
+
+	// we check the 0th message since we're pushing a new message to the beginning of the array
 	if replyMessage.Author.ID == s.State.User.ID {
 		if len(*chatMessages) == 0 || (*chatMessages)[0].Role == anthropic.RoleUser {
-			prependANTMessage(anthropic.RoleAssistant, replyContent, chatMessages)
+			if len(replyContent.url) > 0 {
+				// attach the image to the user message after the assistant message (the newer message)
+				newMessage := createANTMessage(anthropic.RoleUser, requestContent{url: replyContent.url})
+				combineANTMessages(newMessage, chatMessages)
+
+				prependANTMessage(anthropic.RoleAssistant, requestContent{text: replyContent.text}, chatMessages)
+			} else {
+				prependANTMessage(anthropic.RoleAssistant, replyContent, chatMessages)
+			}
 		} else {
 			newMessage := createANTMessage(anthropic.RoleAssistant, replyContent)
 			combineANTMessages(newMessage, chatMessages)
