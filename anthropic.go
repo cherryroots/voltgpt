@@ -1,16 +1,20 @@
 package main
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log"
+	"mime/multipart"
+	"net/http"
 	"os"
 	"strings"
 
 	"github.com/bwmarrin/discordgo"
 	"github.com/liushuangls/go-anthropic"
-	"github.com/sashabaranov/go-openai"
 )
 
 func getANTMessageText(msg anthropic.Message) string {
@@ -68,23 +72,47 @@ func instructionSwitchANT(m []anthropic.Message) requestContent {
 	return instructionMessageMean
 }
 
-func getANTIntents(message string) string {
+func getANTIntents(message string, questionType string) string {
 	token := os.Getenv("ANTHROPIC_TOKEN")
 	if token == "" {
 		log.Fatal("ANTHROPIC_TOKEN is not set")
 	}
 	c := anthropic.NewClient(token)
 	ctx := context.Background()
+	var messages []anthropic.Message
 
-	prompt := requestContent{text: "What's the intent in this message? Intents can be 'draw' or 'none'. " +
-		"The draw intent is for when the message asks to draw, generate, or change some kind of image" +
-		"none intent is for when nothing image generation related is asked. " +
-		"Don't include anything except the intent in the generated text: " + message}
+	intentPrompt := requestContent{text: "What's the intent in this message? Intents can be 'draw' or 'none'.\n " +
+		"The 'draw' intent is for when the message asks to draw, generate, or change some kind of image.\n" +
+		"'none' intent is for when nothing image generation related is asked.\n " +
+		"Don't include anything except the intent in the generated text and without quote marks: " + message}
+
+	ratioPrompt := requestContent{text: "What's the intent in this message? Intents can be '16:9', '1:1', '21:9', '2:3', '3:2', '4:5', '5:4', '9:16', '9:21'.\n " +
+		"The '1:1' or 'none' aspect ratio is the default one, if the message doesn't ask for any other aspect ratio.\n " +
+		"The '16:9', '21:9', '2:3', '3:2', '4:5', '5:4', '9:16', '9:21' ratios are for when the message asks for a specific aspect ratio.\n " +
+		"Don't include anything except the aspect ratio in the generated text and without quote marks: " + message}
+
+	stylePrompt := requestContent{text: "What's the intent in this message? Intents can be " +
+		"'3d-model', 'analog-film', 'anime', 'cinematic', 'comic-book', 'digital-art', 'enhance', 'fantasy-art', 'isometric', 'line-art', 'low-poly', " +
+		"'modeling-compound', 'neon-punk', 'origami', 'photographic', 'pixel-art', 'tile-texture'.\n " +
+		"If the message doesn't ask for any other style, 'none' is the default one, that means nothing at all.\n " +
+		"The other styles are for when the message asks for a specific style.\n " +
+		"Don't include anything except the style in the generated text and without quote marks: " + message}
+
+	switch questionType {
+	case "intent":
+		messages = createANTMessage(anthropic.RoleUser, intentPrompt)
+	case "ratio":
+		messages = createANTMessage(anthropic.RoleUser, ratioPrompt)
+	case "style":
+		messages = createANTMessage(anthropic.RoleUser, stylePrompt)
+	default:
+		return "none"
+	}
 
 	resp, err := c.CreateMessages(ctx, anthropic.MessagesRequest{
 		Model:     anthropic.ModelClaude3Haiku20240307,
-		Messages:  createANTMessage(anthropic.RoleUser, prompt),
-		MaxTokens: 3,
+		Messages:  messages,
+		MaxTokens: 10,
 	})
 	if err != nil {
 		var e *anthropic.APIError
@@ -96,6 +124,67 @@ func getANTIntents(message string) string {
 		return "none"
 	}
 	return resp.Content[0].Text
+}
+
+func drawSAIImage(prompt string, negativePrompt string, ratio string, style string) ([]*discordgo.File, error) {
+	// OpenAI API key
+	stabilityToken := os.Getenv("STABILITY_TOKEN")
+	if stabilityToken == "" {
+		log.Fatal("STABILITY_TOKEN is not set")
+	}
+
+	url := "https://api.stability.ai/v2beta/stable-image/generate/core"
+
+	body := &bytes.Buffer{}
+	writer := multipart.NewWriter(body)
+	_ = writer.WriteField("prompt", prompt)
+	_ = writer.WriteField("output_format", "png")
+	if negativePrompt != "" && negativePrompt != "none" {
+		_ = writer.WriteField("negative_prompt", negativePrompt)
+	}
+	if ratio != "" && ratio != "none" {
+		_ = writer.WriteField("aspect_ratio", ratio)
+	}
+	if style != "" && style != "none" {
+		_ = writer.WriteField("style_preset", style)
+	}
+	_ = writer.Close()
+
+	req, err := http.NewRequest("POST", url, body)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Add("Content-Type", writer.FormDataContentType())
+	req.Header.Add("Accept", "image/*")
+	req.Header.Add("Authorization", stabilityToken)
+
+	client := &http.Client{}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		// erro is application/json
+		errInterface := make(map[string]interface{})
+		err = json.NewDecoder(resp.Body).Decode(&errInterface)
+		return nil, fmt.Errorf("unexpected status code: %d\n%s", resp.StatusCode, errInterface)
+	}
+
+	imageBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+
+	files := []*discordgo.File{
+		{
+			Name:   "image.png",
+			Reader: bytes.NewReader(imageBytes),
+		},
+	}
+
+	return files, nil
 }
 
 func streamMessageANTResponse(s *discordgo.Session, m *discordgo.Message, messages []anthropic.Message, refMsg *discordgo.Message) {
@@ -178,14 +267,19 @@ func streamMessageANTResponse(s *discordgo.Session, m *discordgo.Message, messag
 				return
 			}
 			go func() {
-				request := antMessagesToString(messages)
-				intent := getOAIIntents(request)
+				request := getANTMessageText(messages[len(messages)-1])
+				request = request[strings.Index(request, ":")+1:]
+				request = strings.TrimSpace(request)
+				intent := getANTIntents(request, "intent")
 				log.Printf("Intent: %s\n", intent)
 				if intent == "draw" {
+					ratio := getANTIntents(request, "ratio")
+					style := getANTIntents(request, "style")
+					log.Printf("Ratio: %s, Style: %s\n", ratio, style)
 					if len(request) > 4000 {
 						request = request[len(request)-4000:]
 					}
-					files, err := drawImage(request, openai.CreateImageSize1024x1024)
+					files, err := drawSAIImage(fmt.Sprintf("%s\n%s", request, fullMessage), "", ratio, style)
 					if err != nil {
 						logSendErrorMessage(s, m, err.Error())
 					}
@@ -312,20 +406,21 @@ func determineRole(s *discordgo.Session, message *discordgo.Message) string {
 
 func prependANTMessageByRole(role string, content requestContent, chatMessages *[]anthropic.Message) {
 	if len(*chatMessages) == 0 || (*chatMessages)[0].Role != role {
+		if role == anthropic.RoleAssistant && len(content.url) > 0 {
+			// Attach the image to the user message after the assistant message (the newer message)
+			newMessage := createANTMessage(anthropic.RoleUser, requestContent{url: content.url})
+			combineANTMessages(newMessage, chatMessages)
+			// Add only the text to the assistant message
+			prependANTMessage(anthropic.RoleAssistant, requestContent{text: content.text}, chatMessages)
+			return
+		}
+
 		prependANTMessage(role, content, chatMessages)
 		return
 	}
 
-	if role == anthropic.RoleAssistant && len(content.url) > 0 {
-		// Attach the image to the user message after the assistant message (the newer message)
-		newMessage := createANTMessage(anthropic.RoleUser, requestContent{url: content.url})
-		combineANTMessages(newMessage, chatMessages)
-		// Add only the text to the assistant message
-		prependANTMessage(anthropic.RoleAssistant, requestContent{text: content.text}, chatMessages)
-	} else {
-		newMessage := createANTMessage(role, content)
-		combineANTMessages(newMessage, chatMessages)
-	}
+	newMessage := createANTMessage(role, content)
+	combineANTMessages(newMessage, chatMessages)
 }
 
 func antMessagesToString(messages []anthropic.Message) string {
