@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"crypto/tls"
 	"encoding/gob"
+	"fmt"
 	"image"
 	_ "image/gif"
 	_ "image/jpeg"
@@ -16,6 +17,8 @@ import (
 	"sync"
 
 	_ "golang.org/x/image/webp"
+
+	ffmpeg "github.com/u2takey/ffmpeg-go"
 
 	"github.com/bwmarrin/discordgo"
 	"github.com/corona10/goimagehash"
@@ -97,20 +100,34 @@ func readHashFromFile() {
 
 func hashAttachments(m *discordgo.Message, store bool) ([]string, int) {
 	// Get the data
-	images := getMessageImages(m)
+	images, videos := getMessageMediaURL(m)
+	allAttachments := append(images, videos...)
 	var hashes []string
 	var count int
 
-	for _, attachment := range images {
-
+	for _, attachment := range allAttachments {
 		buf, err := getFile(attachment)
 		if err != nil {
 			continue
 		}
 
-		img, _, err := image.Decode(&buf)
-		if err != nil {
-			continue
+		var img image.Image
+
+		if isVideoURL(attachment) {
+			reader, err := readFrameAsJpeg(buf, 10)
+			if err != nil {
+				log.Printf("readFrameAsJpeg error: %v\n", err)
+				continue
+			}
+			img, _, err = image.Decode(reader)
+			if err != nil {
+				continue
+			}
+		} else if isImageURL(attachment) {
+			img, _, err = image.Decode(&buf)
+			if err != nil {
+				continue
+			}
 		}
 
 		width, height := 16, 16
@@ -119,15 +136,31 @@ func hashAttachments(m *discordgo.Message, store bool) ([]string, int) {
 			continue
 		}
 
-		if store && (!checkHash(hash.ToString(), true) || olderHash(hash.ToString(), m)) {
-			writeHash(hash.ToString(), m, true)
+		hashString := hash.ToString()
+
+		if store && (!checkHash(hashString, true) || olderHash(hashString, m)) {
+			writeHash(hashString, m, true)
 			count++
-			log.Printf("Stored hash: %s", hash.ToString())
+			log.Printf("Stored hash: %s", hashString)
 		}
-		hashes = append(hashes, hash.ToString())
+		hashes = append(hashes, hashString)
 	}
 
 	return hashes, count
+}
+
+func readFrameAsJpeg(inBuf bytes.Buffer, frameNum int) (io.Reader, error) {
+	outBuf := bytes.NewBuffer(nil)
+	err := ffmpeg.Input("pipe:").
+		Filter("select", ffmpeg.Args{fmt.Sprintf("gte(n,%d)", frameNum)}).
+		Output("pipe:", ffmpeg.KwArgs{"vframes": 1, "format": "image2", "vcodec": "mjpeg"}).
+		WithInput(&inBuf).
+		WithOutput(outBuf).
+		Run()
+	if err != nil {
+		return nil, err
+	}
+	return outBuf, nil
 }
 
 func readHash(hashString string, locking bool) *discordgo.Message {

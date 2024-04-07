@@ -180,27 +180,37 @@ func getAllChannelMessages(s *discordgo.Session, m *discordgo.Message, channelID
 	log.Println("getAllChannelMessages: done")
 }
 
-func getMessageImages(m *discordgo.Message) []string {
+func getMessageMediaURL(m *discordgo.Message) ([]string, []string) {
 	seen := make(map[string]bool)
-	var urls []string
-	var uniqueURLs []string
+	var imgageURLs []string
+	var videoURLs []string
+	var images []string
+	var videos []string
 
 	for _, attachment := range m.Attachments {
 		if attachment.Width > 0 && attachment.Height > 0 {
 			if isImageURL(attachment.URL) {
-				urls = append(urls, attachment.URL)
+				imgageURLs = append(imgageURLs, attachment.URL)
+			}
+			if isVideoURL(attachment.URL) {
+				videoURLs = append(videoURLs, attachment.URL)
 			}
 		}
 	}
 	for _, embed := range m.Embeds {
 		if embed.Thumbnail != nil {
 			if isImageURL(embed.Thumbnail.URL) {
-				urls = append(urls, embed.Thumbnail.URL)
+				imgageURLs = append(imgageURLs, embed.Thumbnail.URL)
 			}
 		}
 		if embed.Image != nil {
 			if isImageURL(embed.Image.URL) {
-				urls = append(urls, embed.Image.URL)
+				imgageURLs = append(imgageURLs, embed.Image.URL)
+			}
+		}
+		if embed.Video != nil {
+			if isVideoURL(embed.Video.URL) {
+				videoURLs = append(videoURLs, embed.Video.URL)
 			}
 		}
 	}
@@ -209,19 +219,30 @@ func getMessageImages(m *discordgo.Message) []string {
 	result := regex.FindAllStringSubmatch(m.Content, -1)
 	for _, match := range result {
 		if isImageURL(match[1]) {
-			urls = append(urls, match[1])
+			imgageURLs = append(imgageURLs, match[1])
+		}
+		if isVideoURL(match[1]) {
+			videoURLs = append(videoURLs, match[1])
 		}
 	}
 
-	for _, u := range urls {
+	for _, u := range imgageURLs {
 		checkURL := cleanURL(u)
 		if !seen[checkURL] {
 			seen[checkURL] = true
-			uniqueURLs = append(uniqueURLs, u)
+			images = append(images, u)
 		}
 	}
 
-	return uniqueURLs
+	for _, v := range videoURLs {
+		checkURL := cleanURL(v)
+		if !seen[checkURL] {
+			seen[checkURL] = true
+			videos = append(videos, v)
+		}
+	}
+
+	return images, videos
 }
 
 func checkCache(cache []*discordgo.Message, messageID string) *discordgo.Message {
@@ -288,6 +309,33 @@ func hasImageURL(m *discordgo.Message) bool {
 	return false
 }
 
+func hasVideoURL(m *discordgo.Message) bool {
+	for _, attachment := range m.Attachments {
+		if attachment.Width > 0 && attachment.Height > 0 {
+			if isVideoURL(attachment.URL) {
+				return true
+			}
+		}
+	}
+	for _, embed := range m.Embeds {
+		// check if embed has image
+		if embed.Video != nil {
+			if isVideoURL(embed.Video.URL) {
+				return true
+			}
+		}
+	}
+
+	regex := regexp.MustCompile(`(?m)<?(https?://[^\s<>]+)>?\b`)
+	result := regex.FindAllStringSubmatch(m.Content, -1)
+	for _, match := range result {
+		if isImageURL(match[1]) {
+			return true
+		}
+	}
+	return false
+}
+
 func isImageURL(urlStr string) bool {
 	parsedURL, err := url.Parse(urlStr)
 	if err != nil {
@@ -298,6 +346,22 @@ func isImageURL(urlStr string) bool {
 
 	switch fileExt {
 	case ".jpg", ".jpeg", ".png", ".gif", ".webp":
+		return true
+	default:
+		return false
+	}
+}
+
+func isVideoURL(urlStr string) bool {
+	parsedURL, err := url.Parse(urlStr)
+	if err != nil {
+		return false
+	}
+	fileExt := filepath.Ext(parsedURL.Path)
+	fileExt = strings.ToLower(fileExt)
+
+	switch fileExt {
+	case ".mp4", ".webm":
 		return true
 	default:
 		return false

@@ -88,7 +88,7 @@ var (
 		},
 		{
 			Name:                     "hash_channel",
-			Description:              "Get the message history of the channel (default 20 messages)",
+			Description:              "Hash all the images and videos in the channel",
 			DefaultMemberPermissions: &writePermission,
 			DMPermission:             &dmPermission,
 			Options: []*discordgo.ApplicationCommandOption{
@@ -290,10 +290,11 @@ var (
 
 			outputMessage = fmt.Sprintf("Retrieving messages for channel: <#%s>", channelID)
 			iMsg, _ := sendFollowup(s, i, outputMessage)
-			fMsg, _ := sendMessage(s, iMsg, "Retrieving messages...")
+			fetchedMessages, _ := sendMessage(s, iMsg, "Retrieving messages...")
+			processedMessages, _ := sendMessage(s, iMsg, "Retrieving messages...")
 			messsageStream := make(chan []*discordgo.Message)
 
-			go getAllChannelMessages(s, fMsg, channelID, messsageStream)
+			go getAllChannelMessages(s, fetchedMessages, channelID, messsageStream)
 
 			var wg sync.WaitGroup
 			for messages := range messsageStream {
@@ -302,10 +303,16 @@ var (
 					defer wg.Done()
 					msgCount += len(messages)
 					for _, message := range messages {
-						if hasImageURL(message) {
+						if hasImageURL(message) || hasVideoURL(message) {
 							var count int
 							_, count = hashAttachments(message, true)
 							hashCount += count
+							if hashCount%100 == 0 {
+								_, err := editMessage(s, processedMessages, fmt.Sprintf("Messages processed: %d\nHashes: %d", msgCount, hashCount))
+								if err != nil {
+									log.Println(err)
+								}
+							}
 						}
 					}
 				}()
@@ -315,7 +322,7 @@ var (
 
 			outputMessage = fmt.Sprintf("Messages: %d\nHashes: %d", msgCount, hashCount)
 
-			_, err := editMessage(s, fMsg, outputMessage)
+			_, err := editMessage(s, processedMessages, outputMessage)
 			if err != nil {
 				log.Println(err)
 			}
@@ -374,7 +381,7 @@ var (
 			message := i.ApplicationCommandData().Resolved.Messages[i.ApplicationCommandData().TargetID]
 			var count int
 
-			if hasImageURL(message) {
+			if hasImageURL(message) || hasVideoURL(message) {
 				_, count = hashAttachments(message, true)
 			}
 			_, err := sendFollowup(s, i, fmt.Sprintf("Hashed: %d", count))
@@ -416,9 +423,10 @@ var (
 			var cache []*discordgo.Message
 
 			m = cleanMessage(s, m)
+			images, _ := getMessageMediaURL(m)
 			content := requestContent{
 				text: fmt.Sprintf("%s", m.Content),
-				url:  getMessageImages(m),
+				url:  images,
 			}
 
 			appendANTMessage(anthropic.RoleAssistant, content, &chatMessages)
@@ -809,10 +817,10 @@ func handleMessage(s *discordgo.Session, m *discordgo.MessageCreate) {
 		}
 
 		m.Message = cleanMessage(s, m.Message)
-
+		images, _ := getMessageMediaURL(m.Message)
 		content := requestContent{
 			text: fmt.Sprintf("%s: %s", m.Author.Username, m.Message.Content),
-			url:  getMessageImages(m.Message),
+			url:  images,
 		}
 
 		appendANTMessage(anthropic.RoleUser, content, &chatMessages)

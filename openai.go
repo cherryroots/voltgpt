@@ -469,9 +469,10 @@ func createBatchOAIMessages(s *discordgo.Session, messages []*discordgo.Message)
 	var batchMessages []openai.ChatCompletionMessage
 
 	for _, message := range messages {
+		images, _ := getMessageMediaURL(message)
 		content := requestContent{
 			text: message.Content,
-			url:  getMessageImages(message),
+			url:  images,
 		}
 		if message.Author.ID == s.State.User.ID {
 			prependOAIMessage(openai.ChatMessageRoleAssistant, message.Author.Username, content, &batchMessages)
@@ -497,9 +498,10 @@ func prependRepliesOAIMessages(s *discordgo.Session, message *discordgo.Message,
 		}
 	}
 	replyMessage := cleanMessage(s, message.ReferencedMessage)
+	images, _ := getMessageMediaURL(replyMessage)
 	replyContent := requestContent{
 		text: replyMessage.Content,
-		url:  getMessageImages(replyMessage),
+		url:  images,
 	}
 	if replyMessage.Author.ID == s.State.User.ID {
 		prependOAIMessage(openai.ChatMessageRoleAssistant, replyMessage.Author.Username, replyContent, chatMessages)

@@ -359,9 +359,10 @@ func prependRepliesANTMessages(s *discordgo.Session, message *discordgo.Message,
 
 	// Clean and prepare the reply message content
 	replyMessage := cleanMessage(s, referencedMessage)
+	images, _ := getMessageMediaURL(replyMessage)
 	replyContent := requestContent{
 		text: replyMessage.Content,
-		url:  getMessageImages(replyMessage),
+		url:  images,
 	}
 
 	// Determine the role and format the reply content accordingly
