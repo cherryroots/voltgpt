@@ -299,7 +299,7 @@ var (
 			}
 
 			if threads {
-				outputMessage = fmt.Sprintf("Retrieving threads messages for channel: <#%s>", channel.ID)
+				outputMessage = fmt.Sprintf("Retrieving thread messages for channel: <#%s>", channel.ID)
 			} else {
 				outputMessage = fmt.Sprintf("Retrieving messages for channel: <#%s>", channel.ID)
 			}

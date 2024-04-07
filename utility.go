@@ -161,11 +161,6 @@ func getAllChannelMessages(s *discordgo.Session, refMsg *discordgo.Message, chan
 	messagesRetrieved := 100
 	count := 0
 
-	fetchedMessages, err := sendMessage(s, refMsg, "Fetching messages...")
-	if err != nil {
-		log.Println(err)
-	}
-
 	for messagesRetrieved == 100 {
 		batch := getMessagesBefore(s, channelID, 100, lastMessageID)
 		if len(batch) == 0 || batch == nil {
@@ -175,7 +170,7 @@ func getAllChannelMessages(s *discordgo.Session, refMsg *discordgo.Message, chan
 		lastMessageID = batch[len(batch)-1].ID
 		messagesRetrieved = len(batch)
 		count += messagesRetrieved
-		_, err := editMessage(s, fetchedMessages, fmt.Sprintf("Retrieved %d messages", count))
+		_, err := editMessage(s, refMsg, fmt.Sprintf("%s\n- Retrieved %d messages", refMsg.Content, count))
 		if err != nil {
 			log.Println(err)
 		}
@@ -201,14 +196,11 @@ func getAllChannelThreadMessages(s *discordgo.Session, refMsg *discordgo.Message
 	threadChannels = append(threadChannels, archivedThreads.Threads...)
 
 	for _, thread := range threadChannels {
-		_, err := sendMessage(s, refMsg, fmt.Sprintf("Fetching messages for thread: <#%s>", thread.ID))
+		outputMessage := fmt.Sprintf("Fetching messages for thread: <#%s>", thread.ID)
+		refMsg, err = editMessage(s, refMsg, fmt.Sprintf("%s\n%s", refMsg.Content, outputMessage))
 		if err != nil {
 			log.Println(err)
-		}
-
-		fetchedMessages, err := sendMessage(s, refMsg, "Fetching messages...")
-		if err != nil {
-			log.Println(err)
+			return
 		}
 
 		var lastMessageID string
@@ -223,11 +215,15 @@ func getAllChannelThreadMessages(s *discordgo.Session, refMsg *discordgo.Message
 			lastMessageID = batch[len(batch)-1].ID
 			messagesRetrieved = len(batch)
 			count += messagesRetrieved
-			_, err := editMessage(s, fetchedMessages, fmt.Sprintf("Retrieved %d messages", count))
+			_, err = editMessage(s, refMsg, fmt.Sprintf("%s\n- Retrieved %d messages", refMsg.Content, count))
 			if err != nil {
 				log.Println(err)
 			}
 			c <- batch
+		}
+		refMsg, err = editMessage(s, refMsg, fmt.Sprintf("%s\n- Retrieved %d messages", refMsg.Content, count))
+		if err != nil {
+			log.Println(err)
 		}
 	}
 
