@@ -2,7 +2,7 @@ package main
 
 import (
 	"github.com/bwmarrin/discordgo"
-	"github.com/liushuangls/go-anthropic"
+	"github.com/liushuangls/go-anthropic/v2"
 	"github.com/sashabaranov/go-openai"
 )
 

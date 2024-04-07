@@ -14,7 +14,7 @@ import (
 	"strings"
 
 	"github.com/bwmarrin/discordgo"
-	"github.com/liushuangls/go-anthropic"
+	"github.com/liushuangls/go-anthropic/v2"
 )
 
 func getANTMessageText(msg anthropic.Message) string {
@@ -38,7 +38,7 @@ func cleanInstructionsANTMessages(messages []anthropic.Message) []anthropic.Mess
 			continue
 		}
 		for j, content := range message.Content {
-			if content.IsTextContent() {
+			if content.Type == anthropic.MessagesContentTypeText {
 				replacedText := strings.ReplaceAll(content.GetText(), instruction.text, "")
 				messages[i].Content[j].Text = &replacedText
 			}
@@ -123,7 +123,7 @@ func getANTIntents(message string, questionType string) string {
 		}
 		return "none"
 	}
-	return resp.Content[0].Text
+	return *resp.Content[0].Text
 }
 
 func drawSAIImage(prompt string, negativePrompt string, ratio string, style string) ([]*discordgo.File, error) {
@@ -228,8 +228,8 @@ func streamMessageANTResponse(s *discordgo.Session, m *discordgo.Message, messag
 			MaxTokens: maxTokens,
 		},
 		OnContentBlockDelta: func(data anthropic.MessagesEventContentBlockDeltaData) {
-			currentMessage = currentMessage + data.Delta.Text
-			fullMessage = fullMessage + data.Delta.Text
+			currentMessage = currentMessage + *data.Delta.Text
+			fullMessage = fullMessage + *data.Delta.Text
 			i++
 			if i%20 == 0 || i == 5 {
 				// If the message is too long, split it into a new message
