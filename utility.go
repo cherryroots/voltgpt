@@ -197,7 +197,11 @@ func getAllChannelThreadMessages(s *discordgo.Session, refMsg *discordgo.Message
 
 	for _, thread := range threadChannels {
 		outputMessage := fmt.Sprintf("Fetching messages for thread: <#%s>", thread.ID)
-		refMsg, err = editMessage(s, refMsg, fmt.Sprintf("%s\n%s", refMsg.Content, outputMessage))
+		if len(refMsg.Content) > 1800 {
+			refMsg, err = sendMessage(s, refMsg, outputMessage)
+		} else {
+			refMsg, err = editMessage(s, refMsg, fmt.Sprintf("%s\n%s", refMsg.Content, outputMessage))
+		}
 		if err != nil {
 			log.Println(err)
 			return

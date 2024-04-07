@@ -303,16 +303,16 @@ var (
 			} else {
 				outputMessage = fmt.Sprintf("Retrieving messages for channel: <#%s>", channel.ID)
 			}
-			iMsg, _ := sendFollowup(s, i, outputMessage)
+
+			hashedMessages, _ := sendFollowup(s, i, "Hashing messages...")
+			fetchedMessages, _ := sendMessage(s, hashedMessages, outputMessage)
 
 			messsageStream := make(chan []*discordgo.Message)
 			if threads {
-				go getAllChannelThreadMessages(s, iMsg, channel.ID, messsageStream)
+				go getAllChannelThreadMessages(s, fetchedMessages, channel.ID, messsageStream)
 			} else {
-				go getAllChannelMessages(s, iMsg, channel.ID, messsageStream)
+				go getAllChannelMessages(s, fetchedMessages, channel.ID, messsageStream)
 			}
-
-			hashedMessages, _ := sendMessage(s, iMsg, "Hashing messages...")
 
 			var wg sync.WaitGroup
 			for messages := range messsageStream {
