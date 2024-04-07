@@ -397,6 +397,7 @@ func urlToExt(urlStr string) (string, error) {
 	}
 	fileExt := filepath.Ext(parsedURL.Path)
 	fileExt = strings.TrimPrefix(fileExt, ".")
+	fileExt = strings.Split(fileExt, ":")[0]
 	fileExt = strings.ToLower(fileExt)
 	return fileExt, nil
 }

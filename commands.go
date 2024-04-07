@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/bwmarrin/discordgo"
 	"github.com/liushuangls/go-anthropic/v2"
@@ -364,8 +365,9 @@ var (
 
 			isSnail, results := checkInHashes(message)
 			var messageContent string
+			// keep ony unique results so we don't have any duplicates
 			if isSnail {
-				for _, result := range results {
+				for _, result := range uniqueHashResults(results) {
 					if result.message.ID == message.ID {
 						continue
 					}
@@ -373,10 +375,6 @@ var (
 						continue
 					}
 					timestamp := result.message.Timestamp.UTC().Format("2006-01-02")
-					if result.message.Author.ID == i.Interaction.Member.User.ID {
-						messageContent += fmt.Sprintf("%dd: %s: Snail of yourself! %s\n", result.distance, timestamp, linkFromIMessage(i, result.message))
-						continue
-					}
 					messageContent += fmt.Sprintf("%dd: %s: Snail of %s! %s\n", result.distance, timestamp, result.message.Author.Username, linkFromIMessage(i, result.message))
 				}
 			}
@@ -793,6 +791,8 @@ var (
 
 func handleMessage(s *discordgo.Session, m *discordgo.MessageCreate) {
 	go func() {
+		// Wait 3 seconds before checking again due to embed loading
+		time.Sleep(3 * time.Second)
 		fetchedMessage, _ := s.ChannelMessage(m.Message.ChannelID, m.Message.ID)
 		if hasImageURL(fetchedMessage) || hasVideoURL(fetchedMessage) {
 			hashAttachments(fetchedMessage, true)

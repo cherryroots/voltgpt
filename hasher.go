@@ -239,6 +239,22 @@ func stringToHash(s string) *goimagehash.ExtImageHash {
 	return extHash
 }
 
+func uniqueHashResults(results []hashResult) []hashResult {
+	uniqueMap := make(map[string]hashResult)
+
+	for _, result := range results {
+		key := fmt.Sprintf("%d:%s", result.distance, result.message.ID)
+		uniqueMap[key] = result
+	}
+
+	uniqueResults := make([]hashResult, 0, len(uniqueMap))
+	for _, result := range uniqueMap {
+		uniqueResults = append(uniqueResults, result)
+	}
+
+	return uniqueResults
+}
+
 func getFile(url string) (bytes.Buffer, error) {
 	var buf bytes.Buffer
 
