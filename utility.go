@@ -155,11 +155,16 @@ func getChannelMessages(s *discordgo.Session, channelID string, count int) []*di
 	return messages
 }
 
-func getAllChannelMessages(s *discordgo.Session, m *discordgo.Message, channelID string, c chan []*discordgo.Message) {
+func getAllChannelMessages(s *discordgo.Session, refMsg *discordgo.Message, channelID string, c chan []*discordgo.Message) {
 	defer close(c)
 	var lastMessageID string
 	messagesRetrieved := 100
 	count := 0
+
+	fetchedMessages, err := sendMessage(s, refMsg, "Fetching messages...")
+	if err != nil {
+		log.Println(err)
+	}
 
 	for messagesRetrieved == 100 {
 		batch := getMessagesBefore(s, channelID, 100, lastMessageID)
@@ -170,7 +175,7 @@ func getAllChannelMessages(s *discordgo.Session, m *discordgo.Message, channelID
 		lastMessageID = batch[len(batch)-1].ID
 		messagesRetrieved = len(batch)
 		count += messagesRetrieved
-		_, err := editMessage(s, m, fmt.Sprintf("Retrieved %d messages", count))
+		_, err := editMessage(s, fetchedMessages, fmt.Sprintf("Retrieved %d messages", count))
 		if err != nil {
 			log.Println(err)
 		}
@@ -178,6 +183,55 @@ func getAllChannelMessages(s *discordgo.Session, m *discordgo.Message, channelID
 	}
 
 	log.Println("getAllChannelMessages: done")
+}
+
+func getAllChannelThreadMessages(s *discordgo.Session, refMsg *discordgo.Message, channelID string, c chan []*discordgo.Message) {
+	defer close(c)
+
+	activeThreads, err := s.ThreadsActive(channelID)
+	if err != nil {
+		log.Println(err)
+	}
+	archivedThreads, err := s.ThreadsArchived(channelID, nil, 0)
+	if err != nil {
+		log.Println(err)
+	}
+	var threadChannels []*discordgo.Channel
+	threadChannels = append(threadChannels, activeThreads.Threads...)
+	threadChannels = append(threadChannels, archivedThreads.Threads...)
+
+	for _, thread := range threadChannels {
+		_, err := sendMessage(s, refMsg, fmt.Sprintf("Fetching messages for thread: <#%s>", thread.ID))
+		if err != nil {
+			log.Println(err)
+		}
+
+		fetchedMessages, err := sendMessage(s, refMsg, "Fetching messages...")
+		if err != nil {
+			log.Println(err)
+		}
+
+		var lastMessageID string
+		messagesRetrieved := 100
+		count := 0
+		for messagesRetrieved == 100 {
+			batch := getMessagesBefore(s, thread.ID, 100, lastMessageID)
+			if len(batch) == 0 || batch == nil {
+				log.Println("getAllChannelMessages: no messages retrieved")
+				break
+			}
+			lastMessageID = batch[len(batch)-1].ID
+			messagesRetrieved = len(batch)
+			count += messagesRetrieved
+			_, err := editMessage(s, fetchedMessages, fmt.Sprintf("Retrieved %d messages", count))
+			if err != nil {
+				log.Println(err)
+			}
+			c <- batch
+		}
+	}
+
+	log.Println("getAllChannelThreadMessages: done")
 }
 
 func getMessageMediaURL(m *discordgo.Message) ([]string, []string) {
@@ -318,7 +372,7 @@ func hasVideoURL(m *discordgo.Message) bool {
 		}
 	}
 	for _, embed := range m.Embeds {
-		// check if embed has image
+		// check if embed has video
 		if embed.Video != nil {
 			if isVideoURL(embed.Video.URL) {
 				return true

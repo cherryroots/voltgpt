@@ -98,6 +98,12 @@ var (
 					Description: "Which channel to retrieve messages from",
 					Required:    true,
 				},
+				{
+					Type:        discordgo.ApplicationCommandOptionBoolean,
+					Name:        "threads",
+					Description: "Whether to include threads",
+					Required:    false,
+				},
 			},
 		},
 		{
@@ -239,17 +245,17 @@ var (
 			count := 0
 			for _, option := range i.ApplicationCommandData().Options {
 				if option.Name == "question" {
-					options.message = option.Value.(string)
+					options.message = option.StringValue()
 					log.Println("summarize:", options.message)
 				}
 				if option.Name == "count" {
-					count = int(option.Value.(float64))
+					count = int(option.FloatValue())
 				}
 				if option.Name == "temperature" {
-					options.temperature = float32(option.Value.(float64))
+					options.temperature = float32(option.FloatValue())
 				}
 				if option.Name == "model" {
-					options.model = option.Value.(string)
+					options.model = option.StringValue()
 				}
 			}
 			if count == 0 {
@@ -270,13 +276,17 @@ var (
 			log.Printf("Received interaction: %s by %s", i.ApplicationCommandData().Name, i.Interaction.Member.User.Username)
 			deferResponse(s, i)
 
-			var channelID string
+			var channel *discordgo.Channel
+			var threads bool
 			var outputMessage string
 			msgCount, hashCount := 0, 0
 
 			for _, option := range i.ApplicationCommandData().Options {
 				if option.Name == "channel" {
-					channelID = option.Value.(string)
+					channel = option.ChannelValue(s)
+				}
+				if option.Name == "threads" {
+					threads = option.BoolValue()
 				}
 			}
 
@@ -288,13 +298,21 @@ var (
 				return
 			}
 
-			outputMessage = fmt.Sprintf("Retrieving messages for channel: <#%s>", channelID)
+			if threads {
+				outputMessage = fmt.Sprintf("Retrieving threads messages for channel: <#%s>", channel.ID)
+			} else {
+				outputMessage = fmt.Sprintf("Retrieving messages for channel: <#%s>", channel.ID)
+			}
 			iMsg, _ := sendFollowup(s, i, outputMessage)
-			fetchedMessages, _ := sendMessage(s, iMsg, "Retrieving messages...")
-			processedMessages, _ := sendMessage(s, iMsg, "Retrieving messages...")
-			messsageStream := make(chan []*discordgo.Message)
 
-			go getAllChannelMessages(s, fetchedMessages, channelID, messsageStream)
+			messsageStream := make(chan []*discordgo.Message)
+			if threads {
+				go getAllChannelThreadMessages(s, iMsg, channel.ID, messsageStream)
+			} else {
+				go getAllChannelMessages(s, iMsg, channel.ID, messsageStream)
+			}
+
+			hashedMessages, _ := sendMessage(s, iMsg, "Hashing messages...")
 
 			var wg sync.WaitGroup
 			for messages := range messsageStream {
@@ -309,7 +327,7 @@ var (
 							hashCount += count
 						}
 					}
-					_, err := editMessage(s, processedMessages, fmt.Sprintf("Messages processed: %d\nHashes: %d", msgCount, hashCount))
+					_, err := editMessage(s, hashedMessages, fmt.Sprintf("Status: ongoing\nMessages processed: %d\nHashes: %d", msgCount, hashCount))
 					if err != nil {
 						log.Println(err)
 					}
@@ -318,9 +336,9 @@ var (
 
 			wg.Wait()
 
-			outputMessage = fmt.Sprintf("Messages: %d\nHashes: %d", msgCount, hashCount)
+			outputMessage = fmt.Sprintf("Status: done\nMessages processed: %d\nHashes: %d", msgCount, hashCount)
 
-			_, err := editMessage(s, processedMessages, outputMessage)
+			_, err := editMessage(s, hashedMessages, outputMessage)
 			if err != nil {
 				log.Println(err)
 			}
@@ -774,16 +792,16 @@ var (
 )
 
 func handleMessage(s *discordgo.Session, m *discordgo.MessageCreate) {
-	if m.Author.ID == s.State.User.ID {
-		return
-	}
-
 	go func() {
 		fetchedMessage, _ := s.ChannelMessage(m.Message.ChannelID, m.Message.ID)
 		if hasImageURL(fetchedMessage) || hasVideoURL(fetchedMessage) {
 			hashAttachments(fetchedMessage, true)
 		}
 	}()
+
+	if m.Author.ID == s.State.User.ID {
+		return
+	}
 
 	if m.Author.Bot {
 		return
