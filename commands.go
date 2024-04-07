@@ -307,13 +307,11 @@ var (
 							var count int
 							_, count = hashAttachments(message, true)
 							hashCount += count
-							if hashCount%100 == 0 {
-								_, err := editMessage(s, processedMessages, fmt.Sprintf("Messages processed: %d\nHashes: %d", msgCount, hashCount))
-								if err != nil {
-									log.Println(err)
-								}
-							}
 						}
+					}
+					_, err := editMessage(s, processedMessages, fmt.Sprintf("Messages processed: %d\nHashes: %d", msgCount, hashCount))
+					if err != nil {
+						log.Println(err)
 					}
 				}()
 			}
@@ -782,7 +780,7 @@ func handleMessage(s *discordgo.Session, m *discordgo.MessageCreate) {
 
 	go func() {
 		fetchedMessage, _ := s.ChannelMessage(m.Message.ChannelID, m.Message.ID)
-		if hasImageURL(fetchedMessage) {
+		if hasImageURL(fetchedMessage) || hasVideoURL(fetchedMessage) {
 			hashAttachments(fetchedMessage, true)
 		}
 	}()

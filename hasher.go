@@ -106,15 +106,10 @@ func hashAttachments(m *discordgo.Message, store bool) ([]string, int) {
 	var count int
 
 	for _, attachment := range allAttachments {
-		buf, err := getFile(attachment)
-		if err != nil {
-			continue
-		}
-
 		var img image.Image
 
 		if isVideoURL(attachment) {
-			reader, err := readFrameAsJpeg(buf, 10)
+			reader, err := readFrameAsJpeg(attachment, 10)
 			if err != nil {
 				log.Printf("readFrameAsJpeg error: %v\n", err)
 				continue
@@ -124,6 +119,10 @@ func hashAttachments(m *discordgo.Message, store bool) ([]string, int) {
 				continue
 			}
 		} else if isImageURL(attachment) {
+			buf, err := getFile(attachment)
+			if err != nil {
+				continue
+			}
 			img, _, err = image.Decode(&buf)
 			if err != nil {
 				continue
@@ -149,12 +148,11 @@ func hashAttachments(m *discordgo.Message, store bool) ([]string, int) {
 	return hashes, count
 }
 
-func readFrameAsJpeg(inBuf bytes.Buffer, frameNum int) (io.Reader, error) {
+func readFrameAsJpeg(url string, frameNum int) (io.Reader, error) {
 	outBuf := bytes.NewBuffer(nil)
-	err := ffmpeg.Input("pipe:").
+	err := ffmpeg.Input(url).
 		Filter("select", ffmpeg.Args{fmt.Sprintf("gte(n,%d)", frameNum)}).
 		Output("pipe:", ffmpeg.KwArgs{"vframes": 1, "format": "image2", "vcodec": "mjpeg"}).
-		WithInput(&inBuf).
 		WithOutput(outBuf).
 		Run()
 	if err != nil {

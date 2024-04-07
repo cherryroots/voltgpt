@@ -336,16 +336,25 @@ func hasVideoURL(m *discordgo.Message) bool {
 	return false
 }
 
-func isImageURL(urlStr string) bool {
+func urlToExt(urlStr string) (string, error) {
 	parsedURL, err := url.Parse(urlStr)
+	if err != nil {
+		return "", err
+	}
+	fileExt := filepath.Ext(parsedURL.Path)
+	fileExt = strings.TrimPrefix(fileExt, ".")
+	fileExt = strings.ToLower(fileExt)
+	return fileExt, nil
+}
+
+func isImageURL(urlStr string) bool {
+	fileExt, err := urlToExt(urlStr)
 	if err != nil {
 		return false
 	}
-	fileExt := filepath.Ext(parsedURL.Path)
-	fileExt = strings.ToLower(fileExt)
 
 	switch fileExt {
-	case ".jpg", ".jpeg", ".png", ".gif", ".webp":
+	case "jpg", "jpeg", "png", "gif", "webp":
 		return true
 	default:
 		return false
@@ -353,15 +362,13 @@ func isImageURL(urlStr string) bool {
 }
 
 func isVideoURL(urlStr string) bool {
-	parsedURL, err := url.Parse(urlStr)
+	fileExt, err := urlToExt(urlStr)
 	if err != nil {
 		return false
 	}
-	fileExt := filepath.Ext(parsedURL.Path)
-	fileExt = strings.ToLower(fileExt)
 
 	switch fileExt {
-	case ".mp4", ".webm":
+	case "mp4", "webm", "mov":
 		return true
 	default:
 		return false
@@ -369,21 +376,19 @@ func isVideoURL(urlStr string) bool {
 }
 
 func mediaType(urlStr string) string {
-	parsedURL, err := url.Parse(urlStr)
+	fileExt, err := urlToExt(urlStr)
 	if err != nil {
 		return ""
 	}
-	fileExt := filepath.Ext(parsedURL.Path)
-	fileExt = strings.ToLower(fileExt)
 
 	switch fileExt {
-	case ".jpg", ".jpeg":
+	case "jpg", "jpeg":
 		return "image/jpeg"
-	case ".png":
+	case "png":
 		return "image/png"
-	case ".gif":
+	case "gif":
 		return "image/gif"
-	case ".webp":
+	case "webp":
 		return "image/webp"
 	default:
 		return ""
