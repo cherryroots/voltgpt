@@ -111,7 +111,7 @@ func hashAttachments(m *discordgo.Message, store bool) ([]string, int) {
 		if isVideoURL(attachment) {
 			reader, err := readFrameAsJpeg(attachment, 10)
 			if err != nil {
-				log.Printf("readFrameAsJpeg error: %v\n", err)
+				log.Printf("ffmpegSS error: %v, url: %s\n", err, attachment)
 				continue
 			}
 			img, _, err = image.Decode(reader)
@@ -121,6 +121,7 @@ func hashAttachments(m *discordgo.Message, store bool) ([]string, int) {
 		} else if isImageURL(attachment) {
 			buf, err := getFile(attachment)
 			if err != nil {
+				log.Printf("getFile error: %v, url: %s\n", err, attachment)
 				continue
 			}
 			img, _, err = image.Decode(&buf)
@@ -154,6 +155,7 @@ func readFrameAsJpeg(url string, frameNum int) (io.Reader, error) {
 		Filter("select", ffmpeg.Args{fmt.Sprintf("gte(n,%d)", frameNum)}).
 		Output("pipe:", ffmpeg.KwArgs{"vframes": 1, "format": "image2", "vcodec": "mjpeg"}).
 		WithOutput(outBuf).
+		Silent(true).
 		Run()
 	if err != nil {
 		return nil, err
@@ -268,6 +270,9 @@ func getFile(url string) (bytes.Buffer, error) {
 	resp, err := client.Get(url)
 	if err != nil {
 		return buf, err
+	}
+	if resp.StatusCode != http.StatusOK {
+		return buf, fmt.Errorf("bad status: %s", resp.Status)
 	}
 	defer resp.Body.Close()
 

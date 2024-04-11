@@ -256,15 +256,24 @@ func getMessageMediaURL(m *discordgo.Message) ([]string, []string) {
 			if isImageURL(embed.Thumbnail.URL) {
 				imgageURLs = append(imgageURLs, embed.Thumbnail.URL)
 			}
+			if isImageURL(embed.Thumbnail.ProxyURL) {
+				imgageURLs = append(imgageURLs, embed.Thumbnail.ProxyURL)
+			}
 		}
 		if embed.Image != nil {
 			if isImageURL(embed.Image.URL) {
 				imgageURLs = append(imgageURLs, embed.Image.URL)
 			}
+			if isImageURL(embed.Image.ProxyURL) {
+				imgageURLs = append(imgageURLs, embed.Image.ProxyURL)
+			}
 		}
 		if embed.Video != nil {
 			if isVideoURL(embed.Video.URL) {
 				videoURLs = append(videoURLs, embed.Video.URL)
+			}
+			if isImageURL(embed.Video.URL) {
+				imgageURLs = append(imgageURLs, embed.Video.URL)
 			}
 		}
 	}
@@ -331,12 +340,39 @@ func cleanMessages(s *discordgo.Session, messages []*discordgo.Message) []*disco
 	return messages
 }
 
+func matchMultiple(input string, matches []string) bool {
+	for _, match := range matches {
+		if input == match {
+			return true
+		}
+	}
+	return false
+}
+
+func attachmentText(m *discordgo.Message) string {
+	var urls []string
+	var text string
+	for _, attachment := range m.Attachments {
+		if strings.Contains(attachment.URL, ".txt") {
+			urls = append(urls, attachment.URL)
+		}
+	}
+	for i, u := range urls {
+		bytes, err := downloadURL(u)
+		if err != nil {
+			log.Printf("attachmentTxt: %v", err)
+			continue
+		}
+
+		text += fmt.Sprintf("Attachment %d: %s\n\n", i+1, string(bytes))
+	}
+	return text
+}
+
 func hasImageURL(m *discordgo.Message) bool {
 	for _, attachment := range m.Attachments {
-		if attachment.Width > 0 && attachment.Height > 0 {
-			if isImageURL(attachment.URL) {
-				return true
-			}
+		if isImageURL(attachment.URL) {
+			return true
 		}
 	}
 	for _, embed := range m.Embeds {
@@ -345,9 +381,15 @@ func hasImageURL(m *discordgo.Message) bool {
 			if isImageURL(embed.Thumbnail.URL) {
 				return true
 			}
+			if isImageURL(embed.Thumbnail.ProxyURL) {
+				return true
+			}
 		}
 		if embed.Image != nil {
 			if isImageURL(embed.Image.URL) {
+				return true
+			}
+			if isImageURL(embed.Image.ProxyURL) {
 				return true
 			}
 		}
@@ -365,10 +407,8 @@ func hasImageURL(m *discordgo.Message) bool {
 
 func hasVideoURL(m *discordgo.Message) bool {
 	for _, attachment := range m.Attachments {
-		if attachment.Width > 0 && attachment.Height > 0 {
-			if isVideoURL(attachment.URL) {
-				return true
-			}
+		if isVideoURL(attachment.URL) {
+			return true
 		}
 	}
 	for _, embed := range m.Embeds {

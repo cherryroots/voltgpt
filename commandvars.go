@@ -9,21 +9,13 @@ import (
 var (
 	admins                  = []string{"102087943627243520", "123116664207179777", "95681688914366464"}
 	defaultTemp     float32 = 0.7
-	defaultOAIModel         = openai.GPT4VisionPreview
+	defaultOAIModel         = openai.GPT4Turbo
 	defaultANTModel         = anthropic.ModelClaude3Opus20240229
 
 	modelChoices = []*discordgo.ApplicationCommandOptionChoice{
 		{
-			Name:  "gpt-4",
-			Value: openai.GPT4,
-		},
-		{
-			Name:  "gpt-4-0125-preview",
-			Value: openai.GPT4Turbo0125,
-		},
-		{
-			Name:  "gpt-4-vision-preview",
-			Value: openai.GPT4VisionPreview,
+			Name:  "gpt-4-turbo",
+			Value: openai.GPT4Turbo,
 		},
 		{
 			Name:  "gpt-3.5-turbo-0125",
@@ -142,9 +134,9 @@ var (
 	}
 
 	systemMessageDefault = requestContent{
-		text: "You're able to draw images if the user asks for it, don't offer to draw images unprompted. \n" +
-			"The image request will be processed after you respond and attached to the response. \n" +
-			"For any message from the user that has a ❤️ or ⚙️ in it just treat it as not being there and reply normally. \n" +
+		text: "Your name is volt-sama and the interface you use is discord so you can use any appropriate markdown formats.\n" +
+			"You have the capability of drawing images, the image will be attached to your message if so.\n" +
+			"For any message from the user that has a ❤️ or ⚙️ in it just treat it as not being there and reply normally.\n" +
 			"If a message starts like 'username: message' and the usernames are different, then it can be multiple users talking, " +
 			"in that user role message.",
 	}

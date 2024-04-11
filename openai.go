@@ -528,7 +528,7 @@ func getMaxModelTokens(model string) (maxTokens int) {
 		maxTokens = 200000
 	case openai.GPT4:
 		maxTokens = 8192
-	case openai.GPT4TurboPreview, openai.GPT4VisionPreview:
+	case openai.GPT4Turbo:
 		maxTokens = 128000
 	case openai.GPT3Dot5Turbo0125:
 		maxTokens = 16385
@@ -540,7 +540,7 @@ func getMaxModelTokens(model string) (maxTokens int) {
 
 func isOutputLimited(model string) bool {
 	switch model {
-	case openai.GPT4Turbo0125, openai.GPT4VisionPreview, openai.GPT3Dot5Turbo0125, anthropic.ModelClaude3Haiku20240307, anthropic.ModelClaude3Sonnet20240229, anthropic.ModelClaude3Opus20240229:
+	case openai.GPT4Turbo, openai.GPT3Dot5Turbo0125, anthropic.ModelClaude3Haiku20240307, anthropic.ModelClaude3Sonnet20240229, anthropic.ModelClaude3Opus20240229:
 		return true
 	default:
 		return false
@@ -616,8 +616,8 @@ func numTokensFromMessages(messages []openai.ChatCompletionMessage, model string
 		"gpt-4-32k-0314",
 		"gpt-4-0613",
 		"gpt-4-32k-0613",
-		"gpt-4-vision-preview",
-		"gpt-4-1106-preview":
+		"gpt-4-turbo",
+		"gpt-4-turbo-2024-04-09":
 		tokensPerMessage = 3
 		tokensPerName = 1
 	case "gpt-3.5-turbo-0301":

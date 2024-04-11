@@ -835,7 +835,7 @@ func handleMessage(s *discordgo.Session, m *discordgo.MessageCreate) {
 		m.Message = cleanMessage(s, m.Message)
 		images, _ := getMessageMediaURL(m.Message)
 		content := requestContent{
-			text: fmt.Sprintf("%s: %s", m.Author.Username, m.Message.Content),
+			text: fmt.Sprintf("%s: %s %s", m.Author.Username, attachmentText(m.Message), m.Content),
 			url:  images,
 		}
 

@@ -82,21 +82,23 @@ func getANTIntents(message string, questionType string) string {
 	var messages []anthropic.Message
 
 	intentPrompt := requestContent{text: "What's the intent in this message? Intents can be 'draw' or 'none'.\n " +
-		"The 'draw' intent is for when the message asks to draw, generate, or change some kind of image.\n" +
+		"The 'draw' intent is for when the message asks to draw, generate, or change some kind of image. " +
+		"The request has to be very specific, don't just say 'draw' if they mention the words draw, generate or change.\n " +
 		"'none' intent is for when nothing image generation related is asked.\n " +
-		"Don't include anything except the intent in the generated text and without quote marks: " + message}
+		"Don't include anything except the intent in the generated text under any cirmustances, and without quote marks: " + message}
 
-	ratioPrompt := requestContent{text: "What's the intent in this message? Intents can be '16:9', '1:1', '21:9', '2:3', '3:2', '4:5', '5:4', '9:16', '9:21'.\n " +
+	ratioPrompt := requestContent{text: "What's the ratio requested in this message? Rations can be '16:9', '1:1', '21:9', '2:3', '3:2', '4:5', '5:4', '9:16', '9:21'.\n " +
 		"The '1:1' or 'none' aspect ratio is the default one, if the message doesn't ask for any other aspect ratio.\n " +
 		"The '16:9', '21:9', '2:3', '3:2', '4:5', '5:4', '9:16', '9:21' ratios are for when the message asks for a specific aspect ratio.\n " +
-		"Don't include anything except the aspect ratio in the generated text and without quote marks: " + message}
+		"If they ask for something like 'portrait' or 'landscape' or 'square' use the closest aspect ratio to that. \n " +
+		"Don't include anything except the aspect ratio in the generated text under any cirmustances, and without quote marks: " + message}
 
-	stylePrompt := requestContent{text: "What's the intent in this message? Intents can be " +
+	stylePrompt := requestContent{text: "What's the style requested in this message? Styles can be " +
 		"'3d-model', 'analog-film', 'anime', 'cinematic', 'comic-book', 'digital-art', 'enhance', 'fantasy-art', 'isometric', 'line-art', 'low-poly', " +
 		"'modeling-compound', 'neon-punk', 'origami', 'photographic', 'pixel-art', 'tile-texture'.\n " +
 		"If the message doesn't ask for any other style, 'none' is the default one, that means nothing at all.\n " +
 		"The other styles are for when the message asks for a specific style.\n " +
-		"Don't include anything except the style in the generated text and without quote marks: " + message}
+		"Don't include anything except the style in the generated text under any cirmustances, and without quote marks: " + message}
 
 	switch questionType {
 	case "intent":
@@ -112,7 +114,7 @@ func getANTIntents(message string, questionType string) string {
 	resp, err := c.CreateMessages(ctx, anthropic.MessagesRequest{
 		Model:     anthropic.ModelClaude3Haiku20240307,
 		Messages:  messages,
-		MaxTokens: 10,
+		MaxTokens: 8,
 	})
 	if err != nil {
 		var e *anthropic.APIError
@@ -134,6 +136,8 @@ func drawSAIImage(prompt string, negativePrompt string, ratio string, style stri
 	}
 
 	url := "https://api.stability.ai/v2beta/stable-image/generate/core"
+	ratios := []string{"16:9", "1:1", "21:9", "2:3", "3:2", "4:5", "5:4", "9:16", "9:21"}
+	styles := []string{"3d-model", "analog-film", "anime", "cinematic", "comic-book", "digital-art", "enhance", "fantasy-art", "isometric", "line-art", "low-poly", "modeling-compound", "neon-punk", "origami", "photographic", "pixel-art", "tile-texture"}
 
 	body := &bytes.Buffer{}
 	writer := multipart.NewWriter(body)
@@ -142,10 +146,10 @@ func drawSAIImage(prompt string, negativePrompt string, ratio string, style stri
 	if negativePrompt != "" && negativePrompt != "none" {
 		_ = writer.WriteField("negative_prompt", negativePrompt)
 	}
-	if ratio != "" && ratio != "none" {
+	if matchMultiple(ratio, ratios) {
 		_ = writer.WriteField("aspect_ratio", ratio)
 	}
-	if style != "" && style != "none" {
+	if matchMultiple(style, styles) {
 		_ = writer.WriteField("style_preset", style)
 	}
 	_ = writer.Close()
@@ -272,14 +276,14 @@ func streamMessageANTResponse(s *discordgo.Session, m *discordgo.Message, messag
 				request = strings.TrimSpace(request)
 				intent := getANTIntents(request, "intent")
 				log.Printf("Intent: %s\n", intent)
-				if intent == "draw" {
+				if strings.ToLower(intent) == "draw" {
 					ratio := getANTIntents(request, "ratio")
 					style := getANTIntents(request, "style")
 					log.Printf("Ratio: %s, Style: %s\n", ratio, style)
 					if len(request) > 4000 {
 						request = request[len(request)-4000:]
 					}
-					files, err := drawSAIImage(fmt.Sprintf("%s\n%s", request, fullMessage), "", ratio, style)
+					files, err := drawSAIImage(fmt.Sprintf("%s\n%s", request, fullMessage), "", strings.ToLower(ratio), strings.ToLower(style))
 					if err != nil {
 						logSendErrorMessage(s, m, err.Error())
 					}
@@ -361,7 +365,7 @@ func prependRepliesANTMessages(s *discordgo.Session, message *discordgo.Message,
 	replyMessage := cleanMessage(s, referencedMessage)
 	images, _ := getMessageMediaURL(replyMessage)
 	replyContent := requestContent{
-		text: replyMessage.Content,
+		text: fmt.Sprintf("%s %s", attachmentText(replyMessage), replyMessage.Content),
 		url:  images,
 	}
 
