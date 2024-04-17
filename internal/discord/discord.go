@@ -1,4 +1,4 @@
-package main
+package discord
 
 import (
 	"log"
@@ -7,7 +7,7 @@ import (
 	"github.com/bwmarrin/discordgo"
 )
 
-func logSendErrorMessage(s *discordgo.Session, m *discordgo.Message, content string) {
+func LogSendErrorMessage(s *discordgo.Session, m *discordgo.Message, content string) {
 	log.Println(content)
 	_, _ = s.ChannelMessageSendComplex(m.ChannelID, &discordgo.MessageSend{
 		Content:   content,
@@ -15,7 +15,7 @@ func logSendErrorMessage(s *discordgo.Session, m *discordgo.Message, content str
 	})
 }
 
-func updateResponse(s *discordgo.Session, i *discordgo.InteractionCreate, content string) error {
+func UpdateResponse(s *discordgo.Session, i *discordgo.InteractionCreate, content string) error {
 	err := s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 		Type: discordgo.InteractionResponseUpdateMessage,
 		Data: &discordgo.InteractionResponseData{
@@ -25,7 +25,7 @@ func updateResponse(s *discordgo.Session, i *discordgo.InteractionCreate, conten
 	return err
 }
 
-func sendFollowup(s *discordgo.Session, i *discordgo.InteractionCreate, content string) (*discordgo.Message, error) {
+func SendFollowup(s *discordgo.Session, i *discordgo.InteractionCreate, content string) (*discordgo.Message, error) {
 	msg, err := s.FollowupMessageCreate(i.Interaction, true, &discordgo.WebhookParams{
 		Content: content,
 	})
@@ -33,7 +33,7 @@ func sendFollowup(s *discordgo.Session, i *discordgo.InteractionCreate, content 
 	return msg, err
 }
 
-func sendFollowupFile(s *discordgo.Session, i *discordgo.InteractionCreate, content string, files []*discordgo.File) (*discordgo.Message, error) {
+func SendFollowupFile(s *discordgo.Session, i *discordgo.InteractionCreate, content string, files []*discordgo.File) (*discordgo.Message, error) {
 	msg, err := s.FollowupMessageCreate(i.Interaction, true, &discordgo.WebhookParams{
 		Content: content,
 		Files:   files,
@@ -42,7 +42,7 @@ func sendFollowupFile(s *discordgo.Session, i *discordgo.InteractionCreate, cont
 	return msg, err
 }
 
-func editFollowup(s *discordgo.Session, i *discordgo.InteractionCreate, followupID string, content string) (*discordgo.Message, error) {
+func EditFollowup(s *discordgo.Session, i *discordgo.InteractionCreate, followupID string, content string) (*discordgo.Message, error) {
 	msg, err := s.FollowupMessageEdit(i.Interaction, followupID, &discordgo.WebhookEdit{
 		Content: &content,
 	})
@@ -50,7 +50,7 @@ func editFollowup(s *discordgo.Session, i *discordgo.InteractionCreate, followup
 	return msg, err
 }
 
-func editFollowupFile(s *discordgo.Session, i *discordgo.InteractionCreate, followupID string, content string, files []*discordgo.File) (*discordgo.Message, error) {
+func EditFollowupFile(s *discordgo.Session, i *discordgo.InteractionCreate, followupID string, content string, files []*discordgo.File) (*discordgo.Message, error) {
 	msg, err := s.FollowupMessageEdit(i.Interaction, followupID, &discordgo.WebhookEdit{
 		Content: &content,
 		Files:   files,
@@ -59,7 +59,7 @@ func editFollowupFile(s *discordgo.Session, i *discordgo.InteractionCreate, foll
 	return msg, err
 }
 
-func sendMessage(s *discordgo.Session, m *discordgo.Message, content string) (*discordgo.Message, error) {
+func SendMessage(s *discordgo.Session, m *discordgo.Message, content string) (*discordgo.Message, error) {
 	msg, err := s.ChannelMessageSendComplex(m.ChannelID, &discordgo.MessageSend{
 		Content:   content,
 		Reference: m.Reference(),
@@ -68,7 +68,7 @@ func sendMessage(s *discordgo.Session, m *discordgo.Message, content string) (*d
 	return msg, err
 }
 
-func sendMessageFile(s *discordgo.Session, m *discordgo.Message, content string, files []*discordgo.File) (*discordgo.Message, error) {
+func SendMessageFile(s *discordgo.Session, m *discordgo.Message, content string, files []*discordgo.File) (*discordgo.Message, error) {
 	msg, err := s.ChannelMessageSendComplex(m.ChannelID, &discordgo.MessageSend{
 		Content:   content,
 		Reference: m.Reference(),
@@ -78,7 +78,7 @@ func sendMessageFile(s *discordgo.Session, m *discordgo.Message, content string,
 	return msg, err
 }
 
-func editMessage(s *discordgo.Session, m *discordgo.Message, content string) (*discordgo.Message, error) {
+func EditMessage(s *discordgo.Session, m *discordgo.Message, content string) (*discordgo.Message, error) {
 	msg, err := s.ChannelMessageEditComplex(&discordgo.MessageEdit{
 		Content: &content,
 		ID:      m.ID,
@@ -89,7 +89,7 @@ func editMessage(s *discordgo.Session, m *discordgo.Message, content string) (*d
 }
 
 // command to edit a given message the bot has sent
-func editMessageFile(s *discordgo.Session, m *discordgo.Message, content string, files []*discordgo.File) (*discordgo.Message, error) {
+func EditMessageFile(s *discordgo.Session, m *discordgo.Message, content string, files []*discordgo.File) (*discordgo.Message, error) {
 	msg, err := s.ChannelMessageEditComplex(&discordgo.MessageEdit{
 		Content: &content,
 		ID:      m.ID,
@@ -100,7 +100,7 @@ func editMessageFile(s *discordgo.Session, m *discordgo.Message, content string,
 	return msg, err
 }
 
-func sleepDeleteInteraction(s *discordgo.Session, i *discordgo.InteractionCreate, seconds int) error {
+func SleepDeleteInteraction(s *discordgo.Session, i *discordgo.InteractionCreate, seconds int) error {
 	time.Sleep(time.Duration(seconds) * time.Second)
 
 	err := s.InteractionResponseDelete(i.Interaction)
@@ -111,7 +111,7 @@ func sleepDeleteInteraction(s *discordgo.Session, i *discordgo.InteractionCreate
 	return nil
 }
 
-func deferResponse(s *discordgo.Session, i *discordgo.InteractionCreate) {
+func DeferResponse(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	err := s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 		Type: discordgo.InteractionResponseDeferredChannelMessageWithSource,
 	})
@@ -120,7 +120,7 @@ func deferResponse(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	}
 }
 
-func deferEphemeralResponse(s *discordgo.Session, i *discordgo.InteractionCreate) {
+func DeferEphemeralResponse(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	err := s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 		Type: discordgo.InteractionResponseDeferredChannelMessageWithSource,
 		Data: &discordgo.InteractionResponseData{

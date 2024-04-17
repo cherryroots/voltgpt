@@ -11,6 +11,14 @@ import (
 	"github.com/bwmarrin/discordgo"
 	"github.com/liushuangls/go-anthropic/v2"
 	"github.com/sashabaranov/go-openai"
+
+	ant "voltgpt/internal/anthropic"
+	"voltgpt/internal/config"
+	"voltgpt/internal/discord"
+	"voltgpt/internal/gamble"
+	"voltgpt/internal/hasher"
+	oai "voltgpt/internal/openai"
+	"voltgpt/internal/utility"
 )
 
 var (
@@ -42,13 +50,13 @@ var (
 					Type:        discordgo.ApplicationCommandOptionString,
 					Name:        "ratio",
 					Description: "ratio to use",
-					Choices:     ratioChoices,
+					Choices:     config.RatioChoices,
 				},
 				{
 					Type:        discordgo.ApplicationCommandOptionString,
 					Name:        "style",
 					Description: "style to use",
-					Choices:     styleChoices,
+					Choices:     config.StyleChoices,
 				},
 			},
 		},
@@ -83,7 +91,7 @@ var (
 					Type:        discordgo.ApplicationCommandOptionString,
 					Name:        "model",
 					Description: "Pick a model to use",
-					Choices:     modelChoices,
+					Choices:     config.ModelChoices,
 				},
 			},
 		},
@@ -195,7 +203,7 @@ var (
 	commandHandlers = map[string]func(s *discordgo.Session, i *discordgo.InteractionCreate){
 		"draw": func(s *discordgo.Session, i *discordgo.InteractionCreate) {
 			log.Printf("Received interaction: %s by %s", i.ApplicationCommandData().Name, i.Interaction.Member.User.Username)
-			deferResponse(s, i)
+			discord.DeferResponse(s, i)
 
 			var prompt, negativePrompt, ratio, style string
 			for _, option := range i.ApplicationCommandData().Options {
@@ -223,59 +231,59 @@ var (
 				style = "none"
 			}
 
-			image, err := drawSAIImage(prompt, negativePrompt, ratio, style)
+			image, err := ant.DrawSAIImage(prompt, negativePrompt, ratio, style)
 			if err != nil {
 				log.Println(err)
-				_, err = sendFollowup(s, i, err.Error())
+				_, err = discord.SendFollowup(s, i, err.Error())
 				if err != nil {
 					log.Println(err)
 				}
 				return
 			}
 			message := fmt.Sprintf("Prompt: %s\nNegative prompt: %s\nRatio: %s\nStyle: %s", prompt, negativePrompt, ratio, style)
-			_, err = sendFollowupFile(s, i, message, image)
+			_, err = discord.SendFollowupFile(s, i, message, image)
 			if err != nil {
 				log.Println(err)
 			}
 		},
 		"summarize": func(s *discordgo.Session, i *discordgo.InteractionCreate) {
 			log.Printf("Received interaction: %s by %s", i.ApplicationCommandData().Name, i.Interaction.Member.User.Username)
-			deferResponse(s, i)
+			discord.DeferResponse(s, i)
 
-			options := newOAIGenerationOptions()
+			options := config.NewOAIGenerationOptions()
 			count := 0
 			for _, option := range i.ApplicationCommandData().Options {
 				if option.Name == "question" {
-					options.message = option.StringValue()
-					log.Println("summarize:", options.message)
+					options.Message = option.StringValue()
+					log.Println("summarize:", options.Message)
 				}
 				if option.Name == "count" {
 					count = int(option.FloatValue())
 				}
 				if option.Name == "temperature" {
-					options.temperature = float32(option.FloatValue())
+					options.Temperature = float32(option.FloatValue())
 				}
 				if option.Name == "model" {
-					options.model = option.StringValue()
+					options.Model = option.StringValue()
 				}
 			}
 			if count == 0 {
 				count = 20
 			}
 
-			messages := getChannelMessages(s, i.ChannelID, count)
-			messages = cleanMessages(s, messages)
+			messages := utility.GetChannelMessages(s, i.ChannelID, count)
+			messages = utility.CleanMessages(s, messages)
 
-			chatMessages := createBatchOAIMessages(s, messages)
-			content := requestContent{
-				text: options.message,
+			chatMessages := oai.CreateBatchMessages(s, messages)
+			content := config.RequestContent{
+				Text: options.Message,
 			}
-			appendOAIMessage(openai.ChatMessageRoleUser, i.Member.User.Username, content, &chatMessages)
-			streamInteractionResponse(s, i, chatMessages, options)
+			oai.AppendMessage(openai.ChatMessageRoleUser, i.Member.User.Username, content, &chatMessages)
+			oai.StreamInteractionResponse(s, i, chatMessages, options)
 		},
 		"hash_channel": func(s *discordgo.Session, i *discordgo.InteractionCreate) {
 			log.Printf("Received interaction: %s by %s", i.ApplicationCommandData().Name, i.Interaction.Member.User.Username)
-			deferResponse(s, i)
+			discord.DeferResponse(s, i)
 
 			var channel *discordgo.Channel
 			var threads bool
@@ -291,8 +299,8 @@ var (
 				}
 			}
 
-			if !isAdmin(i.Interaction.Member.User.ID) {
-				_, err := sendFollowup(s, i, "Only admins can add players to the wheel!")
+			if !utility.IsAdmin(i.Interaction.Member.User.ID) {
+				_, err := discord.SendFollowup(s, i, "Only admins can add players to the wheel!")
 				if err != nil {
 					log.Println(err)
 				}
@@ -305,130 +313,116 @@ var (
 				outputMessage = fmt.Sprintf("Retrieving messages for channel: <#%s>", channel.ID)
 			}
 
-			hashedMessages, _ := sendFollowup(s, i, "Hashing messages...")
-			fetchedMessages, _ := sendMessage(s, hashedMessages, outputMessage)
+			hashedMessages, _ := discord.SendFollowup(s, i, "Hashing messages...")
+			fetchedMessages, _ := discord.SendMessage(s, hashedMessages, outputMessage)
 
 			messsageStream := make(chan []*discordgo.Message)
 			if threads {
-				go getAllChannelThreadMessages(s, fetchedMessages, channel.ID, messsageStream)
+				go utility.GetAllChannelThreadMessages(s, fetchedMessages, channel.ID, messsageStream)
 			} else {
-				go getAllChannelMessages(s, fetchedMessages, channel.ID, messsageStream)
+				go utility.GetAllChannelMessages(s, fetchedMessages, channel.ID, messsageStream)
 			}
 
 			var wg sync.WaitGroup
 			for messages := range messsageStream {
 				wg.Add(1)
-				go func() {
+				go func(messages []*discordgo.Message) {
 					defer wg.Done()
 					msgCount += len(messages)
 					for _, message := range messages {
-						if hasImageURL(message) || hasVideoURL(message) {
+						if utility.HasImageURL(message) || utility.HasVideoURL(message) {
 							var count int
-							_, count = hashAttachments(message, true)
+							_, count = hasher.HashAttachments(message, true)
 							hashCount += count
 						}
 					}
-					_, err := editMessage(s, hashedMessages, fmt.Sprintf("Status: ongoing\nMessages processed: %d\nHashes: %d", msgCount, hashCount))
+					_, err := discord.EditMessage(s, hashedMessages, fmt.Sprintf("Status: ongoing\nMessages processed: %d\nHashes: %d", msgCount, hashCount))
 					if err != nil {
 						log.Println(err)
 					}
-				}()
+				}(messages)
 			}
 
 			wg.Wait()
 
 			outputMessage = fmt.Sprintf("Status: done\nMessages processed: %d\nHashes: %d", msgCount, hashCount)
 
-			_, err := editMessage(s, hashedMessages, outputMessage)
+			_, err := discord.EditMessage(s, hashedMessages, outputMessage)
 			if err != nil {
 				log.Println(err)
 			}
 		},
 		"TTS": func(s *discordgo.Session, i *discordgo.InteractionCreate) {
 			log.Printf("Received interaction: %s by %s", i.ApplicationCommandData().Name, i.Interaction.Member.User.Username)
-			deferResponse(s, i)
+			discord.DeferResponse(s, i)
 
 			message := i.ApplicationCommandData().Resolved.Messages[i.ApplicationCommandData().TargetID]
 
-			files := splitTTS(message.Content, true)
+			files := oai.SplitTTS(message.Content, true)
 
-			_, err := sendFollowupFile(s, i, linkFromIMessage(i, message), files)
+			_, err := discord.SendFollowupFile(s, i, utility.LinkFromIMessage(i, message), files)
 			if err != nil {
 				log.Println(err)
 			}
 		},
 		"CheckSnail": func(s *discordgo.Session, i *discordgo.InteractionCreate) {
 			log.Printf("Received interaction: %s by %s", i.ApplicationCommandData().Name, i.Interaction.Member.User.Username)
-			deferEphemeralResponse(s, i)
+			discord.DeferEphemeralResponse(s, i)
 
 			message := i.ApplicationCommandData().Resolved.Messages[i.ApplicationCommandData().TargetID]
 
-			isSnail, results := checkInHashes(message)
-			var messageContent string
-			// keep ony unique results so we don't have any duplicates
-			if isSnail {
-				for _, result := range uniqueHashResults(results) {
-					if result.message.ID == message.ID {
-						continue
-					}
-					if result.message.Timestamp.After(message.Timestamp) {
-						continue
-					}
-					timestamp := result.message.Timestamp.UTC().Format("2006-01-02")
-					messageContent += fmt.Sprintf("%dd: %s: Snail of %s! %s\n", result.distance, timestamp, result.message.Author.Username, linkFromIMessage(i, result.message))
-				}
-			}
+			messageContent := hasher.FindSnails(i, message)
 
 			if messageContent == "" {
 				messageContent = "Fresh Content!"
 			}
 
-			_, err := sendFollowup(s, i, messageContent)
+			_, err := discord.SendFollowup(s, i, messageContent)
 			if err != nil {
 				log.Println(err)
 			}
 		},
 		"Hash": func(s *discordgo.Session, i *discordgo.InteractionCreate) {
 			log.Printf("Received interaction: %s by %s", i.ApplicationCommandData().Name, i.Interaction.Member.User.Username)
-			deferEphemeralResponse(s, i)
+			discord.DeferEphemeralResponse(s, i)
 
 			message := i.ApplicationCommandData().Resolved.Messages[i.ApplicationCommandData().TargetID]
 			var count int
 
-			if hasImageURL(message) || hasVideoURL(message) {
-				_, count = hashAttachments(message, true)
+			if utility.HasImageURL(message) || utility.HasVideoURL(message) {
+				_, count = hasher.HashAttachments(message, true)
 			}
-			_, err := sendFollowup(s, i, fmt.Sprintf("Hashed: %d", count))
+			_, err := discord.SendFollowup(s, i, fmt.Sprintf("Hashed: %d", count))
 			if err != nil {
 				log.Println(err)
 			}
 		},
 		"Continue": func(s *discordgo.Session, i *discordgo.InteractionCreate) {
 			log.Printf("Received interaction: %s by %s", i.ApplicationCommandData().Name, i.Interaction.Member.User.Username)
-			deferEphemeralResponse(s, i)
+			discord.DeferEphemeralResponse(s, i)
 
 			m := i.ApplicationCommandData().Resolved.Messages[i.ApplicationCommandData().TargetID]
 
 			if m.Author.ID != s.State.User.ID {
-				_, err := sendFollowup(s, i, fmt.Sprint("Not a voltbot message"))
+				_, err := discord.SendFollowup(s, i, fmt.Sprint("Not a voltbot message"))
 				if err != nil {
 					log.Println(err)
 				}
 				return
 			} else if m.Type != discordgo.MessageTypeReply {
-				_, err := sendFollowup(s, i, fmt.Sprint("Not a reply message"))
+				_, err := discord.SendFollowup(s, i, fmt.Sprint("Not a reply message"))
 				if err != nil {
 					log.Println(err)
 				}
 				return
 			}
 
-			log.Printf("%s continue: %s", i.Interaction.Member.User.Username, linkFromIMessage(i, m))
-			_, err := sendFollowup(s, i, fmt.Sprint("Continuing..."))
+			log.Printf("%s continue: %s", i.Interaction.Member.User.Username, utility.LinkFromIMessage(i, m))
+			_, err := discord.SendFollowup(s, i, fmt.Sprint("Continuing..."))
 			if err != nil {
 				log.Println(err)
 			}
-			err = sleepDeleteInteraction(s, i, 3)
+			err = discord.SleepDeleteInteraction(s, i, 3)
 			if err != nil {
 				log.Println(err)
 			}
@@ -436,25 +430,25 @@ var (
 			var chatMessages []anthropic.Message
 			var cache []*discordgo.Message
 
-			m = cleanMessage(s, m)
-			images, _ := getMessageMediaURL(m)
-			content := requestContent{
-				text: fmt.Sprintf("%s", m.Content),
-				url:  images,
+			m = utility.CleanMessage(s, m)
+			images, _ := utility.GetMessageMediaURL(m)
+			content := config.RequestContent{
+				Text: fmt.Sprintf("%s", m.Content),
+				Url:  images,
 			}
 
-			appendANTMessage(anthropic.RoleAssistant, content, &chatMessages)
+			ant.AppendMessage(anthropic.RoleAssistant, content, &chatMessages)
 
-			cache = getMessagesBefore(s, m.ChannelID, 100, m.ID)
-			prependRepliesANTMessages(s, m, cache, &chatMessages)
+			cache = utility.GetMessagesBefore(s, m.ChannelID, 100, m.ID)
+			ant.PrependReplyMessages(s, m, cache, &chatMessages)
 
-			streamMessageANTResponse(s, m, chatMessages, m)
+			ant.StreamMessageResponse(s, m, chatMessages, m)
 		},
 		"wheel_status": func(s *discordgo.Session, i *discordgo.InteractionCreate) {
 			log.Printf("Received interaction: %s by %s", i.ApplicationCommandData().Name, i.Interaction.Member.User.Username)
-			deferResponse(s, i)
-			if len(wheel.Rounds) == 0 {
-				wheel.addRound()
+			discord.DeferResponse(s, i)
+			if len(gamble.Wheel.Rounds) == 0 {
+				gamble.Wheel.AddRound()
 			}
 
 			var round int
@@ -466,13 +460,13 @@ var (
 			}
 
 			if round == 0 {
-				round = wheel.currentRound().ID + 1
+				round = gamble.Wheel.CurrentRound().ID + 1
 			}
 
-			embed := wheel.statusEmbed(wheel.round(round))
+			embed := gamble.Wheel.StatusEmbed(gamble.Wheel.Round(round))
 			_, err := s.FollowupMessageCreate(i.Interaction, true, &discordgo.WebhookParams{
 				Embeds:     []*discordgo.MessageEmbed{&embed},
-				Components: roundMessageComponents,
+				Components: gamble.RoundMessageComponents,
 				Flags:      1 << 12,
 			})
 			if err != nil {
@@ -481,7 +475,7 @@ var (
 		},
 		"wheel_add": func(s *discordgo.Session, i *discordgo.InteractionCreate) {
 			log.Printf("Received interaction: %s by %s", i.ApplicationCommandData().Name, i.Interaction.Member.User.Username)
-			deferEphemeralResponse(s, i)
+			discord.DeferEphemeralResponse(s, i)
 			var user *discordgo.User
 			var remove bool
 
@@ -494,8 +488,8 @@ var (
 				}
 			}
 
-			if !isAdmin(i.Interaction.Member.User.ID) {
-				_, err := sendFollowup(s, i, "Only admins can add players to the wheel!")
+			if !utility.IsAdmin(i.Interaction.Member.User.ID) {
+				_, err := discord.SendFollowup(s, i, "Only admins can add players to the wheel!")
 				if err != nil {
 					log.Println(err)
 				}
@@ -503,25 +497,25 @@ var (
 			}
 
 			var message string
-			player := player{
+			player := gamble.Player{
 				User: user,
 			}
 			if remove {
-				wheel.removeWheelOption(player)
+				gamble.Wheel.RemoveWheelOption(player)
 				message = fmt.Sprintf("Removed %s from the wheel!", player.User.Username)
 			} else {
-				wheel.addWheelOption(player)
+				gamble.Wheel.AddWheelOption(player)
 				message = fmt.Sprintf("Added %s to the wheel!", player.User.Username)
 			}
 
-			_, err := sendFollowup(s, i, message)
+			_, err := discord.SendFollowup(s, i, message)
 			if err != nil {
 				log.Println(err)
 			}
 		},
 		"insert_bet": func(s *discordgo.Session, i *discordgo.InteractionCreate) {
 			log.Printf("Recieved interaction: %s by %s", i.ApplicationCommandData().Name, i.Interaction.Member.User.Username)
-			deferEphemeralResponse(s, i)
+			discord.DeferEphemeralResponse(s, i)
 
 			var on, by *discordgo.User
 			var amount, round int
@@ -541,32 +535,40 @@ var (
 				}
 			}
 
-			if !isAdmin(i.Interaction.Member.User.ID) {
-				_, err := sendFollowup(s, i, "Only admins can add players to the wheel!")
+			if !utility.IsAdmin(i.Interaction.Member.User.ID) {
+				_, err := discord.SendFollowup(s, i, "Only admins can use this command!")
 				if err != nil {
 					log.Println(err)
 				}
 				return
 			}
 
-			onPlayer := player{
+			onPlayer := gamble.Player{
 				User: on,
 			}
-			byPlayer := player{
+			byPlayer := gamble.Player{
 				User: by,
 			}
 
-			bet := bet{
+			bet := gamble.Bet{
 				By:     byPlayer,
 				On:     onPlayer,
 				Amount: amount,
 			}
 
-			wheel.Rounds[round-1].addBet(bet)
+			var message string
 
-			message := fmt.Sprintf("Added bet on %s, by %s for %d on round %d", onPlayer.User.Username, byPlayer.User.Username, amount, round)
+			if bet.Amount == 0 {
+				gamble.Wheel.Rounds[round-1].RemoveBet(byPlayer, onPlayer)
+				message = fmt.Sprintf("Removed bet on %s, by %s on round %d", onPlayer.User.Username, byPlayer.User.Username, round)
 
-			_, err := sendFollowup(s, i, message)
+			} else {
+				gamble.Wheel.Rounds[round-1].AddBet(bet)
+				message = fmt.Sprintf("Added bet on %s, by %s for %d on round %d", onPlayer.User.Username, byPlayer.User.Username, amount, round)
+
+			}
+
+			_, err := discord.SendFollowup(s, i, message)
 			if err != nil {
 				log.Println(err)
 			}
@@ -576,20 +578,20 @@ var (
 	componentHandlers = map[string]func(s *discordgo.Session, i *discordgo.InteractionCreate){
 		"button_refresh": func(s *discordgo.Session, i *discordgo.InteractionCreate) {
 			log.Printf("Received interaction: %s by %s", i.MessageComponentData().CustomID, i.Interaction.Member.User.Username)
-			deferEphemeralResponse(s, i)
+			discord.DeferEphemeralResponse(s, i)
 
-			if len(wheel.Rounds) == 0 {
-				wheel.addRound()
+			if len(gamble.Wheel.Rounds) == 0 {
+				gamble.Wheel.AddRound()
 			}
 
-			embed := wheel.statusEmbed(wheel.currentRound())
-			message := fmt.Sprintf("Refreshed wheel to round %d", wheel.currentRound().ID+1)
+			embed := gamble.Wheel.StatusEmbed(gamble.Wheel.CurrentRound())
+			message := fmt.Sprintf("Refreshed wheel to round %d", gamble.Wheel.CurrentRound().ID+1)
 
 			_, err := s.ChannelMessageEditComplex(&discordgo.MessageEdit{
 				Channel:    i.ChannelID,
 				ID:         i.Message.ID,
 				Embeds:     &[]*discordgo.MessageEmbed{&embed},
-				Components: &roundMessageComponents,
+				Components: &gamble.RoundMessageComponents,
 			})
 			if err != nil {
 				log.Println(err)
@@ -603,26 +605,26 @@ var (
 				log.Println(err)
 			}
 
-			err = sleepDeleteInteraction(s, i, 3)
+			err = discord.SleepDeleteInteraction(s, i, 3)
 			if err != nil {
 				log.Println(err)
 			}
 		},
 		"button_claim": func(s *discordgo.Session, i *discordgo.InteractionCreate) {
 			log.Printf("Received interaction: %s by %s", i.MessageComponentData().CustomID, i.Interaction.Member.User.Username)
-			deferEphemeralResponse(s, i)
+			discord.DeferEphemeralResponse(s, i)
 
-			player := player{
+			player := gamble.Player{
 				User: i.Interaction.Member.User,
 			}
 
-			wheel.addPlayer(player)
+			gamble.Wheel.AddPlayer(player)
 
 			message := ""
 			hasClaimed := false
 
-			for _, claim := range wheel.Rounds[wheel.currentRound().ID].Claims {
-				if claim.id() == player.id() {
+			for _, claim := range gamble.Wheel.Rounds[gamble.Wheel.CurrentRound().ID].Claims {
+				if claim.ID() == player.ID() {
 					message = "You've already claimed!"
 					hasClaimed = true
 					break
@@ -630,11 +632,11 @@ var (
 			}
 
 			if !hasClaimed {
-				wheel.Rounds[wheel.currentRound().ID].addClaim(player)
+				gamble.Wheel.Rounds[gamble.Wheel.CurrentRound().ID].AddClaim(player)
 				message = "Claimed 100!"
 			}
 
-			_, err := sendFollowup(s, i, message)
+			_, err := discord.SendFollowup(s, i, message)
 			if err != nil {
 				log.Println(err)
 			}
@@ -642,41 +644,41 @@ var (
 		"button_bet": func(s *discordgo.Session, i *discordgo.InteractionCreate) {
 			log.Printf("Received interaction: %s by %s", i.MessageComponentData().CustomID, i.Interaction.Member.User.Username)
 
-			wheel.addPlayer(player{User: i.Interaction.Member.User})
+			gamble.Wheel.AddPlayer(gamble.Player{User: i.Interaction.Member.User})
 
 			var remove bool
 			if strings.Contains(i.MessageComponentData().CustomID, "remove") {
 				remove = true
 			}
-			wheel.sendMenu(s, i, remove, false)
+			gamble.Wheel.SendMenu(s, i, remove, false)
 		},
 		"button_winner": func(s *discordgo.Session, i *discordgo.InteractionCreate) {
 			log.Printf("Received interaction: %s by %s", i.MessageComponentData().CustomID, i.Interaction.Member.User.Username)
-			if !isAdmin(i.Interaction.Member.User.ID) {
-				deferEphemeralResponse(s, i)
-				_, err := sendFollowup(s, i, "Only admins can pick winners!")
+			if !utility.IsAdmin(i.Interaction.Member.User.ID) {
+				discord.DeferEphemeralResponse(s, i)
+				_, err := discord.SendFollowup(s, i, "Only admins can pick winners!")
 				if err != nil {
 					log.Println(err)
 				}
 				return
 			}
-			wheel.sendMenu(s, i, false, true)
+			gamble.Wheel.SendMenu(s, i, false, true)
 		},
 		"menu_bet": func(s *discordgo.Session, i *discordgo.InteractionCreate) {
 			log.Printf("Received interaction: %s by %s", i.MessageComponentData().CustomID, i.Interaction.Member.User.Username)
 			selectedUser := i.MessageComponentData().Values
-			round := wheel.currentRound().ID
+			round := gamble.Wheel.CurrentRound().ID
 
 			if strings.Contains(i.MessageComponentData().CustomID, "remove") {
 				member, _ := s.GuildMember(i.GuildID, selectedUser[0])
-				by := player{
+				by := gamble.Player{
 					User: i.Interaction.Member.User,
 				}
-				on := player{
+				on := gamble.Player{
 					User: member.User,
 				}
-				wheel.Rounds[round].removeBet(by, on)
-				err := updateResponse(s, i, "Removed bet!")
+				gamble.Wheel.Rounds[round].RemoveBet(by, on)
+				err := discord.UpdateResponse(s, i, "Removed bet!")
 				if err != nil {
 					log.Println(err)
 				}
@@ -684,31 +686,31 @@ var (
 			}
 			if strings.Contains(i.MessageComponentData().CustomID, "winner") {
 				member, _ := s.GuildMember(i.GuildID, selectedUser[0])
-				player := player{
+				player := gamble.Player{
 					User: member.User,
 				}
 
-				if len(wheel.Rounds[round].Bets) == 0 {
-					err := updateResponse(s, i, "No bets!")
+				if len(gamble.Wheel.Rounds[round].Bets) == 0 {
+					err := discord.UpdateResponse(s, i, "No bets!")
 					if err != nil {
 						log.Println(err)
 					}
 					return
 				}
 
-				if !wheel.Rounds[round].hasWinner() {
-					wheel.addRound()
+				if !gamble.Wheel.Rounds[round].HasWinner() {
+					gamble.Wheel.AddRound()
 				}
 
-				wheel.Rounds[round].setWinner(player)
-				err := updateResponse(s, i, "Set winner!")
+				gamble.Wheel.Rounds[round].SetWinner(player)
+				err := discord.UpdateResponse(s, i, "Set winner!")
 				if err != nil {
 					log.Println(err)
 				}
 				return
 			}
 
-			wheel.sendModal(s, i, selectedUser[0])
+			gamble.Wheel.SendModal(s, i, selectedUser[0])
 		},
 	}
 
@@ -719,42 +721,42 @@ var (
 			userID := strings.Split(i.ModalSubmitData().CustomID, "-")[1]
 			user, _ := s.GuildMember(i.GuildID, userID)
 
-			byPlayer := player{
+			byPlayer := gamble.Player{
 				User: i.Interaction.Member.User,
 			}
-			onPlayer := player{
+			onPlayer := gamble.Player{
 				User: user.User,
 			}
 
 			modalInput := i.ModalSubmitData().Components[0].(*discordgo.ActionsRow).Components[0].(*discordgo.TextInput).Value
 			amount, err := strconv.Atoi(modalInput)
 			if err != nil {
-				err := updateResponse(s, i, "Invalid amount")
+				err := discord.UpdateResponse(s, i, "Invalid amount")
 				if err != nil {
 					log.Println(err)
 				}
 				return
 			}
 
-			bet := bet{
+			bet := gamble.Bet{
 				By:     byPlayer,
 				On:     onPlayer,
 				Amount: amount,
 			}
 
-			existingBet, err := wheel.Rounds[wheel.currentRound().ID].hasBet(bet)
+			existingBet, err := gamble.Wheel.Rounds[gamble.Wheel.CurrentRound().ID].HasBet(bet)
 			existingAmount := 0
 			if err == nil {
 				existingAmount = existingBet.Amount
 			}
 
-			options := len(wheel.currentWheelOptions())
-			playerBets, _ := wheel.playerBets(byPlayer, wheel.currentRound())
+			options := len(gamble.Wheel.CurrentWheelOptions())
+			PlayerBets, _ := gamble.Wheel.PlayerBets(byPlayer, gamble.Wheel.CurrentRound())
 			if options%2 == 1 {
 				options++
 			}
-			if playerBets >= (options / 2) {
-				err := updateResponse(s, i, "You can only bet on half of the players")
+			if PlayerBets >= (options / 2) {
+				err := discord.UpdateResponse(s, i, "You can only bet on half of the players")
 				if err != nil {
 					log.Println(err)
 				}
@@ -762,8 +764,8 @@ var (
 
 			}
 
-			if amount > wheel.playerUsableMoney(byPlayer)+existingAmount {
-				err := updateResponse(s, i, "You don't have that much money")
+			if amount > gamble.Wheel.PlayerUsableMoney(byPlayer)+existingAmount {
+				err := discord.UpdateResponse(s, i, "You don't have that much money")
 				if err != nil {
 					log.Println(err)
 				}
@@ -771,17 +773,17 @@ var (
 			}
 
 			if amount <= 0 {
-				err := updateResponse(s, i, "You can't place a bet of 0 or lower")
+				err := discord.UpdateResponse(s, i, "You can't place a bet of 0 or lower")
 				if err != nil {
 					log.Println(err)
 				}
 				return
 			}
 
-			wheel.Rounds[wheel.currentRound().ID].addBet(bet)
+			gamble.Wheel.Rounds[gamble.Wheel.CurrentRound().ID].AddBet(bet)
 			message := fmt.Sprintf("Bet on %s for %d", onPlayer.User.Username, amount)
 
-			err = updateResponse(s, i, message)
+			err = discord.UpdateResponse(s, i, message)
 			if err != nil {
 				log.Println(err)
 			}
@@ -794,8 +796,8 @@ func handleMessage(s *discordgo.Session, m *discordgo.MessageCreate) {
 		// Wait 3 seconds before checking again due to embed loading
 		time.Sleep(3 * time.Second)
 		fetchedMessage, _ := s.ChannelMessage(m.Message.ChannelID, m.Message.ID)
-		if hasImageURL(fetchedMessage) || hasVideoURL(fetchedMessage) {
-			hashAttachments(fetchedMessage, true)
+		if utility.HasImageURL(fetchedMessage) || utility.HasVideoURL(fetchedMessage) {
+			hasher.HashAttachments(fetchedMessage, true)
 		}
 	}()
 
@@ -820,7 +822,7 @@ func handleMessage(s *discordgo.Session, m *discordgo.MessageCreate) {
 
 	if m.Type == discordgo.MessageTypeReply {
 		if (m.ReferencedMessage.Author.ID == s.State.User.ID || botMentioned) && m.ReferencedMessage != nil {
-			cache = getMessagesBefore(s, m.ChannelID, 100, m.ID)
+			cache = utility.GetMessagesBefore(s, m.ChannelID, 100, m.ID)
 			isReply = true
 		}
 	}
@@ -832,18 +834,18 @@ func handleMessage(s *discordgo.Session, m *discordgo.MessageCreate) {
 			log.Printf("%s mention: %s", m.Author.Username, m.Content)
 		}
 
-		m.Message = cleanMessage(s, m.Message)
-		images, _ := getMessageMediaURL(m.Message)
-		content := requestContent{
-			text: fmt.Sprintf("%s: %s %s", m.Author.Username, attachmentText(m.Message), m.Content),
-			url:  images,
+		m.Message = utility.CleanMessage(s, m.Message)
+		images, _ := utility.GetMessageMediaURL(m.Message)
+		content := config.RequestContent{
+			Text: fmt.Sprintf("%s: %s %s", m.Author.Username, utility.AttachmentText(m.Message), m.Content),
+			Url:  images,
 		}
 
-		appendANTMessage(anthropic.RoleUser, content, &chatMessages)
+		ant.AppendMessage(anthropic.RoleUser, content, &chatMessages)
 		if isReply {
-			prependRepliesANTMessages(s, m.Message, cache, &chatMessages)
+			ant.PrependReplyMessages(s, m.Message, cache, &chatMessages)
 		}
-		streamMessageANTResponse(s, m.Message, chatMessages, nil)
+		ant.StreamMessageResponse(s, m.Message, chatMessages, nil)
 		return
 	}
 }

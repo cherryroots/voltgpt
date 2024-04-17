@@ -1,4 +1,4 @@
-package main
+package openai
 
 import (
 	"bytes"
@@ -10,14 +10,19 @@ import (
 	"log"
 	"os"
 	"strings"
+	"sync"
 
 	"github.com/bwmarrin/discordgo"
 	"github.com/liushuangls/go-anthropic/v2"
 	"github.com/pkoukk/tiktoken-go"
 	"github.com/sashabaranov/go-openai"
+
+	"voltgpt/internal/config"
+	"voltgpt/internal/discord"
+	"voltgpt/internal/utility"
 )
 
-func instructionSwitchOAI(m []openai.ChatCompletionMessage) requestContent {
+func instructionSwitch(m []openai.ChatCompletionMessage) config.RequestContent {
 	firstMessageText := m[0].MultiContent[0].Text
 	lastMessageText := m[len(m)-1].MultiContent[0].Text
 	text := lastMessageText
@@ -25,9 +30,9 @@ func instructionSwitchOAI(m []openai.ChatCompletionMessage) requestContent {
 		text = fmt.Sprintf("%s\n%s", firstMessageText, lastMessageText)
 	}
 	if strings.Contains(text, "❤️") || strings.Contains(text, "❤") || strings.Contains(text, ":heart:") {
-		return instructionMessageDefault
+		return config.InstructionMessageDefault
 	}
-	return instructionMessageMean
+	return config.InstructionMessageMean
 }
 
 func getTTSFile(message string, index string, hd bool) []*discordgo.File {
@@ -71,7 +76,7 @@ func getTTSFile(message string, index string, hd bool) []*discordgo.File {
 	return files
 }
 
-func getOAIIntents(message string) string {
+func getIntents(message string) string {
 	// OpenAI API key
 	openaiToken := os.Getenv("OPENAI_TOKEN")
 	if openaiToken == "" {
@@ -87,7 +92,7 @@ func getOAIIntents(message string) string {
 		"Don't include anything except the intent in the generated text: \n\n" +
 		message
 
-	maxTokens, err := getRequestMaxTokensString(prompt, openai.GPT3Dot5Turbo0125)
+	maxTokens, err := GetRequestMaxTokensString(prompt, openai.GPT3Dot5Turbo0125)
 	if err != nil {
 		log.Printf("getRequestMaxTokens error: %v\n", err)
 		return ""
@@ -95,8 +100,8 @@ func getOAIIntents(message string) string {
 
 	req := openai.ChatCompletionRequest{
 		Model:       openai.GPT3Dot5Turbo0125,
-		Messages:    createOAIMessage(openai.ChatMessageRoleUser, "", requestContent{text: prompt}),
-		Temperature: defaultTemp,
+		Messages:    createMessage(openai.ChatMessageRoleUser, "", config.RequestContent{Text: prompt}),
+		Temperature: config.DefaultTemp,
 		MaxTokens:   maxTokens,
 	}
 
@@ -121,7 +126,7 @@ func getFilenameSummary(message string) string {
 
 	prompt := "Summarize this text as a filename but without a file extension: " + message
 
-	maxTokens, err := getRequestMaxTokensString(prompt, openai.GPT3Dot5Turbo0125)
+	maxTokens, err := GetRequestMaxTokensString(prompt, openai.GPT3Dot5Turbo0125)
 	if err != nil {
 		log.Printf("getRequestMaxTokens error: %v\n", err)
 		return "file"
@@ -129,8 +134,8 @@ func getFilenameSummary(message string) string {
 
 	req := openai.ChatCompletionRequest{
 		Model:       openai.GPT3Dot5Turbo0125,
-		Messages:    createOAIMessage(openai.ChatMessageRoleUser, "", requestContent{text: prompt}),
-		Temperature: defaultTemp,
+		Messages:    createMessage(openai.ChatMessageRoleUser, "", config.RequestContent{Text: prompt}),
+		Temperature: config.DefaultTemp,
 		MaxTokens:   maxTokens,
 	}
 
@@ -192,17 +197,17 @@ func streamMessageOAIResponse(s *discordgo.Session, m *discordgo.MessageCreate, 
 	c := openai.NewClient(openaiToken)
 	ctx := context.Background()
 
-	maxTokens, err := getRequestMaxTokensOAI(messages, defaultOAIModel)
+	maxTokens, err := getRequestMaxTokens(messages, config.DefaultOAIModel)
 	if err != nil {
-		logSendErrorMessage(s, m.Message, err.Error())
+		discord.LogSendErrorMessage(s, m.Message, err.Error())
 		return
 	}
 
 	// Create a new request
 	req := openai.ChatCompletionRequest{
-		Model:       defaultOAIModel,
+		Model:       config.DefaultOAIModel,
 		Messages:    messages,
-		Temperature: defaultTemp,
+		Temperature: config.DefaultTemp,
 		MaxTokens:   maxTokens,
 		Stream:      true,
 	}
@@ -210,14 +215,14 @@ func streamMessageOAIResponse(s *discordgo.Session, m *discordgo.MessageCreate, 
 	stream, err := c.CreateChatCompletionStream(ctx, req)
 	if err != nil {
 		errmsg := fmt.Sprintf("ChatCompletionStream error: %v\n", err)
-		logSendErrorMessage(s, m.Message, errmsg)
+		discord.LogSendErrorMessage(s, m.Message, errmsg)
 		return
 	}
 	defer stream.Close()
 
-	msg, err := sendMessageFile(s, m.Message, "Responding...", nil)
+	msg, err := discord.SendMessageFile(s, m.Message, "Responding...", nil)
 	if err != nil {
-		logSendErrorMessage(s, m.Message, err.Error())
+		discord.LogSendErrorMessage(s, m.Message, err.Error())
 		return
 	}
 
@@ -231,27 +236,27 @@ func streamMessageOAIResponse(s *discordgo.Session, m *discordgo.MessageCreate, 
 			// At the end of the stream
 			// Send the last message state
 			message = strings.TrimPrefix(message, "...")
-			_, err = editMessageFile(s, msg, message, nil)
+			_, err = discord.EditMessageFile(s, msg, message, nil)
 			if err != nil {
-				logSendErrorMessage(s, m.Message, err.Error())
+				discord.LogSendErrorMessage(s, m.Message, err.Error())
 				return
 			}
 			go func() {
-				appendOAIMessage(openai.ChatMessageRoleAssistant, s.State.User.Username, requestContent{text: fullMessage}, &messages)
-				request := oaiMessagesToString(messages)
+				AppendMessage(openai.ChatMessageRoleAssistant, s.State.User.Username, config.RequestContent{Text: fullMessage}, &messages)
+				request := messagesToString(messages)
 				if len(request) > 4000 {
 					request = request[len(request)-4000:]
 				}
-				intent := getOAIIntents(request)
+				intent := getIntents(request)
 				log.Printf("Intent: %s\n", intent)
 				if intent == "draw" {
 					files, err := drawImage(request, openai.CreateImageSize1024x1024)
 					if err != nil {
-						logSendErrorMessage(s, m.Message, err.Error())
+						discord.LogSendErrorMessage(s, m.Message, err.Error())
 					}
-					_, err = editMessageFile(s, msg, message, files)
+					_, err = discord.EditMessageFile(s, msg, message, files)
 					if err != nil {
-						logSendErrorMessage(s, m.Message, err.Error())
+						discord.LogSendErrorMessage(s, m.Message, err.Error())
 						return
 					}
 				}
@@ -259,9 +264,9 @@ func streamMessageOAIResponse(s *discordgo.Session, m *discordgo.MessageCreate, 
 			/*
 				go func() {
 					files := splitTTS(fullMessage, true)
-					_, err = editMessageFile(s, msg, message, files)
+					_, err = discord.EditMessageFile(s, msg, message, files)
 					if err != nil {
-						logSendErrorMessage(s, m.Message, err.Error())
+						discord.LogSendErrorMessage(s, m.Message, err.Error())
 						return
 					}
 				}()
@@ -270,7 +275,7 @@ func streamMessageOAIResponse(s *discordgo.Session, m *discordgo.MessageCreate, 
 		}
 		if err != nil {
 			errmsg := fmt.Sprintf("\nStream error: %v\n", err)
-			logSendErrorMessage(s, m.Message, errmsg)
+			discord.LogSendErrorMessage(s, m.Message, errmsg)
 			return
 		}
 
@@ -281,26 +286,26 @@ func streamMessageOAIResponse(s *discordgo.Session, m *discordgo.MessageCreate, 
 		if i%50 == 0 {
 			// If the message is too long, split it into a new message
 			if len(message) > 1800 {
-				firstPart, lastPart := splitParagraph(message)
+				firstPart, lastPart := utility.SplitParagraph(message)
 				if lastPart == "" {
 					lastPart = "..."
 				}
 
-				_, err = editMessageFile(s, msg, firstPart, nil)
+				_, err = discord.EditMessageFile(s, msg, firstPart, nil)
 				if err != nil {
-					logSendErrorMessage(s, m.Message, err.Error())
+					discord.LogSendErrorMessage(s, m.Message, err.Error())
 					return
 				}
-				msg, err = sendMessageFile(s, msg, lastPart, nil)
+				msg, err = discord.SendMessageFile(s, msg, lastPart, nil)
 				if err != nil {
-					logSendErrorMessage(s, m.Message, err.Error())
+					discord.LogSendErrorMessage(s, m.Message, err.Error())
 					return
 				}
 				message = lastPart
 			} else {
-				_, err = editMessageFile(s, msg, message, nil)
+				_, err = discord.EditMessageFile(s, msg, message, nil)
 				if err != nil {
-					logSendErrorMessage(s, m.Message, err.Error())
+					discord.LogSendErrorMessage(s, m.Message, err.Error())
 					return
 				}
 			}
@@ -308,7 +313,7 @@ func streamMessageOAIResponse(s *discordgo.Session, m *discordgo.MessageCreate, 
 	}
 }
 
-func streamInteractionResponse(s *discordgo.Session, i *discordgo.InteractionCreate, reqMessage []openai.ChatCompletionMessage, options *generationOptions) {
+func StreamInteractionResponse(s *discordgo.Session, i *discordgo.InteractionCreate, reqMessage []openai.ChatCompletionMessage, options *config.GenerationOptions) {
 	// OpenAI API key
 	openaiToken := os.Getenv("OPENAI_TOKEN")
 	if openaiToken == "" {
@@ -318,16 +323,16 @@ func streamInteractionResponse(s *discordgo.Session, i *discordgo.InteractionCre
 	c := openai.NewClient(openaiToken)
 	ctx := context.Background()
 
-	maxTokens, err := getRequestMaxTokensOAI(reqMessage, options.model)
+	maxTokens, err := getRequestMaxTokens(reqMessage, options.Model)
 	if err != nil {
 		log.Println(err)
 		return
 	}
 
 	req := openai.ChatCompletionRequest{
-		Model:       options.model,
+		Model:       options.Model,
 		Messages:    reqMessage,
-		Temperature: options.temperature,
+		Temperature: options.Temperature,
 		MaxTokens:   maxTokens,
 		Stream:      true,
 	}
@@ -337,9 +342,9 @@ func streamInteractionResponse(s *discordgo.Session, i *discordgo.InteractionCre
 		return
 	}
 	defer stream.Close()
-	msg, err := sendFollowupFile(s, i, "Responding...", nil)
+	msg, err := discord.SendFollowupFile(s, i, "Responding...", nil)
 	if err != nil {
-		log.Printf("sendFollowup error: %v\n", err)
+		log.Printf("discord.SendFollowup error: %v\n", err)
 		return
 	}
 
@@ -349,14 +354,14 @@ func streamInteractionResponse(s *discordgo.Session, i *discordgo.InteractionCre
 	for {
 		response, err := stream.Recv()
 		if errors.Is(err, io.EOF) {
-			_, err = editFollowupFile(s, i, msg.ID, message, nil)
+			_, err = discord.EditFollowupFile(s, i, msg.ID, message, nil)
 			if err != nil {
 				log.Printf("editFollowup error: %v\n", err)
 				return
 			}
 			/*
 				go func() {
-					appendMessage(openai.ChatMessageRoleAssistant, s.State.User.Username, requestContent{text: fullMessage}, &reqMessage)
+					appendMessage(openai.ChatMessageRoleAssistant, s.State.User.Username, config.RequestContent{text: fullMessage}, &reqMessage)
 					request := messagesToString(reqMessage)
 					if len(request) > 4000 {
 						request = request[len(request)-4000:]
@@ -368,7 +373,7 @@ func streamInteractionResponse(s *discordgo.Session, i *discordgo.InteractionCre
 						if err != nil {
 							log.Printf("draw error: %v\n", err)
 						}
-						_, err = editFollowupFile(s, i, msg.ID, message, files)
+						_, err = discord.EditFollowupFile(s, i, msg.ID, message, files)
 						if err != nil {
 							log.Printf("editFollowup error: %v\n", err)
 							return
@@ -378,7 +383,7 @@ func streamInteractionResponse(s *discordgo.Session, i *discordgo.InteractionCre
 
 				go func() {
 					files := splitTTS(fullMessage, true)
-					_, err = editFollowupFile(s, i, msg.ID, message, files)
+					_, err = discord.EditFollowupFile(s, i, msg.ID, message, files)
 					if err != nil {
 						log.Printf("editFollowup error: %v\n", err)
 						return
@@ -397,23 +402,23 @@ func streamInteractionResponse(s *discordgo.Session, i *discordgo.InteractionCre
 		count++
 		if count%50 == 0 {
 			if len(message) > 1800 {
-				firstPart, lastPart := splitParagraph(message)
+				firstPart, lastPart := utility.SplitParagraph(message)
 				if lastPart == "" {
 					lastPart = "..."
 				}
-				_, err = editFollowupFile(s, i, msg.ID, firstPart, nil)
+				_, err = discord.EditFollowupFile(s, i, msg.ID, firstPart, nil)
 				if err != nil {
 					log.Printf("editFollowup error: %v\n", err)
 					return
 				}
-				msg, err = sendFollowupFile(s, i, lastPart, nil)
+				msg, err = discord.SendFollowupFile(s, i, lastPart, nil)
 				if err != nil {
-					log.Printf("sendFollowup error: %v\n", err)
+					log.Printf("discord.SendFollowup error: %v\n", err)
 					return
 				}
 				message = lastPart
 			} else {
-				_, err = editFollowupFile(s, i, msg.ID, message, nil)
+				_, err = discord.EditFollowupFile(s, i, msg.ID, message, nil)
 				if err != nil {
 					log.Printf("editFollowup error: %v\n", err)
 					return
@@ -423,17 +428,17 @@ func streamInteractionResponse(s *discordgo.Session, i *discordgo.InteractionCre
 	}
 }
 
-func appendOAIMessage(role string, name string, content requestContent, messages *[]openai.ChatCompletionMessage) {
-	newMessages := append(*messages, createOAIMessage(role, name, content)...)
+func AppendMessage(role string, name string, content config.RequestContent, messages *[]openai.ChatCompletionMessage) {
+	newMessages := append(*messages, createMessage(role, name, content)...)
 	*messages = newMessages
 }
 
-func prependOAIMessage(role string, name string, content requestContent, messages *[]openai.ChatCompletionMessage) {
-	newMessages := append(createOAIMessage(role, name, content), *messages...)
+func PrependMessage(role string, name string, content config.RequestContent, messages *[]openai.ChatCompletionMessage) {
+	newMessages := append(createMessage(role, name, content), *messages...)
 	*messages = newMessages
 }
 
-func createOAIMessage(role string, name string, content requestContent) []openai.ChatCompletionMessage {
+func createMessage(role string, name string, content config.RequestContent) []openai.ChatCompletionMessage {
 	message := []openai.ChatCompletionMessage{
 		{
 			Role:         role,
@@ -442,17 +447,17 @@ func createOAIMessage(role string, name string, content requestContent) []openai
 	}
 
 	if name != "" {
-		message[0].Name = cleanName(name)
+		message[0].Name = utility.CleanName(name)
 	}
 
-	if content.text != "" {
+	if content.Text != "" {
 		message[0].MultiContent = append(message[0].MultiContent, openai.ChatMessagePart{
 			Type: openai.ChatMessagePartTypeText,
-			Text: content.text,
+			Text: content.Text,
 		})
 	}
 
-	for _, u := range content.url {
+	for _, u := range content.Url {
 		message[0].MultiContent = append(message[0].MultiContent, openai.ChatMessagePart{
 			Type: openai.ChatMessagePartTypeImageURL,
 			ImageURL: &openai.ChatMessageImageURL{
@@ -465,29 +470,29 @@ func createOAIMessage(role string, name string, content requestContent) []openai
 	return message
 }
 
-func createBatchOAIMessages(s *discordgo.Session, messages []*discordgo.Message) []openai.ChatCompletionMessage {
+func CreateBatchMessages(s *discordgo.Session, messages []*discordgo.Message) []openai.ChatCompletionMessage {
 	var batchMessages []openai.ChatCompletionMessage
 
 	for _, message := range messages {
-		images, _ := getMessageMediaURL(message)
-		content := requestContent{
-			text: message.Content,
-			url:  images,
+		images, _ := utility.GetMessageMediaURL(message)
+		content := config.RequestContent{
+			Text: message.Content,
+			Url:  images,
 		}
 		if message.Author.ID == s.State.User.ID {
-			prependOAIMessage(openai.ChatMessageRoleAssistant, message.Author.Username, content, &batchMessages)
+			PrependMessage(openai.ChatMessageRoleAssistant, message.Author.Username, content, &batchMessages)
 		}
-		prependOAIMessage(openai.ChatMessageRoleUser, message.Author.Username, content, &batchMessages)
+		PrependMessage(openai.ChatMessageRoleUser, message.Author.Username, content, &batchMessages)
 	}
 
 	return batchMessages
 }
 
-func prependRepliesOAIMessages(s *discordgo.Session, message *discordgo.Message, cache []*discordgo.Message, chatMessages *[]openai.ChatCompletionMessage) {
+func prependRepliesMessages(s *discordgo.Session, message *discordgo.Message, cache []*discordgo.Message, chatMessages *[]openai.ChatCompletionMessage) {
 	// check if the message has a reference, if not get it
 	if message.ReferencedMessage == nil {
 		if message.MessageReference != nil {
-			cachedMessage := checkCache(cache, message.MessageReference.MessageID)
+			cachedMessage := utility.CheckCache(cache, message.MessageReference.MessageID)
 			if cachedMessage != nil {
 				message.ReferencedMessage = cachedMessage
 			} else {
@@ -497,24 +502,24 @@ func prependRepliesOAIMessages(s *discordgo.Session, message *discordgo.Message,
 			return
 		}
 	}
-	replyMessage := cleanMessage(s, message.ReferencedMessage)
-	images, _ := getMessageMediaURL(replyMessage)
-	replyContent := requestContent{
-		text: replyMessage.Content,
-		url:  images,
+	replyMessage := utility.CleanMessage(s, message.ReferencedMessage)
+	images, _ := utility.GetMessageMediaURL(replyMessage)
+	replyContent := config.RequestContent{
+		Text: replyMessage.Content,
+		Url:  images,
 	}
 	if replyMessage.Author.ID == s.State.User.ID {
-		prependOAIMessage(openai.ChatMessageRoleAssistant, replyMessage.Author.Username, replyContent, chatMessages)
+		PrependMessage(openai.ChatMessageRoleAssistant, replyMessage.Author.Username, replyContent, chatMessages)
 	} else {
-		prependOAIMessage(openai.ChatMessageRoleUser, replyMessage.Author.Username, replyContent, chatMessages)
+		PrependMessage(openai.ChatMessageRoleUser, replyMessage.Author.Username, replyContent, chatMessages)
 	}
 
 	if replyMessage.Type == discordgo.MessageTypeReply {
-		prependRepliesOAIMessages(s, message.ReferencedMessage, cache, chatMessages)
+		prependRepliesMessages(s, message.ReferencedMessage, cache, chatMessages)
 	}
 }
 
-func oaiMessagesToString(messages []openai.ChatCompletionMessage) string {
+func messagesToString(messages []openai.ChatCompletionMessage) string {
 	var sb strings.Builder
 	for _, message := range messages {
 		sb.WriteString(fmt.Sprintf("From: %s, Role: %s: %s\n", message.Name, message.Role, message.MultiContent[0].Text))
@@ -522,7 +527,7 @@ func oaiMessagesToString(messages []openai.ChatCompletionMessage) string {
 	return sb.String()
 }
 
-func getMaxModelTokens(model string) (maxTokens int) {
+func GetMaxModelTokens(model string) (maxTokens int) {
 	switch model {
 	case anthropic.ModelClaude3Haiku20240307, anthropic.ModelClaude3Sonnet20240229, anthropic.ModelClaude3Opus20240229:
 		maxTokens = 200000
@@ -538,7 +543,7 @@ func getMaxModelTokens(model string) (maxTokens int) {
 	return maxTokens
 }
 
-func isOutputLimited(model string) bool {
+func IsOutputLimited(model string) bool {
 	switch model {
 	case openai.GPT4Turbo, openai.GPT3Dot5Turbo0125, anthropic.ModelClaude3Haiku20240307, anthropic.ModelClaude3Sonnet20240229, anthropic.ModelClaude3Opus20240229:
 		return true
@@ -547,9 +552,9 @@ func isOutputLimited(model string) bool {
 	}
 }
 
-func getRequestMaxTokensString(message string, model string) (maxTokens int, err error) {
-	maxTokens = getMaxModelTokens(model)
-	usedTokens := numTokensFromString(message)
+func GetRequestMaxTokensString(message string, model string) (maxTokens int, err error) {
+	maxTokens = GetMaxModelTokens(model)
+	usedTokens := NumTokensFromString(message)
 
 	availableTokens := maxTokens - usedTokens
 
@@ -559,16 +564,16 @@ func getRequestMaxTokensString(message string, model string) (maxTokens int, err
 		return availableTokens, err
 	}
 
-	if isOutputLimited(model) {
+	if IsOutputLimited(model) {
 		availableTokens = 4096
 	}
 
 	return availableTokens, nil
 }
 
-func getRequestMaxTokensOAI(message []openai.ChatCompletionMessage, model string) (maxTokens int, err error) {
-	maxTokens = getMaxModelTokens(model)
-	usedTokens := numTokensFromMessages(message, model)
+func getRequestMaxTokens(message []openai.ChatCompletionMessage, model string) (maxTokens int, err error) {
+	maxTokens = GetMaxModelTokens(model)
+	usedTokens := NumTokensFromMessages(message, model)
 
 	availableTokens := maxTokens - usedTokens
 
@@ -578,14 +583,14 @@ func getRequestMaxTokensOAI(message []openai.ChatCompletionMessage, model string
 		return availableTokens, err
 	}
 
-	if isOutputLimited(model) {
+	if IsOutputLimited(model) {
 		availableTokens = 4096
 	}
 
 	return availableTokens, nil
 }
 
-func numTokensFromString(s string) (numTokens int) {
+func NumTokensFromString(s string) (numTokens int) {
 	encoding := "p50k_base"
 	tkm, err := tiktoken.GetEncoding(encoding)
 	if err != nil {
@@ -598,7 +603,7 @@ func numTokensFromString(s string) (numTokens int) {
 	return numTokens
 }
 
-func numTokensFromMessages(messages []openai.ChatCompletionMessage, model string) (numTokens int) {
+func NumTokensFromMessages(messages []openai.ChatCompletionMessage, model string) (numTokens int) {
 	tkm, err := tiktoken.EncodingForModel(model)
 	if err != nil {
 		err = fmt.Errorf("encoding for model: %v", err)
@@ -626,10 +631,10 @@ func numTokensFromMessages(messages []openai.ChatCompletionMessage, model string
 	default:
 		if strings.Contains(model, "gpt-3.5-turbo") {
 			log.Println("warning: gpt-3.5-turbo may update over time. Returning num tokens assuming gpt-3.5-turbo-0613")
-			return numTokensFromMessages(messages, "gpt-3.5-turbo-0613")
+			return NumTokensFromMessages(messages, "gpt-3.5-turbo-0613")
 		} else if strings.Contains(model, "gpt-4") {
 			log.Println("warning: gpt-4 may update over time. Returning num tokens assuming gpt-4-0613")
-			return numTokensFromMessages(messages, "gpt-4-0613")
+			return NumTokensFromMessages(messages, "gpt-4-0613")
 		} else {
 			err = fmt.Errorf("num_tokens_from_messages() is not implemented for model %s. See https://github.com/openai/openai-python/blob/main/chatml.md for information on how messages are converted to tokens", model)
 			log.Println(err)
@@ -648,4 +653,55 @@ func numTokensFromMessages(messages []openai.ChatCompletionMessage, model string
 	}
 	numTokens += 3 // every reply is primed with <|start|>assistant<|message|>
 	return numTokens
+}
+
+func SplitTTS(message string, hd bool) []*discordgo.File {
+	// Chunk up message into maxLength character chunks separated by newlines
+	separator := "\n\n"
+	maxLength := 4000
+	var files []*discordgo.File
+	var messageChunks []string
+
+	// Split message into chunks of up to maxLength characters
+	for len(message) > 0 {
+		var chunk string
+		if len(message) > maxLength {
+			// Find the last separator before the maxLength character limit
+			end := strings.LastIndex(message[:maxLength], separator)
+			if end == -1 {
+				// No separator found, so just cut at maxLength characters
+				end = maxLength
+			}
+			chunk = message[:end]
+			message = message[end:]
+		} else {
+			chunk = message
+			message = ""
+		}
+		// Add chunk to messageChunks
+		messageChunks = append(messageChunks, chunk)
+	}
+
+	var wg sync.WaitGroup
+	filesChan := make(chan *discordgo.File, len(messageChunks))
+
+	for count, chunk := range messageChunks {
+		wg.Add(1)
+		go func(count int, chunk string) {
+			defer wg.Done()
+			files := getTTSFile(chunk, fmt.Sprintf("%d", count+1), hd)
+			for _, file := range files {
+				filesChan <- file
+			}
+		}(count, chunk)
+	}
+
+	wg.Wait()
+	close(filesChan)
+
+	for file := range filesChan {
+		files = append(files, file)
+	}
+
+	return files
 }

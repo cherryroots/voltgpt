@@ -1,4 +1,4 @@
-package main
+package hasher
 
 import (
 	"bytes"
@@ -20,6 +20,8 @@ import (
 
 	ffmpeg "github.com/u2takey/ffmpeg-go"
 
+	"voltgpt/internal/utility"
+
 	"github.com/bwmarrin/discordgo"
 	"github.com/corona10/goimagehash"
 )
@@ -36,7 +38,7 @@ type hashResult struct {
 	message  *discordgo.Message
 }
 
-func writeHashToFile() {
+func WriteToFile() {
 	hashStore.RLock()
 	defer hashStore.RUnlock()
 
@@ -51,7 +53,7 @@ func writeHashToFile() {
 			log.Fatal(err)
 		}
 
-		readHashFromFile()
+		ReadFromFile()
 
 		return
 	}
@@ -81,7 +83,7 @@ func writeHashToFile() {
 	}
 }
 
-func readHashFromFile() {
+func ReadFromFile() {
 	dataFile, err := os.Open("imagehashes.gob")
 	if err != nil {
 		return
@@ -98,9 +100,15 @@ func readHashFromFile() {
 	}
 }
 
-func hashAttachments(m *discordgo.Message, store bool) ([]string, int) {
+func TotalHashes() int {
+	hashStore.RLock()
+	defer hashStore.RUnlock()
+	return len(hashStore.m)
+}
+
+func HashAttachments(m *discordgo.Message, store bool) ([]string, int) {
 	// Get the data
-	images, videos := getMessageMediaURL(m)
+	images, videos := utility.GetMessageMediaURL(m)
 	allAttachments := append(images, videos...)
 	var hashes []string
 	var count int
@@ -108,7 +116,7 @@ func hashAttachments(m *discordgo.Message, store bool) ([]string, int) {
 	for _, attachment := range allAttachments {
 		var img image.Image
 
-		if isVideoURL(attachment) {
+		if utility.IsVideoURL(attachment) {
 			reader, err := readFrameAsJpeg(attachment, 10)
 			if err != nil {
 				log.Printf("ffmpegSS error: %v, url: %s\n", err, attachment)
@@ -118,7 +126,7 @@ func hashAttachments(m *discordgo.Message, store bool) ([]string, int) {
 			if err != nil {
 				continue
 			}
-		} else if isImageURL(attachment) {
+		} else if utility.IsImageURL(attachment) {
 			buf, err := getFile(attachment)
 			if err != nil {
 				log.Printf("getFile error: %v, url: %s\n", err, attachment)
@@ -208,7 +216,7 @@ func olderHash(hash string, message *discordgo.Message) bool {
 
 func checkInHashes(m *discordgo.Message) (bool, []hashResult) {
 	var matchedMessages []hashResult
-	messageHashes, _ := hashAttachments(m, false)
+	messageHashes, _ := HashAttachments(m, false)
 	hashStore.RLock()
 	defer hashStore.RUnlock()
 	// copy the map
@@ -255,6 +263,27 @@ func uniqueHashResults(results []hashResult) []hashResult {
 	}
 
 	return uniqueResults
+}
+
+func FindSnails(i *discordgo.InteractionCreate, message *discordgo.Message) string {
+	isSnail, results := checkInHashes(message)
+	var messageContent string
+	// keep ony unique results so we don't have any duplicates
+	if isSnail {
+		for _, result := range uniqueHashResults(results) {
+			if result.message.ID == message.ID {
+				continue
+			}
+			if result.message.Timestamp.After(message.Timestamp) {
+				continue
+			}
+			timestamp := result.message.Timestamp.UTC().Format("2006-01-02")
+			link := fmt.Sprintf("https://discord.com/channels/%s/%s/%s", i.GuildID, result.message.ChannelID, result.message.ID)
+			messageContent += fmt.Sprintf("%dd: %s: Snail of %s! %s\n", result.distance, timestamp, result.message.Author.Username, link)
+		}
+	}
+
+	return messageContent
 }
 
 func getFile(url string) (bytes.Buffer, error) {

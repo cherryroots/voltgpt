@@ -11,6 +11,9 @@ import (
 
 	"github.com/bwmarrin/discordgo"
 	"github.com/joho/godotenv"
+
+	"voltgpt/internal/gamble"
+	"voltgpt/internal/hasher"
 )
 
 func init() {
@@ -20,13 +23,13 @@ func init() {
 	}
 
 	// try to read, if it fails, write a new one anyway in writeHashToFile() then read in the function
-	readHashFromFile()
-	readWheelFromFile()
+	hasher.ReadFromFile()
+	gamble.ReadFromFile()
 
 	go func() {
 		for {
-			writeHashToFile()
-			writeWheelToFile()
+			hasher.WriteToFile()
+			gamble.WriteToFile()
 			time.Sleep(1 * time.Minute)
 		}
 	}()
@@ -73,8 +76,8 @@ func main() {
 
 	dg.AddHandler(func(s *discordgo.Session, _ *discordgo.Ready) {
 		log.Printf("Logged in as: %v#%v", s.State.User.Username, s.State.User.Discriminator)
-		log.Printf("Hashes: %d", len(hashStore.m))
-		log.Printf("Rounds: %d", len(wheel.Rounds))
+		log.Printf("Hashes: %d", hasher.TotalHashes())
+		log.Printf("Rounds: %d", gamble.Wheel.TotalRounds())
 	})
 
 	err = dg.Open()

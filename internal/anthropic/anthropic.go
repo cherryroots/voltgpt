@@ -1,4 +1,4 @@
-package main
+package anthropic
 
 import (
 	"bytes"
@@ -13,11 +13,16 @@ import (
 	"os"
 	"strings"
 
+	"voltgpt/internal/config"
+	"voltgpt/internal/discord"
+	"voltgpt/internal/openai"
+	"voltgpt/internal/utility"
+
 	"github.com/bwmarrin/discordgo"
 	"github.com/liushuangls/go-anthropic/v2"
 )
 
-func getANTMessageText(msg anthropic.Message) string {
+func getMessageText(msg anthropic.Message) string {
 	var sb strings.Builder
 	for i, content := range msg.Content {
 		if i == len(msg.Content)-1 {
@@ -29,17 +34,17 @@ func getANTMessageText(msg anthropic.Message) string {
 	return sb.String()
 }
 
-func cleanInstructionsANTMessages(messages []anthropic.Message) []anthropic.Message {
+func cleanInstructionsMessages(messages []anthropic.Message) []anthropic.Message {
 	for i, message := range messages {
-		text := getANTMessageText(message)
-		tempMessage := createANTMessage(message.Role, requestContent{text: text})
-		instruction := instructionSwitchANT(tempMessage)
-		if !strings.Contains(text, instruction.text) {
+		text := getMessageText(message)
+		tempMessage := createMessage(message.Role, config.RequestContent{Text: text})
+		instruction := instructionSwitch(tempMessage)
+		if !strings.Contains(text, instruction.Text) {
 			continue
 		}
 		for j, content := range message.Content {
 			if content.Type == anthropic.MessagesContentTypeText {
-				replacedText := strings.ReplaceAll(content.GetText(), instruction.text, "")
+				replacedText := strings.ReplaceAll(content.GetText(), instruction.Text, "")
 				messages[i].Content[j].Text = &replacedText
 			}
 		}
@@ -47,11 +52,11 @@ func cleanInstructionsANTMessages(messages []anthropic.Message) []anthropic.Mess
 	return messages
 }
 
-func instructionSwitchANT(m []anthropic.Message) requestContent {
+func instructionSwitch(m []anthropic.Message) config.RequestContent {
 	var text string
 
-	firstMessageText := getANTMessageText(m[0])
-	lastMessageText := getANTMessageText(m[len(m)-1])
+	firstMessageText := getMessageText(m[0])
+	lastMessageText := getMessageText(m[len(m)-1])
 
 	if firstMessageText == lastMessageText {
 		text = lastMessageText
@@ -60,19 +65,19 @@ func instructionSwitchANT(m []anthropic.Message) requestContent {
 	}
 
 	if strings.Contains(text, "❤️") || strings.Contains(text, "❤") {
-		return instructionMessageDefault
+		return config.InstructionMessageDefault
 	}
 
-	if sysMsg := extractPairText(text, "⚙️"); sysMsg != "" {
-		return requestContent{text: strings.TrimSpace(sysMsg)}
-	} else if sysMsg := extractPairText(text, "⚙"); sysMsg != "" {
-		return requestContent{text: strings.TrimSpace(sysMsg)}
+	if sysMsg := utility.ExtractPairText(text, "⚙️"); sysMsg != "" {
+		return config.RequestContent{Text: strings.TrimSpace(sysMsg)}
+	} else if sysMsg := utility.ExtractPairText(text, "⚙"); sysMsg != "" {
+		return config.RequestContent{Text: strings.TrimSpace(sysMsg)}
 	}
 
-	return instructionMessageMean
+	return config.InstructionMessageMean
 }
 
-func getANTIntents(message string, questionType string) string {
+func getIntents(message string, questionType string) string {
 	token := os.Getenv("ANTHROPIC_TOKEN")
 	if token == "" {
 		log.Fatal("ANTHROPIC_TOKEN is not set")
@@ -81,19 +86,19 @@ func getANTIntents(message string, questionType string) string {
 	ctx := context.Background()
 	var messages []anthropic.Message
 
-	intentPrompt := requestContent{text: "What's the intent in this message? Intents can be 'draw' or 'none'.\n " +
+	intentPrompt := config.RequestContent{Text: "What's the intent in this message? Intents can be 'draw' or 'none'.\n " +
 		"The 'draw' intent is for when the message asks to draw, generate, or change some kind of image. " +
 		"The request has to be very specific, don't just say 'draw' if they mention the words draw, generate or change.\n " +
 		"'none' intent is for when nothing image generation related is asked.\n " +
 		"Don't include anything except the intent in the generated text under any cirmustances, and without quote marks: " + message}
 
-	ratioPrompt := requestContent{text: "What's the ratio requested in this message? Rations can be '16:9', '1:1', '21:9', '2:3', '3:2', '4:5', '5:4', '9:16', '9:21'.\n " +
+	ratioPrompt := config.RequestContent{Text: "What's the ratio requested in this message? Rations can be '16:9', '1:1', '21:9', '2:3', '3:2', '4:5', '5:4', '9:16', '9:21'.\n " +
 		"The '1:1' or 'none' aspect ratio is the default one, if the message doesn't ask for any other aspect ratio.\n " +
 		"The '16:9', '21:9', '2:3', '3:2', '4:5', '5:4', '9:16', '9:21' ratios are for when the message asks for a specific aspect ratio.\n " +
 		"If they ask for something like 'portrait' or 'landscape' or 'square' use the closest aspect ratio to that. \n " +
 		"Don't include anything except the aspect ratio in the generated text under any cirmustances, and without quote marks: " + message}
 
-	stylePrompt := requestContent{text: "What's the style requested in this message? Styles can be " +
+	stylePrompt := config.RequestContent{Text: "What's the style requested in this message? Styles can be " +
 		"'3d-model', 'analog-film', 'anime', 'cinematic', 'comic-book', 'digital-art', 'enhance', 'fantasy-art', 'isometric', 'line-art', 'low-poly', " +
 		"'modeling-compound', 'neon-punk', 'origami', 'photographic', 'pixel-art', 'tile-texture'.\n " +
 		"If the message doesn't ask for any other style, 'none' is the default one, that means nothing at all.\n " +
@@ -102,11 +107,11 @@ func getANTIntents(message string, questionType string) string {
 
 	switch questionType {
 	case "intent":
-		messages = createANTMessage(anthropic.RoleUser, intentPrompt)
+		messages = createMessage(anthropic.RoleUser, intentPrompt)
 	case "ratio":
-		messages = createANTMessage(anthropic.RoleUser, ratioPrompt)
+		messages = createMessage(anthropic.RoleUser, ratioPrompt)
 	case "style":
-		messages = createANTMessage(anthropic.RoleUser, stylePrompt)
+		messages = createMessage(anthropic.RoleUser, stylePrompt)
 	default:
 		return "none"
 	}
@@ -128,7 +133,7 @@ func getANTIntents(message string, questionType string) string {
 	return *resp.Content[0].Text
 }
 
-func drawSAIImage(prompt string, negativePrompt string, ratio string, style string) ([]*discordgo.File, error) {
+func DrawSAIImage(prompt string, negativePrompt string, ratio string, style string) ([]*discordgo.File, error) {
 	// OpenAI API key
 	stabilityToken := os.Getenv("STABILITY_TOKEN")
 	if stabilityToken == "" {
@@ -146,10 +151,10 @@ func drawSAIImage(prompt string, negativePrompt string, ratio string, style stri
 	if negativePrompt != "" && negativePrompt != "none" {
 		_ = writer.WriteField("negative_prompt", negativePrompt)
 	}
-	if matchMultiple(ratio, ratios) {
+	if utility.MatchMultiple(ratio, ratios) {
 		_ = writer.WriteField("aspect_ratio", ratio)
 	}
-	if matchMultiple(style, styles) {
+	if utility.MatchMultiple(style, styles) {
 		_ = writer.WriteField("style_preset", style)
 	}
 	_ = writer.Close()
@@ -191,7 +196,7 @@ func drawSAIImage(prompt string, negativePrompt string, ratio string, style stri
 	return files, nil
 }
 
-func streamMessageANTResponse(s *discordgo.Session, m *discordgo.Message, messages []anthropic.Message, refMsg *discordgo.Message) {
+func StreamMessageResponse(s *discordgo.Session, m *discordgo.Message, messages []anthropic.Message, refMsg *discordgo.Message) {
 	token := os.Getenv("ANTHROPIC_TOKEN")
 	if token == "" {
 		log.Fatal("ANTHROPIC_TOKEN is not set")
@@ -199,9 +204,9 @@ func streamMessageANTResponse(s *discordgo.Session, m *discordgo.Message, messag
 	c := anthropic.NewClient(token)
 	ctx := context.Background()
 
-	maxTokens, err := getRequestMaxTokensANT(messages, defaultOAIModel)
+	maxTokens, err := getRequestMaxTokens(messages, config.DefaultOAIModel)
 	if err != nil {
-		logSendErrorMessage(s, m, err.Error())
+		discord.LogSendErrorMessage(s, m, err.Error())
 		return
 	}
 
@@ -210,25 +215,25 @@ func streamMessageANTResponse(s *discordgo.Session, m *discordgo.Message, messag
 	var msg *discordgo.Message
 
 	if refMsg == nil {
-		msg, err = sendMessageFile(s, m, "Responding...", nil)
+		msg, err = discord.SendMessageFile(s, m, "Responding...", nil)
 		if err != nil {
-			logSendErrorMessage(s, m, err.Error())
+			discord.LogSendErrorMessage(s, m, err.Error())
 			return
 		}
 	} else {
-		currentMessage = getANTMessageText(messages[len(messages)-1])
+		currentMessage = getMessageText(messages[len(messages)-1])
 		msg = refMsg
 	}
 
 	replacementStrings := []string{"⚙️", "⚙"}
-	instructionSwitchMessage := instructionSwitchANT(messages)
-	instructionSwitchMessage.text = strings.TrimSpace(replaceMultiple(instructionSwitchMessage.text, replacementStrings, ""))
+	instructionSwitchMessage := instructionSwitch(messages)
+	instructionSwitchMessage.Text = strings.TrimSpace(utility.ReplaceMultiple(instructionSwitchMessage.Text, replacementStrings, ""))
 
 	_, err = c.CreateMessagesStream(ctx, anthropic.MessagesStreamRequest{
 		MessagesRequest: anthropic.MessagesRequest{
-			Model:     defaultANTModel,
-			System:    fmt.Sprintf("%s\n\n%s", systemMessageDefault.text, instructionSwitchMessage.text),
-			Messages:  cleanInstructionsANTMessages(messages),
+			Model:     config.DefaultANTModel,
+			System:    fmt.Sprintf("%s\n\n%s", config.InstructionMessageDefault.Text, instructionSwitchMessage.Text),
+			Messages:  cleanInstructionsMessages(messages),
 			MaxTokens: maxTokens,
 		},
 		OnContentBlockDelta: func(data anthropic.MessagesEventContentBlockDeltaData) {
@@ -238,26 +243,26 @@ func streamMessageANTResponse(s *discordgo.Session, m *discordgo.Message, messag
 			if i%20 == 0 || i == 5 {
 				// If the message is too long, split it into a new message
 				if len(currentMessage) > 1800 {
-					firstPart, lastPart := splitParagraph(currentMessage)
+					firstPart, lastPart := utility.SplitParagraph(currentMessage)
 					if lastPart == "" {
 						lastPart = "..."
 					}
 
-					_, err = editMessageFile(s, msg, firstPart, nil)
+					_, err = discord.EditMessageFile(s, msg, firstPart, nil)
 					if err != nil {
-						logSendErrorMessage(s, m, err.Error())
+						discord.LogSendErrorMessage(s, m, err.Error())
 						return
 					}
-					msg, err = sendMessageFile(s, msg, lastPart, nil)
+					msg, err = discord.SendMessageFile(s, msg, lastPart, nil)
 					if err != nil {
-						logSendErrorMessage(s, m, err.Error())
+						discord.LogSendErrorMessage(s, m, err.Error())
 						return
 					}
 					currentMessage = lastPart
 				} else {
-					_, err = editMessageFile(s, msg, currentMessage, nil)
+					_, err = discord.EditMessageFile(s, msg, currentMessage, nil)
 					if err != nil {
-						logSendErrorMessage(s, m, err.Error())
+						discord.LogSendErrorMessage(s, m, err.Error())
 						return
 					}
 				}
@@ -265,31 +270,31 @@ func streamMessageANTResponse(s *discordgo.Session, m *discordgo.Message, messag
 		},
 		OnMessageStop: func(_ anthropic.MessagesEventMessageStopData) {
 			currentMessage = strings.TrimPrefix(currentMessage, "...")
-			_, err = editMessageFile(s, msg, currentMessage, nil)
+			_, err = discord.EditMessageFile(s, msg, currentMessage, nil)
 			if err != nil {
-				logSendErrorMessage(s, m, err.Error())
+				discord.LogSendErrorMessage(s, m, err.Error())
 				return
 			}
 			go func() {
-				request := getANTMessageText(messages[len(messages)-1])
+				request := getMessageText(messages[len(messages)-1])
 				request = request[strings.Index(request, ":")+1:]
 				request = strings.TrimSpace(request)
-				intent := getANTIntents(request, "intent")
+				intent := getIntents(request, "intent")
 				log.Printf("Intent: %s\n", intent)
 				if strings.ToLower(intent) == "draw" {
-					ratio := getANTIntents(request, "ratio")
-					style := getANTIntents(request, "style")
+					ratio := getIntents(request, "ratio")
+					style := getIntents(request, "style")
 					log.Printf("Ratio: %s, Style: %s\n", ratio, style)
 					if len(request) > 4000 {
 						request = request[len(request)-4000:]
 					}
-					files, err := drawSAIImage(fmt.Sprintf("%s\n%s", request, fullMessage), "", strings.ToLower(ratio), strings.ToLower(style))
+					files, err := DrawSAIImage(fmt.Sprintf("%s\n%s", request, fullMessage), "", strings.ToLower(ratio), strings.ToLower(style))
 					if err != nil {
-						logSendErrorMessage(s, m, err.Error())
+						discord.LogSendErrorMessage(s, m, err.Error())
 					}
-					_, err = editMessageFile(s, msg, currentMessage, files)
+					_, err = discord.EditMessageFile(s, msg, currentMessage, files)
 					if err != nil {
-						logSendErrorMessage(s, m, err.Error())
+						discord.LogSendErrorMessage(s, m, err.Error())
 						return
 					}
 				}
@@ -301,31 +306,31 @@ func streamMessageANTResponse(s *discordgo.Session, m *discordgo.Message, messag
 		var e *anthropic.APIError
 		if errors.As(err, &e) {
 			errmsg := fmt.Sprintf("\nMessages stream error, type: %s, message: %s", e.Type, e.Message)
-			logSendErrorMessage(s, m, errmsg)
+			discord.LogSendErrorMessage(s, m, errmsg)
 		} else {
 			errmsg := fmt.Sprintf("\nStream error: %v\n", err)
-			logSendErrorMessage(s, m, errmsg)
+			discord.LogSendErrorMessage(s, m, errmsg)
 		}
 		return
 	}
 }
 
-func appendANTMessage(role string, content requestContent, messages *[]anthropic.Message) {
-	newMessages := append(*messages, createANTMessage(role, content)...)
+func AppendMessage(role string, content config.RequestContent, messages *[]anthropic.Message) {
+	newMessages := append(*messages, createMessage(role, content)...)
 	*messages = newMessages
 }
 
-func prependANTMessage(role string, content requestContent, messages *[]anthropic.Message) {
-	newMessages := append(createANTMessage(role, content), *messages...)
+func PrependMessage(role string, content config.RequestContent, messages *[]anthropic.Message) {
+	newMessages := append(createMessage(role, content), *messages...)
 	*messages = newMessages
 }
 
-func combineANTMessages(newMessage []anthropic.Message, messages *[]anthropic.Message) {
+func combineMessages(newMessage []anthropic.Message, messages *[]anthropic.Message) {
 	// prepend newMessage.Content to the first message in messages
 	(*messages)[0].Content = append(newMessage[0].Content, (*messages)[0].Content...)
 }
 
-func createANTMessage(role string, content requestContent) []anthropic.Message {
+func createMessage(role string, content config.RequestContent) []anthropic.Message {
 	// Create a new message with the role and content
 	message := []anthropic.Message{
 		{
@@ -334,27 +339,27 @@ func createANTMessage(role string, content requestContent) []anthropic.Message {
 		},
 	}
 
-	for _, url := range content.url {
-		data, err := downloadURL(url)
+	for _, url := range content.Url {
+		data, err := utility.DownloadURL(url)
 		if err != nil {
 			log.Printf("Error downloading image: %v", err)
 			continue
 		}
 		message[0].Content = append(message[0].Content, anthropic.NewImageMessageContent(anthropic.MessageContentImageSource{
 			Type:      "base64",
-			MediaType: mediaType(url),
+			MediaType: utility.MediaType(url),
 			Data:      data,
 		}))
 	}
 
-	if content.text != "" {
-		message[0].Content = append(message[0].Content, anthropic.NewTextMessageContent(content.text))
+	if content.Text != "" {
+		message[0].Content = append(message[0].Content, anthropic.NewTextMessageContent(content.Text))
 	}
 
 	return message
 }
 
-func prependRepliesANTMessages(s *discordgo.Session, message *discordgo.Message, cache []*discordgo.Message, chatMessages *[]anthropic.Message) {
+func PrependReplyMessages(s *discordgo.Session, message *discordgo.Message, cache []*discordgo.Message, chatMessages *[]anthropic.Message) {
 	// Get the referenced message
 	referencedMessage := getReferencedMessage(s, message, cache)
 	if referencedMessage == nil {
@@ -362,25 +367,25 @@ func prependRepliesANTMessages(s *discordgo.Session, message *discordgo.Message,
 	}
 
 	// Clean and prepare the reply message content
-	replyMessage := cleanMessage(s, referencedMessage)
-	images, _ := getMessageMediaURL(replyMessage)
-	replyContent := requestContent{
-		text: fmt.Sprintf("%s %s", attachmentText(replyMessage), replyMessage.Content),
-		url:  images,
+	replyMessage := utility.CleanMessage(s, referencedMessage)
+	images, _ := utility.GetMessageMediaURL(replyMessage)
+	replyContent := config.RequestContent{
+		Text: fmt.Sprintf("%s %s", utility.AttachmentText(replyMessage), replyMessage.Content),
+		Url:  images,
 	}
 
 	// Determine the role and format the reply content accordingly
 	role := determineRole(s, replyMessage)
 	if role == anthropic.RoleUser {
-		replyContent.text = fmt.Sprintf("%s: %s", replyMessage.Author.Username, replyContent.text)
+		replyContent.Text = fmt.Sprintf("%s: %s", replyMessage.Author.Username, replyContent.Text)
 	}
 
 	// Create and prepend the ANT message based on the role and content
-	prependANTMessageByRole(role, replyContent, chatMessages)
+	prependMessageByRole(role, replyContent, chatMessages)
 
 	// Recursively process the referenced message if it's a reply
 	if replyMessage.Type == discordgo.MessageTypeReply {
-		prependRepliesANTMessages(s, referencedMessage, cache, chatMessages)
+		PrependReplyMessages(s, referencedMessage, cache, chatMessages)
 	}
 }
 
@@ -390,7 +395,7 @@ func getReferencedMessage(s *discordgo.Session, message *discordgo.Message, cach
 	}
 
 	if message.MessageReference != nil {
-		cachedMessage := checkCache(cache, message.MessageReference.MessageID)
+		cachedMessage := utility.CheckCache(cache, message.MessageReference.MessageID)
 		if cachedMessage != nil {
 			return cachedMessage
 		}
@@ -409,37 +414,37 @@ func determineRole(s *discordgo.Session, message *discordgo.Message) string {
 	return anthropic.RoleUser
 }
 
-func prependANTMessageByRole(role string, content requestContent, chatMessages *[]anthropic.Message) {
+func prependMessageByRole(role string, content config.RequestContent, chatMessages *[]anthropic.Message) {
 	if len(*chatMessages) == 0 || (*chatMessages)[0].Role != role {
-		if role == anthropic.RoleAssistant && len(content.url) > 0 {
+		if role == anthropic.RoleAssistant && len(content.Url) > 0 {
 			// Attach the image to the user message after the assistant message (the newer message)
-			newMessage := createANTMessage(anthropic.RoleUser, requestContent{url: content.url})
-			combineANTMessages(newMessage, chatMessages)
+			newMessage := createMessage(anthropic.RoleUser, config.RequestContent{Url: content.Url})
+			combineMessages(newMessage, chatMessages)
 			// Add only the text to the assistant message
-			prependANTMessage(anthropic.RoleAssistant, requestContent{text: content.text}, chatMessages)
+			PrependMessage(anthropic.RoleAssistant, config.RequestContent{Text: content.Text}, chatMessages)
 			return
 		}
 
-		prependANTMessage(role, content, chatMessages)
+		PrependMessage(role, content, chatMessages)
 		return
 	}
 
-	newMessage := createANTMessage(role, content)
-	combineANTMessages(newMessage, chatMessages)
+	newMessage := createMessage(role, content)
+	combineMessages(newMessage, chatMessages)
 }
 
 func antMessagesToString(messages []anthropic.Message) string {
 	var sb strings.Builder
 	for _, message := range messages {
-		text := getANTMessageText(message)
+		text := getMessageText(message)
 		sb.WriteString(fmt.Sprintf("Role: %s: %s\n", message.Role, text))
 	}
 	return sb.String()
 }
 
-func getRequestMaxTokensANT(messages []anthropic.Message, model string) (maxTokens int, err error) {
-	maxTokens = getMaxModelTokens(model)
-	usedTokens := numTokensFromString(antMessagesToString(messages))
+func getRequestMaxTokens(messages []anthropic.Message, model string) (maxTokens int, err error) {
+	maxTokens = openai.GetMaxModelTokens(model)
+	usedTokens := openai.NumTokensFromString(antMessagesToString(messages))
 
 	availableTokens := maxTokens - usedTokens
 
@@ -449,7 +454,7 @@ func getRequestMaxTokensANT(messages []anthropic.Message, model string) (maxToke
 		return availableTokens, err
 	}
 
-	if isOutputLimited(model) {
+	if openai.IsOutputLimited(model) {
 		availableTokens = 4096
 	}
 
