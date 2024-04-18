@@ -14,6 +14,7 @@ import (
 
 	"voltgpt/internal/gamble"
 	"voltgpt/internal/hasher"
+	"voltgpt/internal/openai"
 )
 
 func init() {
@@ -25,11 +26,13 @@ func init() {
 	// try to read, if it fails, write a new one anyway in writeHashToFile() then read in the function
 	hasher.ReadFromFile()
 	gamble.ReadFromFile()
+	openai.ReadFromFile()
 
 	go func() {
 		for {
 			hasher.WriteToFile()
 			gamble.WriteToFile()
+			openai.WriteToFile()
 			time.Sleep(1 * time.Minute)
 		}
 	}()
@@ -78,6 +81,7 @@ func main() {
 		log.Printf("Logged in as: %v#%v", s.State.User.Username, s.State.User.Discriminator)
 		log.Printf("Hashes: %d", hasher.TotalHashes())
 		log.Printf("Rounds: %d", gamble.Wheel.TotalRounds())
+		log.Printf("Transcripts in cache: %d", openai.TotalTranscripts())
 	})
 
 	err = dg.Open()

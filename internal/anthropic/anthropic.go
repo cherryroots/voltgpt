@@ -154,7 +154,7 @@ func getIntents(message string, questionType string) string {
 
 // DrawSAIImage draws an image using Stability AI
 func DrawSAIImage(prompt string, negativePrompt string, ratio string, style string) ([]*discordgo.File, error) {
-	// OpenAI API key
+	// Stability AI API key
 	stabilityToken := os.Getenv("STABILITY_TOKEN")
 	if stabilityToken == "" {
 		log.Fatal("STABILITY_TOKEN is not set")

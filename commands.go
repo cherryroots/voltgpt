@@ -728,6 +728,9 @@ func handleMessage(s *discordgo.Session, m *discordgo.MessageCreate) {
 		time.Sleep(3 * time.Second)
 		fetchedMessage, _ := s.ChannelMessage(m.Message.ChannelID, m.Message.ID)
 		// Check if message contains media and hash it if so
+		if fetchedMessage == nil {
+			return
+		}
 		if utility.HasImageURL(fetchedMessage) || utility.HasVideoURL(fetchedMessage) {
 			hasher.HashAttachments(fetchedMessage, true)
 		}

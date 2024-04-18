@@ -5,10 +5,11 @@ import (
 	"bytes"
 	"context"
 	"encoding/base64"
-	"errors"
+	"encoding/gob"
 	"fmt"
 	"io"
 	"log"
+	"net/url"
 	"os"
 	"os/exec"
 	"regexp"
@@ -25,21 +26,187 @@ import (
 	"voltgpt/internal/utility"
 )
 
-// instructionSwitch returns the instruction to use based on the given messages.
-//
-// If the messages contain a heart emoji, it returns InstructionMessageDefault,
-// otherwise it returns InstructionMessageMean.
-func instructionSwitch(m []openai.ChatCompletionMessage) config.RequestContent {
-	firstMessageText := m[0].MultiContent[0].Text
-	lastMessageText := m[len(m)-1].MultiContent[0].Text
-	text := lastMessageText
-	if firstMessageText != lastMessageText { // if there are multiple messages
-		text = fmt.Sprintf("%s\n%s", firstMessageText, lastMessageText)
+// TranscriptCache is a map of transcriptions.
+var TranscriptCache = struct {
+	sync.RWMutex
+	t map[string]transcript
+}{
+	t: make(map[string]transcript),
+}
+
+// game is a struct representing the game.
+type transcript struct {
+	ContentURL *url.URL
+	Response   openai.AudioResponse
+}
+
+func (t transcript) String() string {
+	return t.ContentURL.String()
+}
+
+// WriteToFile writes the global variable TranscriptCache to a file named "transcripts.gob".
+func WriteToFile() {
+	if _, err := os.Stat("transcripts.gob"); os.IsNotExist(err) {
+		file, err := os.Create("transcripts.gob")
+		if err != nil {
+			log.Fatal(err)
+		}
+		defer file.Close()
+
+		if err := gob.NewEncoder(file).Encode(TranscriptCache.t); err != nil {
+			log.Fatal(err)
+		}
+
+		ReadFromFile()
+
+		return
 	}
-	if strings.Contains(text, "❤️") || strings.Contains(text, "❤") || strings.Contains(text, ":heart:") {
-		return config.InstructionMessageDefault
+
+	buf := new(bytes.Buffer)
+	if err := gob.NewEncoder(buf).Encode(TranscriptCache.t); err != nil {
+		log.Printf("Encode error: %v\n", err)
+		return
 	}
-	return config.InstructionMessageMean
+
+	file, err := os.OpenFile("transcripts.gob", os.O_WRONLY|os.O_TRUNC, 0o644)
+	if err != nil {
+		log.Printf("OpenFile error: %v\n", err)
+		return
+	}
+	defer file.Close()
+
+	if _, err := buf.WriteTo(file); err != nil {
+		log.Printf("WriteTo error: %v\n", err)
+		return
+	}
+}
+
+// ReadFromFile reads data from a file named "transcripts.gob" and decodes it into the global variable TranscriptCache.
+func ReadFromFile() {
+	dataFile, err := os.Open("transcripts.gob")
+	if err != nil {
+		return
+	}
+	defer dataFile.Close()
+
+	if err := gob.NewDecoder(dataFile).Decode(&TranscriptCache.t); err != nil {
+		log.Fatal(err)
+	}
+}
+
+func readTranscriptCache(contentURL string, locking bool) transcript {
+	if locking {
+		TranscriptCache.Lock()
+		defer TranscriptCache.Unlock()
+	}
+
+	return TranscriptCache.t[contentURL]
+}
+
+func writeTranscriptCache(transcript transcript, locking bool) {
+	if locking {
+		TranscriptCache.Lock()
+		defer TranscriptCache.Unlock()
+	}
+
+	TranscriptCache.t[transcript.String()] = transcript
+}
+
+func checkTranscriptCache(contentURL string, locking bool) bool {
+	if locking {
+		TranscriptCache.Lock()
+		defer TranscriptCache.Unlock()
+	}
+
+	_, ok := TranscriptCache.t[contentURL]
+
+	return ok
+}
+
+// TotalTranscripts returns the total number of transcripts
+func TotalTranscripts() int {
+	TranscriptCache.RLock()
+	defer TranscriptCache.RUnlock()
+	return len(TranscriptCache.t)
+}
+
+// GetTranscriptFromMessage returns the transcript of the message
+func GetTranscriptFromMessage(s *discordgo.Session, message *discordgo.Message) (string, error) {
+	regex := regexp.MustCompile(`(?m)<?(https?://[^\s<>]+)>?\b`)
+	result := regex.FindAllStringSubmatch(message.Content, -1)
+	var transcript string
+	for _, match := range result {
+		if utility.MatchVideo(match[1]) {
+			msg, err := discord.SendMessage(s, message, fmt.Sprintf("Gettings transcript for <%s>...", match[1]))
+			if err != nil {
+				return "", err
+			}
+			transcript, err = GetTranscriptFromVideo(match[1])
+			if err != nil {
+				log.Println(err)
+			}
+
+			s.ChannelMessageDelete(message.ChannelID, msg.ID)
+		}
+	}
+
+	return transcript, nil
+}
+
+// GetTranscriptFromVideo returns the transcript of the video
+func GetTranscriptFromVideo(videoURL string) (string, error) {
+	// Check if the video is already in the cache
+	if checkTranscriptCache(videoURL, false) {
+		transcript := readTranscriptCache(videoURL, false)
+		return transcript.Response.Text, nil
+	}
+
+	openaiToken := os.Getenv("OPENAI_TOKEN")
+	if openaiToken == "" {
+		log.Fatal("OPENAI_TOKEN is not set")
+	}
+	// Create a temp dir to store the video
+	dir, err := os.MkdirTemp("", "video-*")
+	if err != nil {
+		return "", err
+	}
+	defer os.RemoveAll(dir)
+
+	// Download the audio using ytdlp
+	cmd := exec.Command("yt-dlp", "-f", "bestaudio[ext=m4a]", "-x", "-o", fmt.Sprintf("%s/audio.%%(ext)s", dir), videoURL)
+	if err := cmd.Run(); err != nil {
+		return "", err
+	}
+
+	// Get the video path
+	videoPath := fmt.Sprintf("%s/audio.m4a", dir)
+
+	// Create the whisper client
+	client := openai.NewClient(openaiToken)
+
+	// Upload the video to whisper
+	resp, err := client.CreateTranscription(
+		context.Background(),
+		openai.AudioRequest{
+			Model:    openai.Whisper1,
+			FilePath: videoPath,
+			Format:   openai.AudioResponseFormatSRT,
+		},
+	)
+	if err != nil {
+		return "", err
+	}
+
+	parsedURL, err := url.Parse(videoURL)
+	if err != nil {
+		log.Printf("Parse error, not writing to cache: %v\n", err)
+	} else {
+		writeTranscriptCache(transcript{ContentURL: parsedURL, Response: resp}, true)
+	}
+
+	text := fmt.Sprintf("Transcript for %s: %s", videoURL, resp.Text)
+
+	return text, nil
 }
 
 func getTTSFile(message string, index string, hd bool) []*discordgo.File {
@@ -83,44 +250,6 @@ func getTTSFile(message string, index string, hd bool) []*discordgo.File {
 	return files
 }
 
-func getIntents(message string) string {
-	// OpenAI API key
-	openaiToken := os.Getenv("OPENAI_TOKEN")
-	if openaiToken == "" {
-		log.Fatal("OPENAI_TOKEN is not set")
-	}
-	// Create a new OpenAI client
-	c := openai.NewClient(openaiToken)
-	ctx := context.Background()
-
-	prompt := "What's the intent in this message? Intents can be 'draw' or 'none'. " +
-		"The draw intent is for when the message asks to draw or generate some kind of image. " +
-		"none intent is for when nothing image generation related is asked. Focus more on the last part of the message. " +
-		"Don't include anything except the intent in the generated text: \n\n" +
-		message
-
-	maxTokens, err := GetRequestMaxTokensString(prompt, openai.GPT3Dot5Turbo0125)
-	if err != nil {
-		log.Printf("getRequestMaxTokens error: %v\n", err)
-		return ""
-	}
-
-	req := openai.ChatCompletionRequest{
-		Model:       openai.GPT3Dot5Turbo0125,
-		Messages:    createMessage(openai.ChatMessageRoleUser, "", config.RequestContent{Text: prompt}),
-		Temperature: config.DefaultTemp,
-		MaxTokens:   maxTokens,
-	}
-
-	resp, err := c.CreateChatCompletion(ctx, req)
-	if err != nil {
-		log.Printf("CreateCompletion error: %v\n", err)
-		return ""
-	}
-
-	return resp.Choices[0].Message.Content
-}
-
 func getFilenameSummary(message string) string {
 	// OpenAI API key
 	openaiToken := os.Getenv("OPENAI_TOKEN")
@@ -153,72 +282,6 @@ func getFilenameSummary(message string) string {
 	}
 
 	return resp.Choices[0].Message.Content
-}
-
-// GetTranscriptFromMessage returns the transcript of the message
-func GetTranscriptFromMessage(s *discordgo.Session, message *discordgo.Message) (string, error) {
-	regex := regexp.MustCompile(`(?m)<?(https?://[^\s<>]+)>?\b`)
-	result := regex.FindAllStringSubmatch(message.Content, -1)
-	var transcript string
-	for _, match := range result {
-		if utility.MatchVideo(match[1]) {
-			msg, err := discord.SendMessage(s, message, fmt.Sprintf("Gettings transcript for <%s>...", match[1]))
-			if err != nil {
-				return "", err
-			}
-			transcript, err = GetTranscriptFromVideo(match[1])
-			if err != nil {
-				log.Println(err)
-			}
-
-			s.ChannelMessageDelete(message.ChannelID, msg.ID)
-		}
-	}
-
-	return transcript, nil
-}
-
-// GetTranscriptFromVideo returns the transcript of the video
-func GetTranscriptFromVideo(videoURL string) (string, error) {
-	openaiToken := os.Getenv("OPENAI_TOKEN")
-	if openaiToken == "" {
-		log.Fatal("OPENAI_TOKEN is not set")
-	}
-	// Create a temp dir to store the video
-	dir, err := os.MkdirTemp("", "video-*")
-	if err != nil {
-		return "", err
-	}
-	defer os.RemoveAll(dir)
-
-	// Download the audio using ytdlp
-	cmd := exec.Command("yt-dlp", "-f", "bestaudio[ext=m4a]", "-x", "-o", fmt.Sprintf("%s/audio.%%(ext)s", dir), videoURL)
-	if err := cmd.Run(); err != nil {
-		return "", err
-	}
-
-	// Get the video path
-	videoPath := fmt.Sprintf("%s/audio.m4a", dir)
-
-	// Create the whisper client
-	client := openai.NewClient(openaiToken)
-
-	// Upload the video to whisper
-	resp, err := client.CreateTranscription(
-		context.Background(),
-		openai.AudioRequest{
-			Model:    openai.Whisper1,
-			FilePath: videoPath,
-			Format:   openai.AudioResponseFormatSRT,
-		},
-	)
-	if err != nil {
-		return "", err
-	}
-
-	text := fmt.Sprintf("Transcript for %s: %s", videoURL, resp.Text)
-
-	return text, nil
 }
 
 func drawImage(message string, size string) ([]*discordgo.File, error) {
@@ -258,248 +321,6 @@ func drawImage(message string, size string) ([]*discordgo.File, error) {
 	}
 
 	return files, nil
-}
-
-func streamMessageOAIResponse(s *discordgo.Session, m *discordgo.MessageCreate, messages []openai.ChatCompletionMessage) {
-	// OpenAI API key
-	openaiToken := os.Getenv("OPENAI_TOKEN")
-	if openaiToken == "" {
-		log.Fatal("OPENAI_TOKEN is not set")
-	}
-	// Create a new OpenAI client
-	c := openai.NewClient(openaiToken)
-	ctx := context.Background()
-
-	maxTokens, err := getRequestMaxTokens(messages, config.DefaultOAIModel)
-	if err != nil {
-		discord.LogSendErrorMessage(s, m.Message, err.Error())
-		return
-	}
-
-	// Create a new request
-	req := openai.ChatCompletionRequest{
-		Model:       config.DefaultOAIModel,
-		Messages:    messages,
-		Temperature: config.DefaultTemp,
-		MaxTokens:   maxTokens,
-		Stream:      true,
-	}
-	// Send the request
-	stream, err := c.CreateChatCompletionStream(ctx, req)
-	if err != nil {
-		errmsg := fmt.Sprintf("ChatCompletionStream error: %v\n", err)
-		discord.LogSendErrorMessage(s, m.Message, errmsg)
-		return
-	}
-	defer stream.Close()
-
-	msg, err := discord.SendMessageFile(s, m.Message, "Responding...", nil)
-	if err != nil {
-		discord.LogSendErrorMessage(s, m.Message, err.Error())
-		return
-	}
-
-	var i int
-	var message string
-	var fullMessage string
-	// Read the stream and send the response
-	for {
-		response, err := stream.Recv()
-		if errors.Is(err, io.EOF) {
-			// At the end of the stream
-			// Send the last message state
-			message = strings.TrimPrefix(message, "...")
-			_, err = discord.EditMessageFile(s, msg, message, nil)
-			if err != nil {
-				discord.LogSendErrorMessage(s, m.Message, err.Error())
-				return
-			}
-			go func() {
-				AppendMessage(openai.ChatMessageRoleAssistant, s.State.User.Username, config.RequestContent{Text: fullMessage}, &messages)
-				request := messagesToString(messages)
-				if len(request) > 4000 {
-					request = request[len(request)-4000:]
-				}
-				intent := getIntents(request)
-				log.Printf("Intent: %s\n", intent)
-				if intent == "draw" {
-					files, err := drawImage(request, openai.CreateImageSize1024x1024)
-					if err != nil {
-						discord.LogSendErrorMessage(s, m.Message, err.Error())
-					}
-					_, err = discord.EditMessageFile(s, msg, message, files)
-					if err != nil {
-						discord.LogSendErrorMessage(s, m.Message, err.Error())
-						return
-					}
-				}
-			}()
-			/*
-				go func() {
-					files := splitTTS(fullMessage, true)
-					_, err = discord.EditMessageFile(s, msg, message, files)
-					if err != nil {
-						discord.LogSendErrorMessage(s, m.Message, err.Error())
-						return
-					}
-				}()
-			*/
-			return
-		}
-		if err != nil {
-			errmsg := fmt.Sprintf("\nStream error: %v\n", err)
-			discord.LogSendErrorMessage(s, m.Message, errmsg)
-			return
-		}
-
-		message = message + response.Choices[0].Delta.Content
-		fullMessage = fullMessage + response.Choices[0].Delta.Content
-		i++
-		// Every 50 delta send the message
-		if i%50 == 0 {
-			// If the message is too long, split it into a new message
-			if len(message) > 1800 {
-				firstPart, lastPart := utility.SplitParagraph(message)
-				if lastPart == "" {
-					lastPart = "..."
-				}
-
-				_, err = discord.EditMessageFile(s, msg, firstPart, nil)
-				if err != nil {
-					discord.LogSendErrorMessage(s, m.Message, err.Error())
-					return
-				}
-				msg, err = discord.SendMessageFile(s, msg, lastPart, nil)
-				if err != nil {
-					discord.LogSendErrorMessage(s, m.Message, err.Error())
-					return
-				}
-				message = lastPart
-			} else {
-				_, err = discord.EditMessageFile(s, msg, message, nil)
-				if err != nil {
-					discord.LogSendErrorMessage(s, m.Message, err.Error())
-					return
-				}
-			}
-		}
-	}
-}
-
-// StreamInteractionResponse sends the response to an interaction
-func StreamInteractionResponse(s *discordgo.Session, i *discordgo.InteractionCreate, reqMessage []openai.ChatCompletionMessage, options *config.GenerationOptions) {
-	// OpenAI API key
-	openaiToken := os.Getenv("OPENAI_TOKEN")
-	if openaiToken == "" {
-		log.Fatal("OPENAI_TOKEN is not set")
-	}
-	// Create a new OpenAI client
-	c := openai.NewClient(openaiToken)
-	ctx := context.Background()
-
-	maxTokens, err := getRequestMaxTokens(reqMessage, options.Model)
-	if err != nil {
-		log.Println(err)
-		return
-	}
-
-	req := openai.ChatCompletionRequest{
-		Model:       options.Model,
-		Messages:    reqMessage,
-		Temperature: options.Temperature,
-		MaxTokens:   maxTokens,
-		Stream:      true,
-	}
-	stream, err := c.CreateChatCompletionStream(ctx, req)
-	if err != nil {
-		log.Printf("ChatCompletionStream error: %v\n", err)
-		return
-	}
-	defer stream.Close()
-	msg, err := discord.SendFollowupFile(s, i, "Responding...", nil)
-	if err != nil {
-		log.Printf("discord.SendFollowup error: %v\n", err)
-		return
-	}
-
-	var count int
-	var message string
-	var fullMessage string
-	for {
-		response, err := stream.Recv()
-		if errors.Is(err, io.EOF) {
-			_, err = discord.EditFollowupFile(s, i, msg.ID, message, nil)
-			if err != nil {
-				log.Printf("editFollowup error: %v\n", err)
-				return
-			}
-			/*
-				go func() {
-					appendMessage(openai.ChatMessageRoleAssistant, s.State.User.Username, config.RequestContent{text: fullMessage}, &reqMessage)
-					request := messagesToString(reqMessage)
-					if len(request) > 4000 {
-						request = request[len(request)-4000:]
-					}
-					intent := getIntents(request)
-					log.Printf("Intent: %s\n", intent)
-					if intent == "draw" {
-						files, err := drawImage(request, openai.CreateImageSize1024x1024)
-						if err != nil {
-							log.Printf("draw error: %v\n", err)
-						}
-						_, err = discord.EditFollowupFile(s, i, msg.ID, message, files)
-						if err != nil {
-							log.Printf("editFollowup error: %v\n", err)
-							return
-						}
-					}
-				}()
-
-				go func() {
-					files := splitTTS(fullMessage, true)
-					_, err = discord.EditFollowupFile(s, i, msg.ID, message, files)
-					if err != nil {
-						log.Printf("editFollowup error: %v\n", err)
-						return
-					}
-				}()
-			*/
-			return
-		}
-		if err != nil {
-			log.Printf("\nStream error: %v\n", err)
-			return
-		}
-
-		message = message + response.Choices[0].Delta.Content
-		fullMessage = fullMessage + response.Choices[0].Delta.Content
-		count++
-		if count%50 == 0 {
-			if len(message) > 1800 {
-				firstPart, lastPart := utility.SplitParagraph(message)
-				if lastPart == "" {
-					lastPart = "..."
-				}
-				_, err = discord.EditFollowupFile(s, i, msg.ID, firstPart, nil)
-				if err != nil {
-					log.Printf("editFollowup error: %v\n", err)
-					return
-				}
-				msg, err = discord.SendFollowupFile(s, i, lastPart, nil)
-				if err != nil {
-					log.Printf("discord.SendFollowup error: %v\n", err)
-					return
-				}
-				message = lastPart
-			} else {
-				_, err = discord.EditFollowupFile(s, i, msg.ID, message, nil)
-				if err != nil {
-					log.Printf("editFollowup error: %v\n", err)
-					return
-				}
-			}
-		}
-	}
 }
 
 // AppendMessage appends a message to the end of the messages array
@@ -563,37 +384,6 @@ func CreateBatchMessages(s *discordgo.Session, messages []*discordgo.Message) []
 	}
 
 	return batchMessages
-}
-
-func prependRepliesMessages(s *discordgo.Session, message *discordgo.Message, cache []*discordgo.Message, chatMessages *[]openai.ChatCompletionMessage) {
-	// check if the message has a reference, if not get it
-	if message.ReferencedMessage == nil {
-		if message.MessageReference != nil {
-			cachedMessage := utility.CheckCache(cache, message.MessageReference.MessageID)
-			if cachedMessage != nil {
-				message.ReferencedMessage = cachedMessage
-			} else {
-				message.ReferencedMessage, _ = s.ChannelMessage(message.MessageReference.ChannelID, message.MessageReference.MessageID)
-			}
-		} else {
-			return
-		}
-	}
-	replyMessage := utility.CleanMessage(s, message.ReferencedMessage)
-	images, _ := utility.GetMessageMediaURL(replyMessage)
-	replyContent := config.RequestContent{
-		Text: replyMessage.Content,
-		URL:  images,
-	}
-	if replyMessage.Author.ID == s.State.User.ID {
-		PrependMessage(openai.ChatMessageRoleAssistant, replyMessage.Author.Username, replyContent, chatMessages)
-	} else {
-		PrependMessage(openai.ChatMessageRoleUser, replyMessage.Author.Username, replyContent, chatMessages)
-	}
-
-	if replyMessage.Type == discordgo.MessageTypeReply {
-		prependRepliesMessages(s, message.ReferencedMessage, cache, chatMessages)
-	}
 }
 
 func messagesToString(messages []openai.ChatCompletionMessage) string {
