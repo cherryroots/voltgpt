@@ -1,3 +1,4 @@
+// Package openai is a package for interacting with the OpenAI API.
 package openai
 
 import (
@@ -9,6 +10,8 @@ import (
 	"io"
 	"log"
 	"os"
+	"os/exec"
+	"regexp"
 	"strings"
 	"sync"
 
@@ -150,6 +153,72 @@ func getFilenameSummary(message string) string {
 	}
 
 	return resp.Choices[0].Message.Content
+}
+
+// GetTranscriptFromMessage returns the transcript of the message
+func GetTranscriptFromMessage(s *discordgo.Session, message *discordgo.Message) (string, error) {
+	regex := regexp.MustCompile(`(?m)<?(https?://[^\s<>]+)>?\b`)
+	result := regex.FindAllStringSubmatch(message.Content, -1)
+	var transcript string
+	for _, match := range result {
+		if utility.MatchVideo(match[1]) {
+			msg, err := discord.SendMessage(s, message, fmt.Sprintf("Gettings transcript for <%s>...", match[1]))
+			if err != nil {
+				return "", err
+			}
+			transcript, err = GetTranscriptFromVideo(match[1])
+			if err != nil {
+				log.Println(err)
+			}
+
+			s.ChannelMessageDelete(message.ChannelID, msg.ID)
+		}
+	}
+
+	return transcript, nil
+}
+
+// GetTranscriptFromVideo returns the transcript of the video
+func GetTranscriptFromVideo(videoURL string) (string, error) {
+	openaiToken := os.Getenv("OPENAI_TOKEN")
+	if openaiToken == "" {
+		log.Fatal("OPENAI_TOKEN is not set")
+	}
+	// Create a temp dir to store the video
+	dir, err := os.MkdirTemp("", "video-*")
+	if err != nil {
+		return "", err
+	}
+	defer os.RemoveAll(dir)
+
+	// Download the audio using ytdlp
+	cmd := exec.Command("yt-dlp", "-f", "bestaudio[ext=m4a]", "-x", "-o", fmt.Sprintf("%s/audio.%%(ext)s", dir), videoURL)
+	if err := cmd.Run(); err != nil {
+		return "", err
+	}
+
+	// Get the video path
+	videoPath := fmt.Sprintf("%s/audio.m4a", dir)
+
+	// Create the whisper client
+	client := openai.NewClient(openaiToken)
+
+	// Upload the video to whisper
+	resp, err := client.CreateTranscription(
+		context.Background(),
+		openai.AudioRequest{
+			Model:    openai.Whisper1,
+			FilePath: videoPath,
+			Format:   openai.AudioResponseFormatSRT,
+		},
+	)
+	if err != nil {
+		return "", err
+	}
+
+	text := fmt.Sprintf("Transcript for %s: %s", videoURL, resp.Text)
+
+	return text, nil
 }
 
 func drawImage(message string, size string) ([]*discordgo.File, error) {
@@ -317,6 +386,7 @@ func streamMessageOAIResponse(s *discordgo.Session, m *discordgo.MessageCreate, 
 	}
 }
 
+// StreamInteractionResponse sends the response to an interaction
 func StreamInteractionResponse(s *discordgo.Session, i *discordgo.InteractionCreate, reqMessage []openai.ChatCompletionMessage, options *config.GenerationOptions) {
 	// OpenAI API key
 	openaiToken := os.Getenv("OPENAI_TOKEN")
@@ -432,11 +502,13 @@ func StreamInteractionResponse(s *discordgo.Session, i *discordgo.InteractionCre
 	}
 }
 
+// AppendMessage appends a message to the end of the messages array
 func AppendMessage(role string, name string, content config.RequestContent, messages *[]openai.ChatCompletionMessage) {
 	newMessages := append(*messages, createMessage(role, name, content)...)
 	*messages = newMessages
 }
 
+// PrependMessage prepends a message to the beginning of the messages array
 func PrependMessage(role string, name string, content config.RequestContent, messages *[]openai.ChatCompletionMessage) {
 	newMessages := append(createMessage(role, name, content), *messages...)
 	*messages = newMessages
@@ -474,6 +546,7 @@ func createMessage(role string, name string, content config.RequestContent) []op
 	return message
 }
 
+// CreateBatchMessages creates a batch messages from the given messages
 func CreateBatchMessages(s *discordgo.Session, messages []*discordgo.Message) []openai.ChatCompletionMessage {
 	var batchMessages []openai.ChatCompletionMessage
 
@@ -531,6 +604,7 @@ func messagesToString(messages []openai.ChatCompletionMessage) string {
 	return sb.String()
 }
 
+// GetMaxModelTokens returns the max tokens for the given model
 func GetMaxModelTokens(model string) (maxTokens int) {
 	switch model {
 	case anthropic.ModelClaude3Haiku20240307, anthropic.ModelClaude3Sonnet20240229, anthropic.ModelClaude3Opus20240229:
@@ -547,6 +621,7 @@ func GetMaxModelTokens(model string) (maxTokens int) {
 	return maxTokens
 }
 
+// IsOutputLimited returns true if the model is limited to 4096 tokens
 func IsOutputLimited(model string) bool {
 	switch model {
 	case openai.GPT4Turbo, openai.GPT3Dot5Turbo0125, anthropic.ModelClaude3Haiku20240307, anthropic.ModelClaude3Sonnet20240229, anthropic.ModelClaude3Opus20240229:
@@ -556,6 +631,7 @@ func IsOutputLimited(model string) bool {
 	}
 }
 
+// GetRequestMaxTokensString returns the max tokens for the given model
 func GetRequestMaxTokensString(message string, model string) (maxTokens int, err error) {
 	maxTokens = GetMaxModelTokens(model)
 	usedTokens := NumTokensFromString(message)
@@ -594,6 +670,7 @@ func getRequestMaxTokens(message []openai.ChatCompletionMessage, model string) (
 	return availableTokens, nil
 }
 
+// NumTokensFromString returns the number of tokens in the given string
 func NumTokensFromString(s string) (numTokens int) {
 	encoding := "p50k_base"
 	tkm, err := tiktoken.GetEncoding(encoding)
@@ -607,6 +684,7 @@ func NumTokensFromString(s string) (numTokens int) {
 	return numTokens
 }
 
+// NumTokensFromMessages returns the number of tokens in the given messages
 func NumTokensFromMessages(messages []openai.ChatCompletionMessage, model string) (numTokens int) {
 	tkm, err := tiktoken.EncodingForModel(model)
 	if err != nil {
@@ -659,6 +737,7 @@ func NumTokensFromMessages(messages []openai.ChatCompletionMessage, model string
 	return numTokens
 }
 
+// SplitTTS takes a string and a boolean flag hd to chunk up the message into parts no longer than maxLength characters separated by newlines and return a slice of discordgo.File pointers.
 func SplitTTS(message string, hd bool) []*discordgo.File {
 	// Chunk up message into maxLength character chunks separated by newlines
 	separator := "\n\n"

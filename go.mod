@@ -8,13 +8,13 @@ require (
 	github.com/joho/godotenv v1.5.1
 	github.com/liushuangls/go-anthropic/v2 v2.0.3
 	github.com/pkoukk/tiktoken-go v0.1.6
-	github.com/sashabaranov/go-openai v1.21.0
+	github.com/sashabaranov/go-openai v1.22.0
 	github.com/u2takey/ffmpeg-go v0.5.0
 	golang.org/x/image v0.15.0
 )
 
 require (
-	github.com/aws/aws-sdk-go v1.51.19 // indirect
+	github.com/aws/aws-sdk-go v1.51.23 // indirect
 	github.com/dlclark/regexp2 v1.11.0 // indirect
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/gorilla/websocket v1.5.1 // indirect

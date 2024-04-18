@@ -10,7 +10,6 @@ import (
 
 	"github.com/bwmarrin/discordgo"
 	"github.com/liushuangls/go-anthropic/v2"
-	"github.com/sashabaranov/go-openai"
 
 	ant "voltgpt/internal/anthropic"
 	"voltgpt/internal/config"
@@ -57,41 +56,6 @@ var (
 					Name:        "style",
 					Description: "style to use",
 					Choices:     config.StyleChoices,
-				},
-			},
-		},
-		{
-			Name:                     "summarize",
-			Description:              "Summarize the message history of the channel (default 20 messages)",
-			DefaultMemberPermissions: &writePermission,
-			DMPermission:             &dmPermission,
-			Options: []*discordgo.ApplicationCommandOption{
-				{
-					Type:        discordgo.ApplicationCommandOptionString,
-					Name:        "question",
-					Description: "question to ask",
-					Required:    true,
-				},
-				{
-					Type:        discordgo.ApplicationCommandOptionInteger,
-					Name:        "count",
-					Description: "Number of messages to include in the summary. ",
-					Required:    false,
-					MinValue:    &integerMin,
-					MaxValue:    500,
-				},
-				{
-					Type:        discordgo.ApplicationCommandOptionNumber,
-					Name:        "temperature",
-					Description: "Choose a number between 0 and 2. Higher values are more random, lower values are more factual.",
-					MinValue:    &tempMin,
-					MaxValue:    2,
-				},
-				{
-					Type:        discordgo.ApplicationCommandOptionString,
-					Name:        "model",
-					Description: "Pick a model to use",
-					Choices:     config.ModelChoices,
 				},
 			},
 		},
@@ -245,41 +209,6 @@ var (
 			if err != nil {
 				log.Println(err)
 			}
-		},
-		"summarize": func(s *discordgo.Session, i *discordgo.InteractionCreate) {
-			log.Printf("Received interaction: %s by %s", i.ApplicationCommandData().Name, i.Interaction.Member.User.Username)
-			discord.DeferResponse(s, i)
-
-			options := config.NewOAIGenerationOptions()
-			count := 0
-			for _, option := range i.ApplicationCommandData().Options {
-				if option.Name == "question" {
-					options.Message = option.StringValue()
-					log.Println("summarize:", options.Message)
-				}
-				if option.Name == "count" {
-					count = int(option.FloatValue())
-				}
-				if option.Name == "temperature" {
-					options.Temperature = float32(option.FloatValue())
-				}
-				if option.Name == "model" {
-					options.Model = option.StringValue()
-				}
-			}
-			if count == 0 {
-				count = 20
-			}
-
-			messages := utility.GetChannelMessages(s, i.ChannelID, count)
-			messages = utility.CleanMessages(s, messages)
-
-			chatMessages := oai.CreateBatchMessages(s, messages)
-			content := config.RequestContent{
-				Text: options.Message,
-			}
-			oai.AppendMessage(openai.ChatMessageRoleUser, i.Member.User.Username, content, &chatMessages)
-			oai.StreamInteractionResponse(s, i, chatMessages, options)
 		},
 		"hash_channel": func(s *discordgo.Session, i *discordgo.InteractionCreate) {
 			log.Printf("Received interaction: %s by %s", i.ApplicationCommandData().Name, i.Interaction.Member.User.Username)
@@ -844,12 +773,23 @@ func handleMessage(s *discordgo.Session, m *discordgo.MessageCreate) {
 			log.Printf("%s mention: %s", m.Author.Username, m.Content)
 		}
 
+		transcript, err := oai.GetTranscriptFromMessage(s, m.Message)
+		if err != nil {
+			log.Println(err)
+		}
+
 		// Clean and prepare message content
 		m.Message = utility.CleanMessage(s, m.Message)
 		images, _ := utility.GetMessageMediaURL(m.Message)
 		content := config.RequestContent{
-			Text: fmt.Sprintf("%s: %s %s %s", m.Author.Username, utility.AttachmentText(m.Message), utility.EmbedText(m.Message), m.Content),
-			URL:  images,
+			Text: fmt.Sprintf("%s: %s %s %s %s",
+				m.Author.Username,
+				transcript,
+				utility.AttachmentText(m.Message),
+				utility.EmbedText(m.Message),
+				m.Content,
+			),
+			URL: images,
 		}
 
 		// Append message to chat messages
