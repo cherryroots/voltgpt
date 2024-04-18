@@ -510,8 +510,8 @@ func DownloadURL(url string) ([]byte, error) {
 	return data, nil
 }
 
-// MatchVideo checks if a URL matches a common video website
-func MatchVideo(urlStr string) bool {
+// MatchVideoWebsites checks if a URL matches a common video website
+func MatchVideoWebsites(urlStr string) bool {
 	urlRegexes := []*regexp.Regexp{
 		regexp.MustCompile(`^((?:https?:)?\/\/)?((?:www|m)\.)?((?:youtube\.com|youtu.be))(\/(?:[\w\-]+\?v=|embed\/|v\/)?)([\w\-]+)(\S+)?$`),
 	}

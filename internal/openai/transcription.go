@@ -22,19 +22,28 @@ import (
 // TranscriptCache is a map of transcriptions.
 var TranscriptCache = struct {
 	sync.RWMutex
-	t map[string]transcript
+	t map[string]Transcript
 }{
-	t: make(map[string]transcript),
+	t: make(map[string]Transcript),
 }
 
-// game is a struct representing the game.
-type transcript struct {
+// Transcript is a struct that contains the content URL and the response from the OpenAI API.
+type Transcript struct {
 	ContentURL *url.URL
 	Response   openai.AudioResponse
 }
 
-func (t transcript) String() string {
+type videoType struct {
+	contentURL     string
+	downloadMethod string
+}
+
+func (t Transcript) String() string {
 	return t.ContentURL.String()
+}
+
+func (t Transcript) formatString() string {
+	return fmt.Sprintf("Transcription for %s: %s", t.String(), t.Response.Text)
 }
 
 // WriteToFile writes the global variable TranscriptCache to a file named "transcripts.gob".
@@ -87,7 +96,7 @@ func ReadFromFile() {
 	}
 }
 
-func readTranscriptCache(contentURL string, locking bool) transcript {
+func readTranscriptCache(contentURL string, locking bool) Transcript {
 	if locking {
 		TranscriptCache.Lock()
 		defer TranscriptCache.Unlock()
@@ -96,7 +105,7 @@ func readTranscriptCache(contentURL string, locking bool) transcript {
 	return TranscriptCache.t[contentURL]
 }
 
-func writeTranscriptCache(transcript transcript, locking bool) {
+func writeTranscriptCache(transcript Transcript, locking bool) {
 	if locking {
 		TranscriptCache.Lock()
 		defer TranscriptCache.Unlock()
@@ -124,34 +133,67 @@ func TotalTranscripts() int {
 }
 
 // GetTranscriptFromMessage returns the transcript of the message
-func GetTranscriptFromMessage(s *discordgo.Session, message *discordgo.Message) (string, error) {
+func GetTranscriptFromMessage(s *discordgo.Session, message *discordgo.Message) (text string, err error) {
 	regex := regexp.MustCompile(`(?m)<?(https?://[^\s<>]+)>?\b`)
 	result := regex.FindAllStringSubmatch(message.Content, -1)
-	var transcript string
-	for _, match := range result {
-		if utility.MatchVideo(match[1]) {
-			msg, err := discord.SendMessage(s, message, fmt.Sprintf("Gettings transcript for <%s>...", match[1]))
-			if err != nil {
-				return "", err
-			}
-			transcript, err = GetTranscriptFromVideo(match[1])
-			if err != nil {
-				log.Println(err)
-			}
+	_, videos := utility.GetMessageMediaURL(message)
 
-			s.ChannelMessageDelete(message.ChannelID, msg.ID)
+	var videoURLs []videoType
+	var transcripts []Transcript
+
+	for _, match := range result {
+		if utility.MatchVideoWebsites(match[1]) {
+			videoURLs = append(videoURLs, videoType{contentURL: match[1], downloadMethod: "ytdlp"})
 		}
 	}
 
-	return transcript, nil
+	for _, video := range videos {
+		if utility.IsVideoURL(video) {
+			videoURLs = append(videoURLs, videoType{contentURL: video, downloadMethod: "ffmpeg"})
+		}
+	}
+
+	if len(videoURLs) == 0 {
+		return "", nil
+	}
+
+	for count, videoURL := range videoURLs {
+		if checkTranscriptCache(videoURL.contentURL, false) {
+			transcript := readTranscriptCache(videoURL.contentURL, false)
+			transcripts = append(transcripts, transcript)
+			continue
+		}
+
+		msg, err := discord.SendMessage(s, message, fmt.Sprintf("Gettings transcript for video %d...", count+1))
+		if err != nil {
+			return "", err
+		}
+
+		transcript, err := GetTranscriptFromVideo(videoURL.contentURL, videoURL.downloadMethod)
+		if err != nil {
+			log.Println(err)
+			continue
+		}
+		transcripts = append(transcripts, transcript)
+
+		s.ChannelMessageDelete(message.ChannelID, msg.ID)
+	}
+
+	for _, transcript := range transcripts {
+		if transcript.ContentURL == nil {
+			continue
+		}
+		text += transcript.formatString() + "\n"
+	}
+	return text, nil
 }
 
 // GetTranscriptFromVideo returns the transcript of the video
-func GetTranscriptFromVideo(videoURL string) (string, error) {
+func GetTranscriptFromVideo(videoURL string, downloadType string) (Transcript, error) {
 	// Check if the video is already in the cache
 	if checkTranscriptCache(videoURL, false) {
 		transcript := readTranscriptCache(videoURL, false)
-		return transcript.Response.Text, nil
+		return transcript, nil
 	}
 
 	openaiToken := os.Getenv("OPENAI_TOKEN")
@@ -161,14 +203,22 @@ func GetTranscriptFromVideo(videoURL string) (string, error) {
 	// Create a temp dir to store the video
 	dir, err := os.MkdirTemp("", "video-*")
 	if err != nil {
-		return "", err
+		return Transcript{}, err
 	}
 	defer os.RemoveAll(dir)
 
-	// Download the audio using ytdlp
-	cmd := exec.Command("yt-dlp", "-f", "bestaudio[ext=m4a]", "-x", "-o", fmt.Sprintf("%s/audio.%%(ext)s", dir), videoURL)
-	if err := cmd.Run(); err != nil {
-		return "", err
+	if downloadType == "ytdlp" {
+		// Download the audio using ytdlp
+		cmd := exec.Command("yt-dlp", "-f", "bestaudio[ext=m4a]", "-x", "-o", fmt.Sprintf("%s/audio.%%(ext)s", dir), videoURL)
+		if err := cmd.Run(); err != nil {
+			return Transcript{}, err
+		}
+	} else {
+		// Download the audio using ffmpeg to .m4a
+		cmd := exec.Command("ffmpeg", "-i", videoURL, "-vn", "-acodec", "copy", fmt.Sprintf("%s/audio.m4a", dir))
+		if err := cmd.Run(); err != nil {
+			return Transcript{}, err
+		}
 	}
 
 	// Get the video path
@@ -187,17 +237,16 @@ func GetTranscriptFromVideo(videoURL string) (string, error) {
 		},
 	)
 	if err != nil {
-		return "", err
+		return Transcript{}, err
 	}
 
 	parsedURL, err := url.Parse(videoURL)
 	if err != nil {
 		log.Printf("Parse error, not writing to cache: %v\n", err)
-	} else {
-		writeTranscriptCache(transcript{ContentURL: parsedURL, Response: resp}, true)
+		return Transcript{}, err
 	}
 
-	text := fmt.Sprintf("Transcript for %s: %s", videoURL, resp.Text)
+	writeTranscriptCache(Transcript{ContentURL: parsedURL, Response: resp}, true)
 
-	return text, nil
+	return Transcript{ContentURL: parsedURL, Response: resp}, nil
 }
