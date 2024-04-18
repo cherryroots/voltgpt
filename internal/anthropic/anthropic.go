@@ -418,13 +418,9 @@ func PrependReplyMessages(s *discordgo.Session, message *discordgo.Message, cach
 	// Clean and prepare the reply message content
 	replyMessage := utility.CleanMessage(s, referencedMessage)
 	images, _ := utility.GetMessageMediaURL(replyMessage)
-	transcript, err := openai.GetTranscriptFromMessage(s, replyMessage)
-	if err != nil {
-		log.Printf("GetTranscriptFromMessage error: %v\n", err)
-	}
 	replyContent := config.RequestContent{
 		Text: fmt.Sprintf("%s %s %s %s",
-			transcript,
+			openai.GetTranscript(s, replyMessage),
 			utility.AttachmentText(replyMessage),
 			utility.EmbedText(replyMessage),
 			replyMessage.Content,

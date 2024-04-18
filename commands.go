@@ -776,18 +776,13 @@ func handleMessage(s *discordgo.Session, m *discordgo.MessageCreate) {
 			log.Printf("%s mention: %s", m.Author.Username, m.Content)
 		}
 
-		transcript, err := oai.GetTranscriptFromMessage(s, m.Message)
-		if err != nil {
-			log.Println(err)
-		}
-
 		// Clean and prepare message content
 		m.Message = utility.CleanMessage(s, m.Message)
 		images, _ := utility.GetMessageMediaURL(m.Message)
 		content := config.RequestContent{
 			Text: fmt.Sprintf("%s: %s %s %s %s",
 				m.Author.Username,
-				transcript,
+				oai.GetTranscript(s, m.Message),
 				utility.AttachmentText(m.Message),
 				utility.EmbedText(m.Message),
 				m.Content,

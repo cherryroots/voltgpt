@@ -132,8 +132,8 @@ func TotalTranscripts() int {
 	return len(TranscriptCache.t)
 }
 
-// GetTranscriptFromMessage returns the transcript of the message
-func GetTranscriptFromMessage(s *discordgo.Session, message *discordgo.Message) (text string, err error) {
+// GetTranscript returns the transcript of the message
+func GetTranscript(s *discordgo.Session, message *discordgo.Message) (text string) {
 	regex := regexp.MustCompile(`(?m)<?(https?://[^\s<>]+)>?\b`)
 	result := regex.FindAllStringSubmatch(message.Content, -1)
 	_, videos := utility.GetMessageMediaURL(message)
@@ -154,7 +154,7 @@ func GetTranscriptFromMessage(s *discordgo.Session, message *discordgo.Message) 
 	}
 
 	if len(videoURLs) == 0 {
-		return "", nil
+		return ""
 	}
 
 	for count, videoURL := range videoURLs {
@@ -166,7 +166,8 @@ func GetTranscriptFromMessage(s *discordgo.Session, message *discordgo.Message) 
 
 		msg, err := discord.SendMessage(s, message, fmt.Sprintf("Gettings transcript for video %d...", count+1))
 		if err != nil {
-			return "", err
+			log.Println(err)
+			return ""
 		}
 
 		transcript, err := GetTranscriptFromVideo(videoURL.contentURL, videoURL.downloadMethod)
@@ -185,7 +186,7 @@ func GetTranscriptFromMessage(s *discordgo.Session, message *discordgo.Message) 
 		}
 		text += transcript.formatString() + "\n"
 	}
-	return text, nil
+	return text
 }
 
 // GetTranscriptFromVideo returns the transcript of the video
