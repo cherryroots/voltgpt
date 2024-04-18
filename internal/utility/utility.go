@@ -1,3 +1,4 @@
+// Package utility is a utility package for utility functions.
 package utility
 
 import (
@@ -16,6 +17,7 @@ import (
 	"voltgpt/internal/discord"
 )
 
+// IsAdmin checks if the user with the given ID is an admin.
 func IsAdmin(id string) bool {
 	admins := []string{"102087943627243520", "123116664207179777", "95681688914366464"}
 	for _, admin := range admins {
@@ -26,15 +28,16 @@ func IsAdmin(id string) bool {
 	return false
 }
 
+// LinkFromIMessage creates a link from an interaction and message.
 func LinkFromIMessage(i *discordgo.InteractionCreate, m *discordgo.Message) string {
 	return fmt.Sprintf("https://discord.com/channels/%s/%s/%s", i.GuildID, m.ChannelID, m.ID)
 }
 
-func SplitParagraph(message string) (string, string) {
+// SplitParagraph splits the message into two parts by either the last paragraph or the last newline.
+// If there's a code block in the first part it'll be closed, and a new one will be started in the second part.
+func SplitParagraph(message string) (firstPart string, lastPart string) {
 	primarySeparator := "\n\n"
 	secondarySeparator := "\n"
-	var firstPart string
-	var lastPart string
 
 	// split the message into two parts based on the separator
 	lastPrimaryIndex := strings.LastIndex(message, primarySeparator)
@@ -70,6 +73,7 @@ func SplitParagraph(message string) (string, string) {
 	return firstPart, lastPart
 }
 
+// GetMessagesBefore returns the messages before the given message
 func GetMessagesBefore(s *discordgo.Session, channelID string, count int, messageID string) []*discordgo.Message {
 	messages, err := s.ChannelMessages(channelID, count, messageID, "", "")
 	if err != nil {
@@ -78,6 +82,7 @@ func GetMessagesBefore(s *discordgo.Session, channelID string, count int, messag
 	return messages
 }
 
+// GetChannelMessages returns the messages in the given channel.
 func GetChannelMessages(s *discordgo.Session, channelID string, count int) []*discordgo.Message {
 	// if the count is over 100 split into multiple runs with the last message id being the before id argument
 	var messages []*discordgo.Message
@@ -102,6 +107,7 @@ func GetChannelMessages(s *discordgo.Session, channelID string, count int) []*di
 	return messages
 }
 
+// GetAllChannelMessages returns all messages in the given channel.
 func GetAllChannelMessages(s *discordgo.Session, refMsg *discordgo.Message, channelID string, c chan []*discordgo.Message) {
 	defer close(c)
 	var lastMessageID string
@@ -127,6 +133,7 @@ func GetAllChannelMessages(s *discordgo.Session, refMsg *discordgo.Message, chan
 	log.Println("getAllChannelMessages: done")
 }
 
+// GetAllChannelThreadMessages returns all messages for every thread in the given channel.
 func GetAllChannelThreadMessages(s *discordgo.Session, refMsg *discordgo.Message, channelID string, c chan []*discordgo.Message) {
 	defer close(c)
 
@@ -181,12 +188,11 @@ func GetAllChannelThreadMessages(s *discordgo.Session, refMsg *discordgo.Message
 	log.Println("getAllChannelThreadMessages: done")
 }
 
-func GetMessageMediaURL(m *discordgo.Message) ([]string, []string) {
+// GetMessageMediaURL returns the media urls from a message
+func GetMessageMediaURL(m *discordgo.Message) (images []string, videos []string) {
 	seen := make(map[string]bool)
 	var imgageURLs []string
 	var videoURLs []string
-	var images []string
-	var videos []string
 
 	for _, attachment := range m.Attachments {
 		if attachment.Width > 0 && attachment.Height > 0 {
@@ -255,6 +261,7 @@ func GetMessageMediaURL(m *discordgo.Message) ([]string, []string) {
 	return images, videos
 }
 
+// CheckCache checks if a message is in the cache and returns it if it is
 func CheckCache(cache []*discordgo.Message, messageID string) *discordgo.Message {
 	for _, message := range cache {
 		if message.ID == messageID {
@@ -264,6 +271,7 @@ func CheckCache(cache []*discordgo.Message, messageID string) *discordgo.Message
 	return nil
 }
 
+// CleanMessage removes the bot mention and whitespace from a message
 func CleanMessage(s *discordgo.Session, message *discordgo.Message) *discordgo.Message {
 	botID := fmt.Sprintf("<@%s>", s.State.User.ID)
 	mentionRegex := regexp.MustCompile(botID)
@@ -272,6 +280,7 @@ func CleanMessage(s *discordgo.Session, message *discordgo.Message) *discordgo.M
 	return message
 }
 
+// CleanMessages removes the bot mention and whitespace from a list of messages
 func CleanMessages(s *discordgo.Session, messages []*discordgo.Message) []*discordgo.Message {
 	for i, message := range messages {
 		messages[i] = CleanMessage(s, message)
@@ -279,6 +288,7 @@ func CleanMessages(s *discordgo.Session, messages []*discordgo.Message) []*disco
 	return messages
 }
 
+// CleanName removes invalid characters from a name
 func CleanName(name string) string {
 	if len(name) > 64 {
 		name = name[:64]
@@ -287,9 +297,9 @@ func CleanName(name string) string {
 	return name
 }
 
-func AttachmentText(m *discordgo.Message) string {
+// AttachmentText returns the text from an attachment
+func AttachmentText(m *discordgo.Message) (text string) {
 	var urls []string
-	var text string
 	for _, attachment := range m.Attachments {
 		ext, err := urlToExt(attachment.URL)
 		if err != nil {
@@ -319,6 +329,7 @@ func AttachmentText(m *discordgo.Message) string {
 	return text
 }
 
+// HasImageURL checks if a message has an image
 func HasImageURL(m *discordgo.Message) bool {
 	for _, attachment := range m.Attachments {
 		if IsImageURL(attachment.URL) {
@@ -355,6 +366,7 @@ func HasImageURL(m *discordgo.Message) bool {
 	return false
 }
 
+// HasVideoURL checks if a message has a video
 func HasVideoURL(m *discordgo.Message) bool {
 	for _, attachment := range m.Attachments {
 		if IsVideoURL(attachment.URL) {
@@ -380,6 +392,7 @@ func HasVideoURL(m *discordgo.Message) bool {
 	return false
 }
 
+// urlToExt returns the extension of a URL
 func urlToExt(urlStr string) (string, error) {
 	parsedURL, err := url.Parse(urlStr)
 	if err != nil {
@@ -391,6 +404,7 @@ func urlToExt(urlStr string) (string, error) {
 	return fileExt, nil
 }
 
+// IsImageURL checks if a URL is an image
 func IsImageURL(urlStr string) bool {
 	fileExt, err := urlToExt(urlStr)
 	if err != nil {
@@ -405,6 +419,7 @@ func IsImageURL(urlStr string) bool {
 	}
 }
 
+// IsVideoURL checks if a URL is a video
 func IsVideoURL(urlStr string) bool {
 	fileExt, err := urlToExt(urlStr)
 	if err != nil {
@@ -419,6 +434,7 @@ func IsVideoURL(urlStr string) bool {
 	}
 }
 
+// MediaType returns the media type of a URL
 func MediaType(urlStr string) string {
 	fileExt, err := urlToExt(urlStr)
 	if err != nil {
@@ -439,6 +455,7 @@ func MediaType(urlStr string) string {
 	}
 }
 
+// cleanURL returns the path of a URL
 func cleanURL(urlStr string) string {
 	parsedURL, err := url.Parse(urlStr)
 	if err != nil {
@@ -447,6 +464,7 @@ func cleanURL(urlStr string) string {
 	return parsedURL.Path
 }
 
+// DownloadURL downloads a URL
 func DownloadURL(url string) ([]byte, error) {
 	resp, err := http.Get(url)
 	if err != nil {
@@ -466,6 +484,7 @@ func DownloadURL(url string) ([]byte, error) {
 	return data, nil
 }
 
+// MatchMultiple checks if a string matches any of the provided strings
 func MatchMultiple(input string, matches []string) bool {
 	for _, match := range matches {
 		if input == match {
@@ -475,6 +494,7 @@ func MatchMultiple(input string, matches []string) bool {
 	return false
 }
 
+// ReplaceMultiple replaces multiple strings in a string
 func ReplaceMultiple(str string, oldStrings []string, newString string) string {
 	for _, oldStr := range oldStrings {
 		str = strings.ReplaceAll(str, oldStr, newString)
@@ -482,6 +502,7 @@ func ReplaceMultiple(str string, oldStrings []string, newString string) string {
 	return str
 }
 
+// ExtractPairText returns the text between two strings
 func ExtractPairText(text string, lookup string) string {
 	if !containsPair(text, lookup) {
 		return ""
@@ -491,6 +512,7 @@ func ExtractPairText(text string, lookup string) string {
 	return text[firstIndex : lastIndex+len(lookup)]
 }
 
+// containsPair checks if a string contains a pair of strings
 func containsPair(text string, lookup string) bool {
 	return strings.Contains(text, lookup) && strings.Count(text, lookup)%2 == 0
 }

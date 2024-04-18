@@ -22,6 +22,10 @@ import (
 	"voltgpt/internal/utility"
 )
 
+// instructionSwitch returns the instruction to use based on the given messages.
+//
+// If the messages contain a heart emoji, it returns InstructionMessageDefault,
+// otherwise it returns InstructionMessageMean.
 func instructionSwitch(m []openai.ChatCompletionMessage) config.RequestContent {
 	firstMessageText := m[0].MultiContent[0].Text
 	lastMessageText := m[len(m)-1].MultiContent[0].Text
@@ -457,7 +461,7 @@ func createMessage(role string, name string, content config.RequestContent) []op
 		})
 	}
 
-	for _, u := range content.Url {
+	for _, u := range content.URL {
 		message[0].MultiContent = append(message[0].MultiContent, openai.ChatMessagePart{
 			Type: openai.ChatMessagePartTypeImageURL,
 			ImageURL: &openai.ChatMessageImageURL{
@@ -477,7 +481,7 @@ func CreateBatchMessages(s *discordgo.Session, messages []*discordgo.Message) []
 		images, _ := utility.GetMessageMediaURL(message)
 		content := config.RequestContent{
 			Text: message.Content,
-			Url:  images,
+			URL:  images,
 		}
 		if message.Author.ID == s.State.User.ID {
 			PrependMessage(openai.ChatMessageRoleAssistant, message.Author.Username, content, &batchMessages)
@@ -506,7 +510,7 @@ func prependRepliesMessages(s *discordgo.Session, message *discordgo.Message, ca
 	images, _ := utility.GetMessageMediaURL(replyMessage)
 	replyContent := config.RequestContent{
 		Text: replyMessage.Content,
-		Url:  images,
+		URL:  images,
 	}
 	if replyMessage.Author.ID == s.State.User.ID {
 		PrependMessage(openai.ChatMessageRoleAssistant, replyMessage.Author.Username, replyContent, chatMessages)

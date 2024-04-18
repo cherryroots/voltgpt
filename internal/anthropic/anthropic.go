@@ -1,3 +1,4 @@
+// Package anthropic is a package for interacting with the Anthropic API.
 package anthropic
 
 import (
@@ -22,6 +23,10 @@ import (
 	"github.com/liushuangls/go-anthropic/v2"
 )
 
+// getMessageText generates a string representation of the given anthropic message.
+//
+// It takes a single parameter, msg, of type anthropic.Message, which represents the message to be processed.
+// The function returns a string that contains the concatenated text of all the message contents, separated by newlines.
 func getMessageText(msg anthropic.Message) string {
 	var sb strings.Builder
 	for i, content := range msg.Content {
@@ -34,6 +39,9 @@ func getMessageText(msg anthropic.Message) string {
 	return sb.String()
 }
 
+// cleanInstructionsMessages cleans the instructions messages.
+//
+// It takes a slice of anthropic.Message as input and returns a slice of anthropic.Message.
 func cleanInstructionsMessages(messages []anthropic.Message) []anthropic.Message {
 	for i, message := range messages {
 		text := getMessageText(message)
@@ -52,6 +60,17 @@ func cleanInstructionsMessages(messages []anthropic.Message) []anthropic.Message
 	return messages
 }
 
+// instructionSwitch returns the instruction to use based on the given messages.
+//
+// It takes a slice of anthropic.Message as input and returns a config.RequestContent.
+// The function first extracts the text from the first and last messages in the input slice.
+// If the text of the first and last messages are the same, the function sets the text variable to that value.
+// Otherwise, it concatenates the text of the first and last messages with a newline in between.
+// The function then checks if the text contains the heart emoji "❤️" or "❤".
+// If it does, it returns the default instruction message.
+// If not, it attempts to extract a system message from the text using the "⚙️" or "⚙" pair delimiter.
+// If a system message is found, it returns a config.RequestContent with the trimmed system message.
+// If no system message is found, it returns the mean instruction message.
 func instructionSwitch(m []anthropic.Message) config.RequestContent {
 	var text string
 
@@ -133,6 +152,7 @@ func getIntents(message string, questionType string) string {
 	return *resp.Content[0].Text
 }
 
+// DrawSAIImage draws an image using Stability AI
 func DrawSAIImage(prompt string, negativePrompt string, ratio string, style string) ([]*discordgo.File, error) {
 	// OpenAI API key
 	stabilityToken := os.Getenv("STABILITY_TOKEN")
@@ -196,6 +216,8 @@ func DrawSAIImage(prompt string, negativePrompt string, ratio string, style stri
 	return files, nil
 }
 
+// StreamMessageResponse streams the message response, dividing it up into multiple messsages if the discord limit is reached.
+// At the end it'll process the intent of the user message to see if it should attack an image to the last response message.
 func StreamMessageResponse(s *discordgo.Session, m *discordgo.Message, messages []anthropic.Message, refMsg *discordgo.Message) {
 	token := os.Getenv("ANTHROPIC_TOKEN")
 	if token == "" {
@@ -315,21 +337,25 @@ func StreamMessageResponse(s *discordgo.Session, m *discordgo.Message, messages 
 	}
 }
 
+// AppendMessage adds a new message to the end of the messages list
 func AppendMessage(role string, content config.RequestContent, messages *[]anthropic.Message) {
 	newMessages := append(*messages, createMessage(role, content)...)
 	*messages = newMessages
 }
 
+// PrependMessage adds a new message to the beginning of the messages list
 func PrependMessage(role string, content config.RequestContent, messages *[]anthropic.Message) {
 	newMessages := append(createMessage(role, content), *messages...)
 	*messages = newMessages
 }
 
+// combineMessages combines the new message with the first message in the messages list
 func combineMessages(newMessage []anthropic.Message, messages *[]anthropic.Message) {
 	// prepend newMessage.Content to the first message in messages
 	(*messages)[0].Content = append(newMessage[0].Content, (*messages)[0].Content...)
 }
 
+// createMessage creates a new message with the given role and content
 func createMessage(role string, content config.RequestContent) []anthropic.Message {
 	// Create a new message with the role and content
 	message := []anthropic.Message{
@@ -339,7 +365,7 @@ func createMessage(role string, content config.RequestContent) []anthropic.Messa
 		},
 	}
 
-	for _, url := range content.Url {
+	for _, url := range content.URL {
 		data, err := utility.DownloadURL(url)
 		if err != nil {
 			log.Printf("Error downloading image: %v", err)
@@ -359,6 +385,14 @@ func createMessage(role string, content config.RequestContent) []anthropic.Messa
 	return message
 }
 
+// PrependReplyMessages prepends reply messages to the given chatMessages.
+//
+// It retrieves the referenced message from the given Discord message and then
+// recursively appends the reply messages to the chatMessages. It stops the
+// recursion if the referenced message is not found or if it is not a reply.
+// The function also cleans and prepares the reply message content and determines
+// the role of the reply message. Finally, it creates and prepends an anthropic
+// message with the determined role and content to the chatMessages.
 func PrependReplyMessages(s *discordgo.Session, message *discordgo.Message, cache []*discordgo.Message, chatMessages *[]anthropic.Message) {
 	// Get the referenced message
 	referencedMessage := getReferencedMessage(s, message, cache)
@@ -371,7 +405,7 @@ func PrependReplyMessages(s *discordgo.Session, message *discordgo.Message, cach
 	images, _ := utility.GetMessageMediaURL(replyMessage)
 	replyContent := config.RequestContent{
 		Text: fmt.Sprintf("%s %s", utility.AttachmentText(replyMessage), replyMessage.Content),
-		Url:  images,
+		URL:  images,
 	}
 
 	// Determine the role and format the reply content accordingly
@@ -380,7 +414,7 @@ func PrependReplyMessages(s *discordgo.Session, message *discordgo.Message, cach
 		replyContent.Text = fmt.Sprintf("%s: %s", replyMessage.Author.Username, replyContent.Text)
 	}
 
-	// Create and prepend the ANT message based on the role and content
+	// Create and prepend the anthropic message based on the role and content
 	prependMessageByRole(role, replyContent, chatMessages)
 
 	// Recursively process the referenced message if it's a reply
@@ -389,24 +423,37 @@ func PrependReplyMessages(s *discordgo.Session, message *discordgo.Message, cach
 	}
 }
 
+// getReferencedMessage retrieves the referenced message from a given Discord message.
+//
+// It first checks if the message has a referenced message directly. If not, it then
+// checks if the message has a message reference. If it does, it checks the cache for
+// the referenced message and returns it if found. Otherwise, it retrieves the
+// referenced message from the Discord API and returns it. If no referenced message
+// is found, it returns nil.
 func getReferencedMessage(s *discordgo.Session, message *discordgo.Message, cache []*discordgo.Message) *discordgo.Message {
+	// Check if the message has a referenced message directly
 	if message.ReferencedMessage != nil {
 		return message.ReferencedMessage
 	}
 
+	// Check if the message has a message reference
 	if message.MessageReference != nil {
+		// Check the cache for the referenced message
 		cachedMessage := utility.CheckCache(cache, message.MessageReference.MessageID)
 		if cachedMessage != nil {
 			return cachedMessage
 		}
 
+		// Retrieve the referenced message from the Discord API
 		referencedMessage, _ := s.ChannelMessage(message.MessageReference.ChannelID, message.MessageReference.MessageID)
 		return referencedMessage
 	}
 
+	// Return nil if no referenced message is found
 	return nil
 }
 
+// determineRole determines the role of a given message based on its author ID.
 func determineRole(s *discordgo.Session, message *discordgo.Message) string {
 	if message.Author.ID == s.State.User.ID {
 		return anthropic.RoleAssistant
@@ -414,11 +461,13 @@ func determineRole(s *discordgo.Session, message *discordgo.Message) string {
 	return anthropic.RoleUser
 }
 
+// prependMessageByRole prepends a message with the given role and content to the given chatMessages.
 func prependMessageByRole(role string, content config.RequestContent, chatMessages *[]anthropic.Message) {
 	if len(*chatMessages) == 0 || (*chatMessages)[0].Role != role {
-		if role == anthropic.RoleAssistant && len(content.Url) > 0 {
-			// Attach the image to the user message after the assistant message (the newer message)
-			newMessage := createMessage(anthropic.RoleUser, config.RequestContent{Url: content.Url})
+		if role == anthropic.RoleAssistant && len(content.URL) > 0 {
+			// Attach the image to the user message after the assistant message (the newer message) by combining it with the user message
+			// before prepending a new assistant message
+			newMessage := createMessage(anthropic.RoleUser, config.RequestContent{URL: content.URL})
 			combineMessages(newMessage, chatMessages)
 			// Add only the text to the assistant message
 			PrependMessage(anthropic.RoleAssistant, config.RequestContent{Text: content.Text}, chatMessages)
@@ -431,6 +480,14 @@ func prependMessageByRole(role string, content config.RequestContent, chatMessag
 
 	newMessage := createMessage(role, content)
 	combineMessages(newMessage, chatMessages)
+}
+
+// PrependUserMessagePlaceholder prepends a user message placeholder if the first message in the given anthropic messages is an assistant message.
+// This is done because anthropic API limitation requires the first message to be a user message.
+func PrependUserMessagePlaceholder(messages *[]anthropic.Message) {
+	if len(*messages) > 0 && (*messages)[0].Role == anthropic.RoleAssistant {
+		PrependMessage(anthropic.RoleUser, config.RequestContent{Text: "PLACEHOLDER MESSAGE - IGNORE"}, messages)
+	}
 }
 
 func antMessagesToString(messages []anthropic.Message) string {
