@@ -300,6 +300,9 @@ func CleanName(name string) string {
 // AttachmentText returns the text from an attachment
 func AttachmentText(m *discordgo.Message) (text string) {
 	var urls []string
+	if len(m.Attachments) == 0 {
+		return ""
+	}
 	for _, attachment := range m.Attachments {
 		ext, err := urlToExt(attachment.URL)
 		if err != nil {
@@ -327,6 +330,29 @@ func AttachmentText(m *discordgo.Message) (text string) {
 		text += fmt.Sprintf("Attachment %d, type '%s': %s\n\n", i+1, ext, string(bytes))
 	}
 	return text
+}
+
+// EmbedText returns the text from an embed
+func EmbedText(m *discordgo.Message) (text string) {
+	var embedStrings []string
+	if len(m.Embeds) == 0 {
+		return ""
+	}
+	for i, embed := range m.Embeds {
+		embedStrings = append(embedStrings, fmt.Sprintf("Embed %d", i+1))
+		if embed.Title != "" {
+			embedStrings = append(embedStrings, fmt.Sprintf("Title: %s", embed.Title))
+		}
+		if embed.Description != "" {
+			embedStrings = append(embedStrings, fmt.Sprintf("Description: %s", embed.Description))
+		}
+		for j, field := range embed.Fields {
+			embedStrings = append(embedStrings, fmt.Sprintf("Field %d Name: %s", j+1, field.Name))
+			embedStrings = append(embedStrings, fmt.Sprintf("Field %d Value: %s", j+1, field.Value))
+		}
+	}
+
+	return strings.Join(embedStrings, "\n")
 }
 
 // HasImageURL checks if a message has an image

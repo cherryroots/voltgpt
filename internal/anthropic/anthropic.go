@@ -404,7 +404,7 @@ func PrependReplyMessages(s *discordgo.Session, message *discordgo.Message, cach
 	replyMessage := utility.CleanMessage(s, referencedMessage)
 	images, _ := utility.GetMessageMediaURL(replyMessage)
 	replyContent := config.RequestContent{
-		Text: fmt.Sprintf("%s %s", utility.AttachmentText(replyMessage), replyMessage.Content),
+		Text: fmt.Sprintf("%s %s %s", utility.AttachmentText(replyMessage), utility.EmbedText(replyMessage), replyMessage.Content),
 		URL:  images,
 	}
 
