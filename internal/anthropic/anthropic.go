@@ -216,6 +216,21 @@ func DrawSAIImage(prompt string, negativePrompt string, ratio string, style stri
 	return files, nil
 }
 
+// modelSwitch switches the model based on the number of tokens used
+func modelSwitch(messages []anthropic.Message) string {
+	usedTokens := openai.NumTokensFromString(antMessagesToString(messages))
+
+	if usedTokens > 20000 {
+		return anthropic.ModelClaude3Haiku20240307
+	}
+
+	if usedTokens > 5000 {
+		return anthropic.ModelClaude3Sonnet20240229
+	}
+
+	return anthropic.ModelClaude3Opus20240229
+}
+
 // StreamMessageResponse streams the message response, dividing it up into multiple messsages if the discord limit is reached.
 // At the end it'll process the intent of the user message to see if it should attack an image to the last response message.
 func StreamMessageResponse(s *discordgo.Session, m *discordgo.Message, messages []anthropic.Message, refMsg *discordgo.Message) {
@@ -253,7 +268,7 @@ func StreamMessageResponse(s *discordgo.Session, m *discordgo.Message, messages 
 
 	_, err = c.CreateMessagesStream(ctx, anthropic.MessagesStreamRequest{
 		MessagesRequest: anthropic.MessagesRequest{
-			Model:     config.DefaultANTModel,
+			Model:     modelSwitch(cleanInstructionsMessages(messages)),
 			System:    fmt.Sprintf("%s\n\n%s", config.InstructionMessageDefault.Text, instructionSwitchMessage.Text),
 			Messages:  cleanInstructionsMessages(messages),
 			MaxTokens: maxTokens,
