@@ -29,8 +29,8 @@ func IsAdmin(id string) bool {
 }
 
 // LinkFromIMessage creates a link from an interaction and message.
-func LinkFromIMessage(i *discordgo.InteractionCreate, m *discordgo.Message) string {
-	return fmt.Sprintf("https://discord.com/channels/%s/%s/%s", i.GuildID, m.ChannelID, m.ID)
+func LinkFromIMessage(guildID string, m *discordgo.Message) string {
+	return fmt.Sprintf("https://discord.com/channels/%s/%s/%s", guildID, m.ChannelID, m.ID)
 }
 
 // SplitParagraph splits the message into two parts by either the last paragraph or the last newline.

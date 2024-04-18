@@ -12,7 +12,9 @@ import (
 	"github.com/bwmarrin/discordgo"
 	"github.com/joho/godotenv"
 
+	"voltgpt/internal/config"
 	"voltgpt/internal/gamble"
+	"voltgpt/internal/handler"
 	"voltgpt/internal/hasher"
 	"voltgpt/internal/openai"
 )
@@ -57,24 +59,24 @@ func main() {
 	dg.AddHandler(func(s *discordgo.Session, i *discordgo.InteractionCreate) {
 		switch i.Type {
 		case discordgo.InteractionApplicationCommand:
-			if h, ok := commandHandlers[i.ApplicationCommandData().Name]; ok {
+			if h, ok := handler.Commands[i.ApplicationCommandData().Name]; ok {
 				go h(s, i)
 			}
 		case discordgo.InteractionMessageComponent:
 			split := strings.Split(i.MessageComponentData().CustomID, "-")
-			if h, ok := componentHandlers[split[0]]; ok {
+			if h, ok := handler.Components[split[0]]; ok {
 				go h(s, i)
 			}
 		case discordgo.InteractionModalSubmit:
 			split := strings.Split(i.ModalSubmitData().CustomID, "-")
-			if h, ok := modalHandlers[split[0]]; ok {
+			if h, ok := handler.Modals[split[0]]; ok {
 				go h(s, i)
 			}
 		}
 	})
 
 	dg.AddHandler(func(s *discordgo.Session, m *discordgo.MessageCreate) {
-		go handleMessage(s, m)
+		go handler.HandleMessage(s, m)
 	})
 
 	dg.AddHandler(func(s *discordgo.Session, _ *discordgo.Ready) {
@@ -92,8 +94,8 @@ func main() {
 
 	for _, guild := range dg.State.Guilds {
 		log.Printf("Loading commands for %s", guild.ID)
-		registerCommands := make([]*discordgo.ApplicationCommand, len(commands))
-		for i, command := range commands {
+		registerCommands := make([]*discordgo.ApplicationCommand, len(config.Commands))
+		for i, command := range config.Commands {
 			cmd, err := dg.ApplicationCommandCreate(dg.State.User.ID, guild.ID, command)
 			if err != nil {
 				log.Printf("could not create '%s' command: %v", command.Name, err)
@@ -107,7 +109,7 @@ func main() {
 			log.Printf("could not get commands for guild %s: %v", guild.ID, err)
 		}
 		for _, command := range commands {
-			if _, ok := commandHandlers[command.Name]; !ok {
+			if _, ok := handler.Commands[command.Name]; !ok {
 				err := dg.ApplicationCommandDelete(dg.State.User.ID, guild.ID, command.ID)
 				if err != nil {
 					log.Printf("could not delete '%s' command: %v", command.Name, err)

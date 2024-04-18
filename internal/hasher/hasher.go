@@ -286,7 +286,7 @@ func uniqueHashResults(results []hashResult) []hashResult {
 }
 
 // FindSnails finds snail messages in the provided results and generates a formatted message content.
-func FindSnails(i *discordgo.InteractionCreate, message *discordgo.Message) string {
+func FindSnails(guildID string, message *discordgo.Message) string {
 	isSnail, results := checkInHashes(message)
 	var messageContent string
 	// keep ony unique results so we don't have any duplicates
@@ -299,7 +299,7 @@ func FindSnails(i *discordgo.InteractionCreate, message *discordgo.Message) stri
 				continue
 			}
 			timestamp := result.message.Timestamp.UTC().Format("2006-01-02")
-			messageContent += fmt.Sprintf("%dd: %s: Snail of %s! %s\n", result.distance, timestamp, result.message.Author.Username, utility.LinkFromIMessage(i, result.message))
+			messageContent += fmt.Sprintf("%dd: %s: Snail of %s! %s\n", result.distance, timestamp, result.message.Author.Username, utility.LinkFromIMessage(guildID, result.message))
 		}
 	}
 
