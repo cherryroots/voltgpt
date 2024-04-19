@@ -223,7 +223,7 @@ var Commands = map[string]func(s *discordgo.Session, i *discordgo.InteractionCre
 		ant.AppendMessage(anthropic.RoleAssistant, content, &chatMessages)
 
 		cache = utility.GetMessagesBefore(s, m.ChannelID, 100, m.ID)
-		ant.PrependReplyMessages(s, m, cache, &chatMessages)
+		ant.PrependReplyMessages(s, m.Member, m, cache, &chatMessages)
 
 		ant.StreamMessageResponse(s, m, chatMessages, m)
 	},

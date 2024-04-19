@@ -8,7 +8,7 @@ import (
 	ant "voltgpt/internal/anthropic"
 	"voltgpt/internal/config"
 	"voltgpt/internal/hasher"
-	oai "voltgpt/internal/openai"
+	"voltgpt/internal/openai"
 	"voltgpt/internal/utility"
 
 	"github.com/bwmarrin/discordgo"
@@ -79,10 +79,16 @@ func HandleMessage(s *discordgo.Session, m *discordgo.MessageCreate) {
 		// Clean and prepare message content
 		m.Message = utility.CleanMessage(s, m.Message)
 		images, _ := utility.GetMessageMediaURL(m.Message)
+
+		var transcript string
+		if utility.HasAccessRole(m.Message.Member) {
+			transcript = openai.GetTranscript(s, m.Message)
+		}
+
 		content := config.RequestContent{
-			Text: fmt.Sprintf("%s: %s %s %s %s",
+			Text: fmt.Sprintf("%s: %s\n %s\n %s\n %s",
 				m.Author.Username,
-				oai.GetTranscript(s, m.Message),
+				transcript,
 				utility.AttachmentText(m.Message),
 				utility.EmbedText(m.Message),
 				m.Content,
@@ -95,7 +101,7 @@ func HandleMessage(s *discordgo.Session, m *discordgo.MessageCreate) {
 
 		// Prepend reply messages to chat messages if applicable
 		if isReply {
-			ant.PrependReplyMessages(s, m.Message, cache, &chatMessages)
+			ant.PrependReplyMessages(s, m.Message.Member, m.Message, cache, &chatMessages)
 			ant.PrependUserMessagePlaceholder(&chatMessages)
 		}
 

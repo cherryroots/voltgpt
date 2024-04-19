@@ -408,7 +408,7 @@ func createMessage(role string, content config.RequestContent) []anthropic.Messa
 // The function also cleans and prepares the reply message content and determines
 // the role of the reply message. Finally, it creates and prepends an anthropic
 // message with the determined role and content to the chatMessages.
-func PrependReplyMessages(s *discordgo.Session, message *discordgo.Message, cache []*discordgo.Message, chatMessages *[]anthropic.Message) {
+func PrependReplyMessages(s *discordgo.Session, originMember *discordgo.Member, message *discordgo.Message, cache []*discordgo.Message, chatMessages *[]anthropic.Message) {
 	// Get the referenced message
 	referencedMessage := getReferencedMessage(s, message, cache)
 	if referencedMessage == nil {
@@ -418,9 +418,13 @@ func PrependReplyMessages(s *discordgo.Session, message *discordgo.Message, cach
 	// Clean and prepare the reply message content
 	replyMessage := utility.CleanMessage(s, referencedMessage)
 	images, _ := utility.GetMessageMediaURL(replyMessage)
+	var transcript string
+	if utility.HasAccessRole(originMember) {
+		transcript = openai.GetTranscript(s, replyMessage)
+	}
 	replyContent := config.RequestContent{
-		Text: fmt.Sprintf("%s %s %s %s",
-			openai.GetTranscript(s, replyMessage),
+		Text: fmt.Sprintf("%s\n %s\n %s\n %s",
+			transcript,
 			utility.AttachmentText(replyMessage),
 			utility.EmbedText(replyMessage),
 			replyMessage.Content,
@@ -439,7 +443,7 @@ func PrependReplyMessages(s *discordgo.Session, message *discordgo.Message, cach
 
 	// Recursively process the referenced message if it's a reply
 	if replyMessage.Type == discordgo.MessageTypeReply {
-		PrependReplyMessages(s, referencedMessage, cache, chatMessages)
+		PrependReplyMessages(s, originMember, referencedMessage, cache, chatMessages)
 	}
 }
 

@@ -16,6 +16,11 @@ type RequestContent struct {
 var (
 	// Admins is the list of admins.
 	Admins = []string{"102087943627243520", "123116664207179777", "95681688914366464"}
+	// AccessRole is the role to run restricted commands.
+	AccessRole = discordgo.Role{
+		ID:   "569317750833545237",
+		Name: "babes",
+	}
 	// DefaultTemp is the default temperature.
 	DefaultTemp float32 = 0.7
 	// DefaultOAIModel is the default model for OpenAI.

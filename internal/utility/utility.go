@@ -14,14 +14,24 @@ import (
 
 	"github.com/bwmarrin/discordgo"
 
+	"voltgpt/internal/config"
 	"voltgpt/internal/discord"
 )
 
 // IsAdmin checks if the user with the given ID is an admin.
 func IsAdmin(id string) bool {
-	admins := []string{"102087943627243520", "123116664207179777", "95681688914366464"}
-	for _, admin := range admins {
+	for _, admin := range config.Admins {
 		if admin == id {
+			return true
+		}
+	}
+	return false
+}
+
+// HasAccessRole checks if the member has the access role.
+func HasAccessRole(m *discordgo.Member) bool {
+	for _, role := range m.Roles {
+		if role == config.AccessRole.ID {
 			return true
 		}
 	}
