@@ -154,7 +154,7 @@ var Commands = map[string]func(s *discordgo.Session, i *discordgo.InteractionCre
 
 		message := i.ApplicationCommandData().Resolved.Messages[i.ApplicationCommandData().TargetID]
 
-		messageContent := hasher.FindSnails(i.GuildID, message)
+		messageContent := hasher.FindSnails(i.GuildID, message, 8)
 
 		if messageContent == "" {
 			messageContent = "Fresh Content!"

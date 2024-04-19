@@ -26,7 +26,7 @@ func HandleMessage(s *discordgo.Session, m *discordgo.MessageCreate) {
 			return
 		}
 
-		snails := hasher.FindSnails(m.GuildID, fetchedMessage)
+		snails := hasher.FindSnails(m.GuildID, fetchedMessage, 1)
 		if snails != "" {
 			s.MessageReactionAdd(m.ChannelID, m.Message.ID, "pensivesnail:908355170667212810")
 		}

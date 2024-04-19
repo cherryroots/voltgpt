@@ -232,7 +232,8 @@ func olderHash(hash string, message *discordgo.Message) bool {
 }
 
 // checkInHashes checks for matching hashes in the hashStore map based on the message content.
-func checkInHashes(m *discordgo.Message) (bool, []hashResult) {
+// the threshold parameter specifies the maximum distance between the hashes and is inclusive.
+func checkInHashes(m *discordgo.Message, threshold int) (bool, []hashResult) {
 	var matchedMessages []hashResult
 	messageHashes, _ := HashAttachments(m, false)
 	hashStore.RLock()
@@ -243,7 +244,7 @@ func checkInHashes(m *discordgo.Message) (bool, []hashResult) {
 		for _, messageHash := range messageHashes {
 			hash2 := stringToHash(messageHash)
 			distance, _ := hash1.Distance(hash2)
-			if distance <= 10 {
+			if distance <= threshold {
 				matchedMessages = append(matchedMessages, hashResult{distance, readHash(hashes, false)})
 			}
 		}
@@ -286,8 +287,9 @@ func uniqueHashResults(results []hashResult) []hashResult {
 }
 
 // FindSnails finds snail messages in the provided results and generates a formatted message content.
-func FindSnails(guildID string, message *discordgo.Message) string {
-	isSnail, results := checkInHashes(message)
+// The threshold value is inclusive
+func FindSnails(guildID string, message *discordgo.Message, threshold int) string {
+	isSnail, results := checkInHashes(message, threshold)
 	var messageContent string
 	// keep ony unique results so we don't have any duplicates
 	if isSnail {
