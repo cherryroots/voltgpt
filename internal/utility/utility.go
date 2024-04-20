@@ -428,7 +428,7 @@ func HasVideoURL(m *discordgo.Message) bool {
 	return false
 }
 
-// urlToExt returns the extension of a URL
+// urlToExt returns the extension of a URL including the leading dot
 func urlToExt(urlStr string) (string, error) {
 	parsedURL, err := url.Parse(urlStr)
 	if err != nil {
@@ -528,6 +528,20 @@ func MatchVideoWebsites(urlStr string) bool {
 
 	for _, r := range urlRegexes {
 		if r.MatchString(urlStr) {
+			return true
+		}
+	}
+	return false
+}
+
+// HasExtension checks if a URL has an extension
+func HasExtension(URL string, extensions []string) bool {
+	if extensions == nil {
+		return false
+	}
+	for _, extension := range extensions {
+		urlExt, _ := urlToExt(URL)
+		if urlExt == extension {
 			return true
 		}
 	}

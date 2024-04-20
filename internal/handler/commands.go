@@ -115,7 +115,8 @@ var Commands = map[string]func(s *discordgo.Session, i *discordgo.InteractionCre
 				for _, message := range messages {
 					if utility.HasImageURL(message) || utility.HasVideoURL(message) {
 						var count int
-						_, count = hasher.HashAttachments(message, true)
+						options := hasher.HashOptions{Store: true}
+						_, count = hasher.HashAttachments(message, options)
 						hashCount += count
 					}
 				}
@@ -154,7 +155,9 @@ var Commands = map[string]func(s *discordgo.Session, i *discordgo.InteractionCre
 
 		message := i.ApplicationCommandData().Resolved.Messages[i.ApplicationCommandData().TargetID]
 
-		messageContent := hasher.FindSnails(i.GuildID, message, 8)
+		options := hasher.HashOptions{Threshold: 8}
+
+		messageContent := hasher.FindSnails(i.GuildID, message, options)
 
 		if messageContent == "" {
 			messageContent = "Fresh Content!"
@@ -173,7 +176,8 @@ var Commands = map[string]func(s *discordgo.Session, i *discordgo.InteractionCre
 		var count int
 
 		if utility.HasImageURL(message) || utility.HasVideoURL(message) {
-			_, count = hasher.HashAttachments(message, true)
+			options := hasher.HashOptions{Store: true}
+			_, count = hasher.HashAttachments(message, options)
 		}
 		_, err := discord.SendFollowup(s, i, fmt.Sprintf("Hashed: %d", count))
 		if err != nil {

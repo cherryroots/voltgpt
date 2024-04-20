@@ -42,6 +42,13 @@ type hashResult struct {
 	message  *discordgo.Message
 }
 
+// HashOptions represents the options for the CheckHash function.
+type HashOptions struct {
+	Store            bool
+	Threshold        int
+	IgnoreExtensions []string
+}
+
 // WriteToFile writes the hashStore content to a file named "imagehashes.gob".
 //
 // It checks if the file exists, creates a new file if it doesn't, encodes the hashStore content using gob,
@@ -117,13 +124,16 @@ func TotalHashes() int {
 }
 
 // HashAttachments hashes the attachments of a Discord message and stores the hashes if specified.
-func HashAttachments(m *discordgo.Message, store bool) ([]string, int) {
+func HashAttachments(m *discordgo.Message, options HashOptions) ([]string, int) {
 	images, videos := utility.GetMessageMediaURL(m)
 	allAttachments := append(images, videos...)
 	var hashes []string
 	var count int
 
 	for _, attachment := range allAttachments {
+		if utility.HasExtension(attachment, options.IgnoreExtensions) {
+			continue
+		}
 		var img image.Image
 
 		if utility.IsVideoURL(attachment) {
@@ -158,7 +168,7 @@ func HashAttachments(m *discordgo.Message, store bool) ([]string, int) {
 
 		hashString := hash.ToString()
 
-		if store && (!checkHash(hashString, true) || olderHash(hashString, m)) {
+		if options.Store && (!checkHash(hashString, true) || olderHash(hashString, m)) {
 			writeHash(hashString, m, true)
 			count++
 			log.Printf("Stored hash: %s", hashString)
@@ -233,9 +243,9 @@ func olderHash(hash string, message *discordgo.Message) bool {
 
 // checkInHashes checks for matching hashes in the hashStore map based on the message content.
 // the threshold parameter specifies the maximum distance between the hashes and is inclusive.
-func checkInHashes(m *discordgo.Message, threshold int) (bool, []hashResult) {
+func checkInHashes(m *discordgo.Message, options HashOptions) (bool, []hashResult) {
 	var matchedMessages []hashResult
-	messageHashes, _ := HashAttachments(m, false)
+	messageHashes, _ := HashAttachments(m, options)
 	hashStore.RLock()
 	defer hashStore.RUnlock()
 	// copy the map
@@ -244,7 +254,7 @@ func checkInHashes(m *discordgo.Message, threshold int) (bool, []hashResult) {
 		for _, messageHash := range messageHashes {
 			hash2 := stringToHash(messageHash)
 			distance, _ := hash1.Distance(hash2)
-			if distance <= threshold {
+			if distance <= options.Threshold {
 				matchedMessages = append(matchedMessages, hashResult{distance, readHash(hashes, false)})
 			}
 		}
@@ -288,8 +298,8 @@ func uniqueHashResults(results []hashResult) []hashResult {
 
 // FindSnails finds snail messages in the provided results and generates a formatted message content.
 // The threshold value is inclusive
-func FindSnails(guildID string, message *discordgo.Message, threshold int) string {
-	isSnail, results := checkInHashes(message, threshold)
+func FindSnails(guildID string, message *discordgo.Message, options HashOptions) string {
+	isSnail, results := checkInHashes(message, options)
 	var messageContent string
 	// keep ony unique results so we don't have any duplicates
 	if isSnail {
