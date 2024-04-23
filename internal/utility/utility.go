@@ -362,7 +362,7 @@ func EmbedText(m *discordgo.Message) (text string) {
 		}
 	}
 
-	return strings.Join(embedStrings, "\n")
+	return strings.Join(embedStrings, "\n") + "\n"
 }
 
 // HasImageURL checks if a message has an image
@@ -560,6 +560,15 @@ func MatchMultiple(input string, matches []string) bool {
 
 // ReplaceMultiple replaces multiple strings in a string
 func ReplaceMultiple(str string, oldStrings []string, newString string) string {
+	if len(oldStrings) == 0 {
+		return str
+	}
+	if len(newString) == 0 {
+		return str
+	}
+	if len(str) == 0 {
+		return str
+	}
 	for _, oldStr := range oldStrings {
 		str = strings.ReplaceAll(str, oldStr, newString)
 	}

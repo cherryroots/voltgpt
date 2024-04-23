@@ -88,7 +88,7 @@ func HandleMessage(s *discordgo.Session, m *discordgo.MessageCreate) {
 		}
 
 		content := config.RequestContent{
-			Text: fmt.Sprintf("%s: %s\n %s\n %s\n %s",
+			Text: fmt.Sprintf("%s: %s%s%s%s",
 				m.Author.Username,
 				transcript,
 				utility.AttachmentText(m.Message),

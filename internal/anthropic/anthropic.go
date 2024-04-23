@@ -61,16 +61,6 @@ func cleanInstructionsMessages(messages []anthropic.Message) []anthropic.Message
 }
 
 // instructionSwitch returns the instruction to use based on the given messages.
-//
-// It takes a slice of anthropic.Message as input and returns a config.RequestContent.
-// The function first extracts the text from the first and last messages in the input slice.
-// If the text of the first and last messages are the same, the function sets the text variable to that value.
-// Otherwise, it concatenates the text of the first and last messages with a newline in between.
-// The function then checks if the text contains the heart emoji "❤️" or "❤".
-// If it does, it returns the default instruction message.
-// If not, it attempts to extract a system message from the text using the "⚙️" or "⚙" pair delimiter.
-// If a system message is found, it returns a config.RequestContent with the trimmed system message.
-// If no system message is found, it returns the mean instruction message.
 func instructionSwitch(m []anthropic.Message) config.RequestContent {
 	var text string
 
@@ -269,7 +259,7 @@ func StreamMessageResponse(s *discordgo.Session, m *discordgo.Message, messages 
 	_, err = c.CreateMessagesStream(ctx, anthropic.MessagesStreamRequest{
 		MessagesRequest: anthropic.MessagesRequest{
 			Model:     modelSwitch(cleanInstructionsMessages(messages)),
-			System:    fmt.Sprintf("%s\n\n%s", config.InstructionMessageDefault.Text, instructionSwitchMessage.Text),
+			System:    fmt.Sprintf("System: %s\n\nInstruction message: %s", config.SystemMessageDefault.Text, instructionSwitchMessage.Text),
 			Messages:  cleanInstructionsMessages(messages),
 			MaxTokens: maxTokens,
 		},
@@ -423,7 +413,7 @@ func PrependReplyMessages(s *discordgo.Session, originMember *discordgo.Member, 
 		transcript = openai.GetTranscript(s, replyMessage)
 	}
 	replyContent := config.RequestContent{
-		Text: fmt.Sprintf("%s\n %s\n %s\n %s",
+		Text: fmt.Sprintf("%s %s %s %s",
 			transcript,
 			utility.AttachmentText(replyMessage),
 			utility.EmbedText(replyMessage),
