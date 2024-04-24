@@ -37,6 +37,15 @@ func SendFollowup(s *discordgo.Session, i *discordgo.InteractionCreate, content 
 	return msg, err
 }
 
+// SendFollowupEmbeds sends a follow-up message with embeds to a Discord interaction.
+func SendFollowupEmbeds(s *discordgo.Session, i *discordgo.InteractionCreate, embeds []*discordgo.MessageEmbed) (*discordgo.Message, error) {
+	msg, err := s.FollowupMessageCreate(i.Interaction, true, &discordgo.WebhookParams{
+		Embeds: embeds,
+	})
+
+	return msg, err
+}
+
 // SendFollowupFile sends a follow-up message with files to a Discord interaction.
 func SendFollowupFile(s *discordgo.Session, i *discordgo.InteractionCreate, content string, files []*discordgo.File) (*discordgo.Message, error) {
 	msg, err := s.FollowupMessageCreate(i.Interaction, true, &discordgo.WebhookParams{

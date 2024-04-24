@@ -27,7 +27,7 @@ func HandleMessage(s *discordgo.Session, m *discordgo.MessageCreate) {
 		}
 
 		options := hasher.HashOptions{Threshold: 1, IgnoreExtensions: []string{".gif"}}
-		snails := hasher.FindSnails(m.GuildID, fetchedMessage, options)
+		snails, _ := hasher.FindSnails(m.GuildID, fetchedMessage, options)
 		if snails != "" {
 			s.MessageReactionAdd(m.ChannelID, m.Message.ID, "pensivesnail:908355170667212810")
 		}

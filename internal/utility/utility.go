@@ -43,6 +43,32 @@ func LinkFromIMessage(guildID string, m *discordgo.Message) string {
 	return fmt.Sprintf("https://discord.com/channels/%s/%s/%s", guildID, m.ChannelID, m.ID)
 }
 
+// MessageToEmbeds converts a message to an embed.
+func MessageToEmbeds(guildID string, m *discordgo.Message, distance int) []*discordgo.MessageEmbed {
+	var embeds []*discordgo.MessageEmbed
+
+	embeds = append(embeds, &discordgo.MessageEmbed{
+		Title:       m.Author.Username,
+		Description: m.Content,
+		URL:         LinkFromIMessage(guildID, m),
+		Color:       0x2b2d31,
+		Author: &discordgo.MessageEmbedAuthor{
+			Name:    m.Author.Username,
+			IconURL: m.Author.AvatarURL(""),
+		},
+		Footer: &discordgo.MessageEmbedFooter{
+			Text: fmt.Sprintf("%d distance:", distance),
+		},
+		Timestamp: m.Timestamp.Format("2006-01-02T15:04:05Z"), // ISO8601
+	})
+
+	if len(m.Embeds) > 0 {
+		embeds = append(embeds, m.Embeds...)
+	}
+
+	return embeds
+}
+
 // SplitParagraph splits the message into two parts by either the last paragraph or the last newline.
 // If there's a code block in the first part it'll be closed, and a new one will be started in the second part.
 func SplitParagraph(message string) (firstPart string, lastPart string) {
@@ -283,8 +309,8 @@ func CheckCache(cache []*discordgo.Message, messageID string) *discordgo.Message
 
 // CleanMessage removes the bot mention and whitespace from a message
 func CleanMessage(s *discordgo.Session, message *discordgo.Message) *discordgo.Message {
-	botID := fmt.Sprintf("<@%s>", s.State.User.ID)
-	mentionRegex := regexp.MustCompile(botID)
+	botPing := fmt.Sprintf("<@%s>", s.State.User.ID)
+	mentionRegex := regexp.MustCompile(botPing)
 	message.Content = mentionRegex.ReplaceAllString(message.Content, "")
 	message.Content = strings.TrimSpace(message.Content)
 	return message

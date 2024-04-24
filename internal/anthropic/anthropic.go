@@ -73,8 +73,8 @@ func instructionSwitch(m []anthropic.Message) config.RequestContent {
 		text = fmt.Sprintf("%s\n%s", firstMessageText, lastMessageText)
 	}
 
-	if strings.Contains(text, "❤️") || strings.Contains(text, "❤") {
-		return config.InstructionMessageDefault
+	if strings.Contains(text, "💢") || strings.Contains(text, "�") {
+		return config.InstructionMessageMean
 	}
 
 	if sysMsg := utility.ExtractPairText(text, "⚙️"); sysMsg != "" {
@@ -83,7 +83,7 @@ func instructionSwitch(m []anthropic.Message) config.RequestContent {
 		return config.RequestContent{Text: strings.TrimSpace(sysMsg)}
 	}
 
-	return config.InstructionMessageMean
+	return config.InstructionMessageDefault
 }
 
 func getIntents(message string, questionType string) string {

@@ -157,10 +157,18 @@ var Commands = map[string]func(s *discordgo.Session, i *discordgo.InteractionCre
 
 		options := hasher.HashOptions{Threshold: 8}
 
-		messageContent := hasher.FindSnails(i.GuildID, message, options)
+		messageContent, embeds := hasher.FindSnails(i.GuildID, message, options)
+
+		if len(embeds) > 0 && len(embeds) < 10 {
+			_, err := discord.SendFollowupEmbeds(s, i, embeds)
+			if err != nil {
+				log.Println(err)
+			}
+			return
+		}
 
 		if messageContent == "" {
-			messageContent = "Fresh Content!"
+			messageContent = "No snails found in this message!"
 		}
 
 		_, err := discord.SendFollowup(s, i, messageContent)

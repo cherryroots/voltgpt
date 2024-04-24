@@ -19,12 +19,12 @@ import (
 	"sort"
 	"sync"
 
+	"voltgpt/internal/utility"
+
 	// Import image decoder packages for their side effects: registering decoder for webp formats.
 	_ "golang.org/x/image/webp"
 
 	ffmpeg "github.com/u2takey/ffmpeg-go"
-
-	"voltgpt/internal/utility"
 
 	"github.com/bwmarrin/discordgo"
 	"github.com/corona10/goimagehash"
@@ -298,9 +298,10 @@ func uniqueHashResults(results []hashResult) []hashResult {
 
 // FindSnails finds snail messages in the provided results and generates a formatted message content.
 // The threshold value is inclusive
-func FindSnails(guildID string, message *discordgo.Message, options HashOptions) string {
+func FindSnails(guildID string, message *discordgo.Message, options HashOptions) (string, []*discordgo.MessageEmbed) {
 	isSnail, results := checkInHashes(message, options)
 	var messageContent string
+	var embeds []*discordgo.MessageEmbed
 	// keep ony unique results so we don't have any duplicates
 	if isSnail {
 		for _, result := range uniqueHashResults(results) {
@@ -311,11 +312,12 @@ func FindSnails(guildID string, message *discordgo.Message, options HashOptions)
 				continue
 			}
 			timestamp := result.message.Timestamp.UTC().Format("2006-01-02")
+			embeds = append(embeds, utility.MessageToEmbeds(guildID, result.message, result.distance)...)
 			messageContent += fmt.Sprintf("%dd: %s: Snail of %s! %s\n", result.distance, timestamp, result.message.Author.Username, utility.LinkFromIMessage(guildID, result.message))
 		}
 	}
 
-	return messageContent
+	return messageContent, embeds
 }
 
 // getFile retrieves a file from the specified URL using an HTTP GET request.
