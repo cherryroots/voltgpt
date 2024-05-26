@@ -21,8 +21,7 @@ import (
 	"voltgpt/internal/utility"
 )
 
-func getTTSFile(message string, index string, hd bool) []*discordgo.File {
-	files := make([]*discordgo.File, 0)
+func getTTSFile(message string, index string, hd bool) *discordgo.File {
 	// OpenAI API key
 	openaiToken := os.Getenv("OPENAI_TOKEN")
 	if openaiToken == "" {
@@ -54,12 +53,12 @@ func getTTSFile(message string, index string, hd bool) []*discordgo.File {
 
 	filename := getFilenameSummary(message)
 
-	files = append(files, &discordgo.File{
+	file := &discordgo.File{
 		Name:   index + "-" + filename + ".mp3",
 		Reader: strings.NewReader(string(buf)),
-	})
+	}
 
-	return files
+	return file
 }
 
 func getFilenameSummary(message string) string {
@@ -363,30 +362,21 @@ func SplitTTS(message string, hd bool) []*discordgo.File {
 			chunk = message
 			message = ""
 		}
-		// Add chunk to messageChunks
 		messageChunks = append(messageChunks, chunk)
 	}
 
 	var wg sync.WaitGroup
-	filesChan := make(chan *discordgo.File, len(messageChunks))
 
 	for count, chunk := range messageChunks {
 		wg.Add(1)
 		go func(count int, chunk string) {
 			defer wg.Done()
-			files := getTTSFile(chunk, fmt.Sprintf("%d", count+1), hd)
-			for _, file := range files {
-				filesChan <- file
-			}
+			file := getTTSFile(chunk, fmt.Sprintf("%d", count+1), hd)
+			files = append(files, file)
 		}(count, chunk)
 	}
 
 	wg.Wait()
-	close(filesChan)
-
-	for file := range filesChan {
-		files = append(files, file)
-	}
 
 	return files
 }

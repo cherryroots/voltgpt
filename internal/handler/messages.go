@@ -2,7 +2,6 @@ package handler
 
 import (
 	"fmt"
-	"log"
 	"time"
 
 	ant "voltgpt/internal/anthropic"
@@ -24,12 +23,6 @@ func HandleMessage(s *discordgo.Session, m *discordgo.MessageCreate) {
 		fetchedMessage, _ := s.ChannelMessage(m.Message.ChannelID, m.Message.ID)
 		if fetchedMessage == nil {
 			return
-		}
-
-		options := hasher.HashOptions{Threshold: 1, IgnoreExtensions: []string{".gif"}}
-		snails, _ := hasher.FindSnails(m.GuildID, fetchedMessage, options)
-		if snails != "" {
-			s.MessageReactionAdd(m.ChannelID, m.Message.ID, "pensivesnail:908355170667212810")
 		}
 
 		if utility.HasImageURL(fetchedMessage) || utility.HasVideoURL(fetchedMessage) {
@@ -71,13 +64,6 @@ func HandleMessage(s *discordgo.Session, m *discordgo.MessageCreate) {
 
 	// Process messages containing media, mentions, and replies
 	if botMentioned || isReply {
-		// Log message details
-		if isReply {
-			log.Printf("%s reply: %s", m.Author.Username, m.Content)
-		} else {
-			log.Printf("%s mention: %s", m.Author.Username, m.Content)
-		}
-
 		// Clean and prepare message content
 		m.Message = utility.CleanMessage(s, m.Message)
 		images, _ := utility.GetMessageMediaURL(m.Message)
@@ -89,11 +75,11 @@ func HandleMessage(s *discordgo.Session, m *discordgo.MessageCreate) {
 
 		content := config.RequestContent{
 			Text: fmt.Sprintf("%s: %s%s%s%s",
-				m.Author.Username,
+				fmt.Sprintf("<username>%s</username>", m.Author.Username),
 				transcript,
 				utility.AttachmentText(m.Message),
 				utility.EmbedText(m.Message),
-				m.Content,
+				fmt.Sprintf("<message>%s</message>", m.Content),
 			),
 			URL: images,
 		}

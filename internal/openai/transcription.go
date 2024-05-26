@@ -186,7 +186,7 @@ func GetTranscript(s *discordgo.Session, message *discordgo.Message) (text strin
 		}
 		text += transcript.formatString() + "\n"
 	}
-	return text
+	return fmt.Sprintf("<transcript>%s</transcript>", text)
 }
 
 // GetTranscriptFromVideo returns the transcript of the video

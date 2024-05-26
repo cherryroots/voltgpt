@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"io"
 	"log"
-	"mime"
 	"net/http"
 	"net/url"
 	"path/filepath"
@@ -48,7 +47,7 @@ func MessageToEmbeds(guildID string, m *discordgo.Message, distance int) []*disc
 	var embeds []*discordgo.MessageEmbed
 
 	embeds = append(embeds, &discordgo.MessageEmbed{
-		Title:       m.Author.Username,
+		Title:       "Message link",
 		Description: m.Content,
 		URL:         LinkFromIMessage(guildID, m),
 		Color:       0x2b2d31,
@@ -57,7 +56,7 @@ func MessageToEmbeds(guildID string, m *discordgo.Message, distance int) []*disc
 			IconURL: m.Author.AvatarURL(""),
 		},
 		Footer: &discordgo.MessageEmbedFooter{
-			Text: fmt.Sprintf("%d distance:", distance),
+			Text: fmt.Sprintf("%dbit distance | %d attachments | %d embeds", distance, len(m.Attachments), len(m.Embeds)),
 		},
 		Timestamp: m.Timestamp.Format("2006-01-02T15:04:05Z"), // ISO8601
 	})
@@ -80,11 +79,11 @@ func SplitParagraph(message string) (firstPart string, lastPart string) {
 	lastSecondaryIndex := strings.LastIndex(message, secondarySeparator)
 	// if there's a separator in the message
 	if lastPrimaryIndex != -1 {
-		// split the message into two parts
+		// split based on the secondary separator
 		firstPart = message[:lastPrimaryIndex]
 		lastPart = message[lastPrimaryIndex+len(primarySeparator):]
 	} else if lastSecondaryIndex != -1 {
-		// split the message into two parts
+		// split based on the secondary separator
 		firstPart = message[:lastSecondaryIndex]
 		lastPart = message[lastSecondaryIndex+len(secondarySeparator):]
 
@@ -340,13 +339,7 @@ func AttachmentText(m *discordgo.Message) (text string) {
 		return ""
 	}
 	for _, attachment := range m.Attachments {
-		ext, err := urlToExt(attachment.URL)
-		if err != nil {
-			log.Printf("Error getting extension: %v", err)
-			continue
-		}
-		minetype := mime.TypeByExtension(ext)
-		if strings.HasPrefix(minetype, "text/") {
+		if strings.HasPrefix(attachment.ContentType, "text/") {
 			urls = append(urls, attachment.URL)
 		}
 	}
@@ -363,9 +356,9 @@ func AttachmentText(m *discordgo.Message) (text string) {
 			continue
 		}
 
-		text += fmt.Sprintf("Attachment %d, type '%s': %s\n\n", i+1, ext, string(bytes))
+		text += fmt.Sprintf("<attachmentID>%d</attachmentID> <attachmentType>%s</attachmentType> <attachmentText>%s</attachmentText>\n", i+1, ext, string(bytes))
 	}
-	return text
+	return fmt.Sprintf("<attachments>%s</attachments>\n", text)
 }
 
 // EmbedText returns the text from an embed
@@ -388,7 +381,9 @@ func EmbedText(m *discordgo.Message) (text string) {
 		}
 	}
 
-	return strings.Join(embedStrings, "\n") + "\n"
+	text = strings.Join(embedStrings, "\n") + "\n"
+
+	return fmt.Sprintf("<embeds>%s</embeds>\n", text)
 }
 
 // HasImageURL checks if a message has an image

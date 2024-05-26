@@ -99,20 +99,20 @@ func getIntents(message string, questionType string) string {
 		"The 'draw' intent is for when the message asks to draw, generate, or change some kind of image. " +
 		"The request has to be very specific, don't just say 'draw' if they mention the words draw, generate or change.\n " +
 		"'none' intent is for when nothing image generation related is asked.\n " +
-		"Don't include anything except the intent in the generated text under any cirmustances, and without quote marks: " + message}
+		"Don't include anything except the intent in the generated text under any cirmustances, and without quote marks or <message></message>: " + message}
 
 	ratioPrompt := config.RequestContent{Text: "What's the ratio requested in this message? Rations can be '16:9', '1:1', '21:9', '2:3', '3:2', '4:5', '5:4', '9:16', '9:21'.\n " +
 		"The '1:1' or 'none' aspect ratio is the default one, if the message doesn't ask for any other aspect ratio.\n " +
 		"The '16:9', '21:9', '2:3', '3:2', '4:5', '5:4', '9:16', '9:21' ratios are for when the message asks for a specific aspect ratio.\n " +
 		"If they ask for something like 'portrait' or 'landscape' or 'square' use the closest aspect ratio to that. \n " +
-		"Don't include anything except the aspect ratio in the generated text under any cirmustances, and without quote marks: " + message}
+		"Don't include anything except the aspect ratio in the generated text under any cirmustances, and without quote marks or <message></message>: " + message}
 
 	stylePrompt := config.RequestContent{Text: "What's the style requested in this message? Styles can be " +
 		"'3d-model', 'analog-film', 'anime', 'cinematic', 'comic-book', 'digital-art', 'enhance', 'fantasy-art', 'isometric', 'line-art', 'low-poly', " +
 		"'modeling-compound', 'neon-punk', 'origami', 'photographic', 'pixel-art', 'tile-texture'.\n " +
 		"If the message doesn't ask for any other style, 'none' is the default one, that means nothing at all.\n " +
 		"The other styles are for when the message asks for a specific style.\n " +
-		"Don't include anything except the style in the generated text under any cirmustances, and without quote marks: " + message}
+		"Don't include anything except the style in the generated text under any cirmustances, and without quote marks or <message></message>: " + message}
 
 	switch questionType {
 	case "intent":
@@ -267,7 +267,7 @@ func StreamMessageResponse(s *discordgo.Session, m *discordgo.Message, messages 
 			currentMessage = currentMessage + *data.Delta.Text
 			fullMessage = fullMessage + *data.Delta.Text
 			i++
-			if i%20 == 0 || i == 5 {
+			if i%40 == 0 || i == 5 {
 				// If the message is too long, split it into a new message
 				if len(currentMessage) > 1800 {
 					firstPart, lastPart := utility.SplitParagraph(currentMessage)
@@ -417,7 +417,7 @@ func PrependReplyMessages(s *discordgo.Session, originMember *discordgo.Member, 
 			transcript,
 			utility.AttachmentText(replyMessage),
 			utility.EmbedText(replyMessage),
-			replyMessage.Content,
+			fmt.Sprintf("<message>%s</message>", replyMessage.Content),
 		),
 		URL: images,
 	}
@@ -425,7 +425,7 @@ func PrependReplyMessages(s *discordgo.Session, originMember *discordgo.Member, 
 	// Determine the role and format the reply content accordingly
 	role := determineRole(s, replyMessage)
 	if role == anthropic.RoleUser {
-		replyContent.Text = fmt.Sprintf("%s: %s", replyMessage.Author.Username, replyContent.Text)
+		replyContent.Text = fmt.Sprintf("<username>%s</username>: %s", replyMessage.Author.Username, replyContent.Text)
 	}
 
 	// Create and prepend the anthropic message based on the role and content
