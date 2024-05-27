@@ -273,7 +273,7 @@ func getRequestMaxTokens(message []openai.ChatCompletionMessage, model string) (
 
 // NumTokensFromString returns the number of tokens in the given string
 func NumTokensFromString(s string) (numTokens int) {
-	encoding := "p50k_base"
+	encoding := "cl100k_base"
 	tkm, err := tiktoken.GetEncoding(encoding)
 	if err != nil {
 		err = fmt.Errorf("encoding for model: %v", err)

@@ -48,7 +48,7 @@ func main() {
 
 	dg, err := discordgo.New("Bot " + discordToken)
 	if err != nil {
-		log.Panic("error creating Discord session,", err)
+		log.Fatal("error creating Discord session,", err)
 		return
 	}
 
@@ -88,7 +88,7 @@ func main() {
 
 	err = dg.Open()
 	if err != nil {
-		log.Panic("error opening connection,", err)
+		log.Fatal("error opening connection,", err)
 		return
 	}
 

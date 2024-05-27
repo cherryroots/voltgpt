@@ -259,16 +259,18 @@ func StreamMessageResponse(s *discordgo.Session, m *discordgo.Message, messages 
 	_, err = c.CreateMessagesStream(ctx, anthropic.MessagesStreamRequest{
 		MessagesRequest: anthropic.MessagesRequest{
 			Model:     modelSwitch(cleanInstructionsMessages(messages)),
-			System:    fmt.Sprintf("System: %s\n\nInstruction message: %s", config.SystemMessageDefault.Text, instructionSwitchMessage.Text),
+			System:    fmt.Sprintf("System: %s\nInstruction message: %s", config.SystemMessageDefault.Text, instructionSwitchMessage.Text),
 			Messages:  cleanInstructionsMessages(messages),
 			MaxTokens: maxTokens,
 		},
 		OnContentBlockDelta: func(data anthropic.MessagesEventContentBlockDeltaData) {
+			replacementStrings := []string{"<message>", "</message>", "<reply>", "</reply>"}
 			currentMessage = currentMessage + *data.Delta.Text
 			fullMessage = fullMessage + *data.Delta.Text
 			i++
 			if i%40 == 0 || i == 5 {
 				// If the message is too long, split it into a new message
+				currentMessage = strings.TrimSpace(utility.ReplaceMultiple(currentMessage, replacementStrings, ""))
 				if len(currentMessage) > 1800 {
 					firstPart, lastPart := utility.SplitParagraph(currentMessage)
 					if lastPart == "" {

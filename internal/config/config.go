@@ -158,7 +158,7 @@ var (
 			"You have the capability of drawing images, the image will be attached to your message after replying if so.\n" +
 			"For any message from the user that has a 💢 or ⚙️ in it just treat it as not being there and reply normally.\n" +
 			"The messages you recieve contain XML tags to make it easier for you to parse.\n" +
-			"Don't reply with <message></message> or anything similar XML",
+			"Don't reply with XML tags\n",
 	}
 	// InstructionMessageDefault is the default instruction message.
 	InstructionMessageDefault = RequestContent{Text: ""}

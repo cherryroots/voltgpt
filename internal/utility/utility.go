@@ -584,9 +584,6 @@ func ReplaceMultiple(str string, oldStrings []string, newString string) string {
 	if len(oldStrings) == 0 {
 		return str
 	}
-	if len(newString) == 0 {
-		return str
-	}
 	if len(str) == 0 {
 		return str
 	}
