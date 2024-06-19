@@ -6,7 +6,7 @@ require (
 	github.com/bwmarrin/discordgo v0.28.1
 	github.com/corona10/goimagehash v1.1.0
 	github.com/joho/godotenv v1.5.1
-	github.com/liushuangls/go-anthropic/v2 v2.1.0
+	github.com/liushuangls/go-anthropic/v2 v2.2.0
 	github.com/pkoukk/tiktoken-go v0.1.7
 	github.com/sashabaranov/go-openai v1.24.1
 	github.com/u2takey/ffmpeg-go v0.5.0
@@ -14,7 +14,7 @@ require (
 )
 
 require (
-	github.com/aws/aws-sdk-go v1.53.10 // indirect
+	github.com/aws/aws-sdk-go v1.53.13 // indirect
 	github.com/dlclark/regexp2 v1.11.0 // indirect
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/gorilla/websocket v1.5.1 // indirect

@@ -23,7 +23,7 @@ var Commands = map[string]func(s *discordgo.Session, i *discordgo.InteractionCre
 		log.Printf("Received interaction: %s by %s", i.ApplicationCommandData().Name, i.Interaction.Member.User.Username)
 		discord.DeferResponse(s, i)
 
-		var prompt, negativePrompt, ratio, style string
+		var prompt, negativePrompt, ratio string
 		for _, option := range i.ApplicationCommandData().Options {
 			if option.Name == "prompt" {
 				prompt = option.StringValue()
@@ -34,9 +34,6 @@ var Commands = map[string]func(s *discordgo.Session, i *discordgo.InteractionCre
 			if option.Name == "ratio" {
 				ratio = option.StringValue()
 			}
-			if option.Name == "style" {
-				style = option.StringValue()
-			}
 		}
 		if negativePrompt == "" {
 			negativePrompt = "none"
@@ -44,11 +41,8 @@ var Commands = map[string]func(s *discordgo.Session, i *discordgo.InteractionCre
 		if ratio == "" {
 			ratio = "1:1"
 		}
-		if style == "" {
-			style = "none"
-		}
 
-		image, err := ant.DrawSAIImage(prompt, negativePrompt, ratio, style)
+		image, err := ant.DrawSAIImage(prompt, negativePrompt, ratio)
 		if err != nil {
 			log.Println(err)
 			_, err = discord.SendFollowup(s, i, err.Error())
@@ -57,7 +51,7 @@ var Commands = map[string]func(s *discordgo.Session, i *discordgo.InteractionCre
 			}
 			return
 		}
-		message := fmt.Sprintf("Prompt: %s\nNegative prompt: %s\nRatio: %s\nStyle: %s", prompt, negativePrompt, ratio, style)
+		message := fmt.Sprintf("Prompt: %s\nNegative prompt: %s\nRatio: %s\n", prompt, negativePrompt, ratio)
 		log.Printf("Drawing: %s", message)
 		_, err = discord.SendFollowupFile(s, i, message, image)
 		if err != nil {
@@ -99,25 +93,26 @@ var Commands = map[string]func(s *discordgo.Session, i *discordgo.InteractionCre
 		hashedMessages, _ := discord.SendFollowup(s, i, "Hashing messages...")
 		fetchedMessages, _ := discord.SendMessage(s, hashedMessages, outputMessage)
 
-		messsageStream := make(chan []*discordgo.Message)
+		messageChannel := make(chan []*discordgo.Message) // create a channel containing messages
+
+		// get all messages concurrently into that channel
 		if threads {
-			go utility.GetAllChannelThreadMessages(s, fetchedMessages, channel.ID, messsageStream)
+			go utility.GetAllChannelThreadMessages(s, fetchedMessages, channel.ID, messageChannel)
 		} else {
-			go utility.GetAllChannelMessages(s, fetchedMessages, channel.ID, messsageStream)
+			go utility.GetAllChannelMessages(s, fetchedMessages, channel.ID, messageChannel)
 		}
 
 		var wg sync.WaitGroup
-		for messages := range messsageStream {
+		for messages := range messageChannel { // process the messages in the channel as they're put in, each entry is batches of ~100 messages
 			wg.Add(1)
 			go func(messages []*discordgo.Message) {
 				defer wg.Done()
-				msgCount += len(messages)
+				msgCount += len(messages) // total messages being processed so far
 				for _, message := range messages {
 					if utility.HasImageURL(message) || utility.HasVideoURL(message) {
-						var count int
 						options := hasher.HashOptions{Store: true}
-						_, count = hasher.HashAttachments(message, options)
-						hashCount += count
+						_, count := hasher.HashAttachments(message, options)
+						hashCount += count // number of new hashes added to the hash store
 					}
 				}
 				_, err := discord.EditMessage(s, hashedMessages, fmt.Sprintf("Status: ongoing\nMessages processed: %d\nHashes: %d", msgCount, hashCount))
@@ -235,7 +230,7 @@ var Commands = map[string]func(s *discordgo.Session, i *discordgo.InteractionCre
 		ant.AppendMessage(anthropic.RoleAssistant, content, &chatMessages)
 
 		cache = utility.GetMessagesBefore(s, m.ChannelID, 100, m.ID)
-		ant.PrependReplyMessages(s, m.Member, m, cache, &chatMessages)
+		ant.PrependReplyMessages(s, i.Interaction.Member, m, cache, &chatMessages)
 
 		ant.StreamMessageResponse(s, m, chatMessages, m)
 	},

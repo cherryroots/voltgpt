@@ -107,20 +107,11 @@ func getIntents(message string, questionType string) string {
 		"If they ask for something like 'portrait' or 'landscape' or 'square' use the closest aspect ratio to that. \n " +
 		"Don't include anything except the aspect ratio in the generated text under any cirmustances, and without quote marks or <message></message>: " + message}
 
-	stylePrompt := config.RequestContent{Text: "What's the style requested in this message? Styles can be " +
-		"'3d-model', 'analog-film', 'anime', 'cinematic', 'comic-book', 'digital-art', 'enhance', 'fantasy-art', 'isometric', 'line-art', 'low-poly', " +
-		"'modeling-compound', 'neon-punk', 'origami', 'photographic', 'pixel-art', 'tile-texture'.\n " +
-		"If the message doesn't ask for any other style, 'none' is the default one, that means nothing at all.\n " +
-		"The other styles are for when the message asks for a specific style.\n " +
-		"Don't include anything except the style in the generated text under any cirmustances, and without quote marks or <message></message>: " + message}
-
 	switch questionType {
 	case "intent":
 		messages = createMessage(anthropic.RoleUser, intentPrompt)
 	case "ratio":
 		messages = createMessage(anthropic.RoleUser, ratioPrompt)
-	case "style":
-		messages = createMessage(anthropic.RoleUser, stylePrompt)
 	default:
 		return "none"
 	}
@@ -143,16 +134,15 @@ func getIntents(message string, questionType string) string {
 }
 
 // DrawSAIImage draws an image using Stability AI
-func DrawSAIImage(prompt string, negativePrompt string, ratio string, style string) ([]*discordgo.File, error) {
+func DrawSAIImage(prompt string, negativePrompt string, ratio string) ([]*discordgo.File, error) {
 	// Stability AI API key
 	stabilityToken := os.Getenv("STABILITY_TOKEN")
 	if stabilityToken == "" {
 		log.Fatal("STABILITY_TOKEN is not set")
 	}
 
-	url := "https://api.stability.ai/v2beta/stable-image/generate/core"
+	url := "https://api.stability.ai/v2beta/stable-image/generate/sd3"
 	ratios := []string{"16:9", "1:1", "21:9", "2:3", "3:2", "4:5", "5:4", "9:16", "9:21"}
-	styles := []string{"3d-model", "analog-film", "anime", "cinematic", "comic-book", "digital-art", "enhance", "fantasy-art", "isometric", "line-art", "low-poly", "modeling-compound", "neon-punk", "origami", "photographic", "pixel-art", "tile-texture"}
 
 	body := &bytes.Buffer{}
 	writer := multipart.NewWriter(body)
@@ -163,9 +153,6 @@ func DrawSAIImage(prompt string, negativePrompt string, ratio string, style stri
 	}
 	if utility.MatchMultiple(ratio, ratios) {
 		_ = writer.WriteField("aspect_ratio", ratio)
-	}
-	if utility.MatchMultiple(style, styles) {
-		_ = writer.WriteField("style_preset", style)
 	}
 	_ = writer.Close()
 
@@ -298,6 +285,8 @@ func StreamMessageResponse(s *discordgo.Session, m *discordgo.Message, messages 
 			}
 		},
 		OnMessageStop: func(_ anthropic.MessagesEventMessageStopData) {
+			replacementStrings := []string{"<message>", "</message>", "<reply>", "</reply>"}
+			currentMessage = strings.TrimSpace(utility.ReplaceMultiple(currentMessage, replacementStrings, ""))
 			currentMessage = strings.TrimPrefix(currentMessage, "...")
 			_, err = discord.EditMessageFile(s, msg, currentMessage, nil)
 			if err != nil {
@@ -312,12 +301,11 @@ func StreamMessageResponse(s *discordgo.Session, m *discordgo.Message, messages 
 				log.Printf("Intent: %s\n", intent)
 				if strings.ToLower(intent) == "draw" {
 					ratio := getIntents(request, "ratio")
-					style := getIntents(request, "style")
-					log.Printf("Ratio: %s, Style: %s\n", ratio, style)
+					log.Printf("Ratio: %s\n", ratio)
 					if len(request) > 4000 {
 						request = request[len(request)-4000:]
 					}
-					files, err := DrawSAIImage(fmt.Sprintf("%s\n%s", request, fullMessage), "", strings.ToLower(ratio), strings.ToLower(style))
+					files, err := DrawSAIImage(fmt.Sprintf("%s\n%s", request, fullMessage), "", strings.ToLower(ratio))
 					if err != nil {
 						discord.LogSendErrorMessage(s, m, err.Error())
 					}

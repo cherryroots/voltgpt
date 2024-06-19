@@ -9,6 +9,7 @@ import (
 	"io"
 	"log"
 	"os"
+	"sort"
 	"strings"
 	"sync"
 
@@ -21,7 +22,7 @@ import (
 	"voltgpt/internal/utility"
 )
 
-func getTTSFile(message string, index string, hd bool) *discordgo.File {
+func getTTSFile(message string, index int, hd bool) *discordgo.File {
 	// OpenAI API key
 	openaiToken := os.Getenv("OPENAI_TOKEN")
 	if openaiToken == "" {
@@ -54,7 +55,7 @@ func getTTSFile(message string, index string, hd bool) *discordgo.File {
 	filename := getFilenameSummary(message)
 
 	file := &discordgo.File{
-		Name:   index + "-" + filename + ".mp3",
+		Name:   fmt.Sprintf("%d-%s.mp3", index+1, filename),
 		Reader: strings.NewReader(string(buf)),
 	}
 
@@ -340,13 +341,15 @@ func NumTokensFromMessages(messages []openai.ChatCompletionMessage, model string
 
 // SplitTTS takes a string and a boolean flag hd to chunk up the message into parts no longer than maxLength characters separated by newlines and return a slice of discordgo.File pointers.
 func SplitTTS(message string, hd bool) []*discordgo.File {
-	// Chunk up message into maxLength character chunks separated by newlines
 	separator := "\n\n"
 	maxLength := 4000
-	var files []*discordgo.File
+	type fileIndex struct {
+		file  *discordgo.File
+		index int
+	}
+	var fileIndexes []fileIndex
 	var messageChunks []string
 
-	// Split message into chunks of up to maxLength characters
 	for len(message) > 0 {
 		var chunk string
 		if len(message) > maxLength {
@@ -371,12 +374,19 @@ func SplitTTS(message string, hd bool) []*discordgo.File {
 		wg.Add(1)
 		go func(count int, chunk string) {
 			defer wg.Done()
-			file := getTTSFile(chunk, fmt.Sprintf("%d", count+1), hd)
-			files = append(files, file)
+			file := getTTSFile(chunk, count+1, hd)
+			fileIndexes = append(fileIndexes, fileIndex{file: file, index: count + 1})
 		}(count, chunk)
 	}
 
 	wg.Wait()
 
-	return files
+	sort.Slice(fileIndexes, func(i, j int) bool { return fileIndexes[i].index < fileIndexes[j].index })
+
+	var filePointers []*discordgo.File
+	for _, file := range fileIndexes {
+		filePointers = append(filePointers, file.file)
+	}
+
+	return filePointers
 }

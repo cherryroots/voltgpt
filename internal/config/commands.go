@@ -36,12 +36,6 @@ var (
 					Description: "ratio to use",
 					Choices:     RatioChoices,
 				},
-				{
-					Type:        discordgo.ApplicationCommandOptionString,
-					Name:        "style",
-					Description: "style to use",
-					Choices:     StyleChoices,
-				},
 			},
 		},
 		{
