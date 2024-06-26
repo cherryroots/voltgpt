@@ -600,7 +600,8 @@ func ExtractPairText(text string, lookup string) string {
 	}
 	firstIndex := strings.Index(text, lookup)
 	lastIndex := strings.LastIndex(text, lookup)
-	return text[firstIndex : lastIndex+len(lookup)]
+	foundText := text[firstIndex : lastIndex+len(lookup)]
+	return strings.ReplaceAll(foundText, lookup, "")
 }
 
 // containsPair checks if a string contains a pair of strings

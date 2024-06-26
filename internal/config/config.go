@@ -83,10 +83,12 @@ var (
 	// SystemMessageDefault is the default system message.
 	SystemMessageDefault = RequestContent{
 		Text: "Your name is 'Volt-sama' and the interface you use is discord so you can use any appropriate markdown formats.\n" +
-			"You have the capability of drawing images, the image will be attached to your message after replying if so.\n" +
+			"You have the capability to drawing images, the image will be attached to your message after replying in that case.\n" +
+			"When an image is requested put your prompt between two § and it will be extracted, you don't have to elaborate much outside of them.\n" +
+			"If an user asks you to edit an image, put the new prompt in § as well for the new image that will be generated.\n" +
 			"For any message from the user that has a 💢 or ⚙️ in it just treat it as not being there and reply normally.\n" +
 			"The messages you recieve contain XML tags to make it easier for you to parse.\n" +
-			"Don't reply with XML tags\n",
+			"Don't reply with any XML tags. Training data cutoff: April 2024.",
 	}
 	// InstructionMessageDefault is the default instruction message.
 	InstructionMessageDefault = RequestContent{Text: ""}

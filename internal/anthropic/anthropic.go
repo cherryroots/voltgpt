@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"time"
 
 	"voltgpt/internal/config"
 	"voltgpt/internal/discord"
@@ -117,7 +118,7 @@ func getIntents(message string, questionType string) string {
 	}
 
 	resp, err := c.CreateMessages(ctx, anthropic.MessagesRequest{
-		Model:     anthropic.ModelClaude3Haiku20240307,
+		Model:     anthropic.ModelClaude3Dot5Sonnet20240620,
 		Messages:  messages,
 		MaxTokens: 8,
 	})
@@ -193,17 +194,6 @@ func DrawSAIImage(prompt string, negativePrompt string, ratio string) ([]*discor
 	return files, nil
 }
 
-// modelSwitch switches the model based on the number of tokens used
-func modelSwitch(messages []anthropic.Message) string {
-	usedTokens := openai.NumTokensFromString(antMessagesToString(messages))
-
-	if usedTokens > 30000 {
-		return anthropic.ModelClaude3Haiku20240307
-	}
-
-	return anthropic.ModelClaude3Dot5Sonnet20240620
-}
-
 // StreamMessageResponse streams the message response, dividing it up into multiple messsages if the discord limit is reached.
 // At the end it'll process the intent of the user message to see if it should attack an image to the last response message.
 func StreamMessageResponse(s *discordgo.Session, m *discordgo.Message, messages []anthropic.Message, refMsg *discordgo.Message) {
@@ -214,15 +204,10 @@ func StreamMessageResponse(s *discordgo.Session, m *discordgo.Message, messages 
 	c := anthropic.NewClient(token)
 	ctx := context.Background()
 
-	maxTokens, err := getRequestMaxTokens(messages, config.DefaultOAIModel)
-	if err != nil {
-		discord.LogSendErrorMessage(s, m, err.Error())
-		return
-	}
-
 	var i int
 	var currentMessage, fullMessage string
 	var msg *discordgo.Message
+	var err error
 
 	if refMsg == nil {
 		msg, err = discord.SendMessageFile(s, m, "Responding...", nil)
@@ -234,17 +219,15 @@ func StreamMessageResponse(s *discordgo.Session, m *discordgo.Message, messages 
 		currentMessage = getMessageText(messages[len(messages)-1])
 		msg = refMsg
 	}
-
-	replacementStrings := []string{"⚙️", "⚙"}
 	instructionSwitchMessage := instructionSwitch(messages)
-	instructionSwitchMessage.Text = strings.TrimSpace(utility.ReplaceMultiple(instructionSwitchMessage.Text, replacementStrings, ""))
+	currentTime := fmt.Sprintf("Current date and time in CET right now: %s", time.Now().Format("2006-01-02 15:04:05"))
 
 	_, err = c.CreateMessagesStream(ctx, anthropic.MessagesStreamRequest{
 		MessagesRequest: anthropic.MessagesRequest{
-			Model:     modelSwitch(cleanInstructionsMessages(messages)),
-			System:    fmt.Sprintf("System: %s\nInstruction message: %s", config.SystemMessageDefault.Text, instructionSwitchMessage.Text),
+			Model:     anthropic.ModelClaude3Dot5Sonnet20240620,
+			System:    fmt.Sprintf("System: %s %s\n\nInstruction message: %s", config.SystemMessageDefault.Text, currentTime, instructionSwitchMessage.Text),
 			Messages:  cleanInstructionsMessages(messages),
-			MaxTokens: maxTokens,
+			MaxTokens: 4096,
 		},
 		OnContentBlockDelta: func(data anthropic.MessagesEventContentBlockDeltaData) {
 			replacementStrings := []string{"<message>", "</message>", "<reply>", "</reply>"}
@@ -271,7 +254,7 @@ func StreamMessageResponse(s *discordgo.Session, m *discordgo.Message, messages 
 			}
 			if strings.HasPrefix(currentMessage, "...") {
 				currentMessage = strings.TrimPrefix(currentMessage, "...")
-				_, err = discord.EditMessageFile(s, msg, currentMessage, nil)
+				_, err = discord.EditMessage(s, msg, currentMessage)
 				if err != nil {
 					discord.LogSendErrorMessage(s, m, err.Error())
 					return
@@ -281,19 +264,18 @@ func StreamMessageResponse(s *discordgo.Session, m *discordgo.Message, messages 
 				request := getMessageText(messages[len(messages)-1])
 				request = request[strings.Index(request, ":")+1:]
 				request = strings.TrimSpace(request)
+				prompt := utility.ExtractPairText(fullMessage, "§")
+				if prompt == "" {
+					return
+				}
 				intent := getIntents(request, "intent")
-				log.Printf("Intent: %s\n", intent)
 				if strings.ToLower(intent) == "draw" {
 					ratio := getIntents(request, "ratio")
-					log.Printf("Ratio: %s\n", ratio)
-					if len(request) > 4000 {
-						request = request[len(request)-4000:]
-					}
-					files, err := DrawSAIImage(fmt.Sprintf("%s\n%s", request, fullMessage), "", strings.ToLower(ratio))
+					files, err := DrawSAIImage(prompt, "", strings.ToLower(ratio))
 					if err != nil {
 						discord.LogSendErrorMessage(s, m, err.Error())
 					}
-					_, err = discord.EditMessageFile(s, msg, currentMessage, files)
+					msg, err = discord.EditMessageFile(s, msg, currentMessage, files)
 					if err != nil {
 						discord.LogSendErrorMessage(s, m, err.Error())
 						return
@@ -322,7 +304,7 @@ func splitSend(s *discordgo.Session, m *discordgo.Message, msg *discordgo.Messag
 		if lastPart == "" {
 			lastPart = "..."
 		}
-		_, err := discord.EditMessageFile(s, msg, firstPart, nil)
+		_, err := discord.EditMessage(s, msg, firstPart)
 		if err != nil {
 			return "", msg, err
 		}
@@ -332,7 +314,7 @@ func splitSend(s *discordgo.Session, m *discordgo.Message, msg *discordgo.Messag
 		}
 		currentMessage = lastPart
 	} else {
-		_, err := discord.EditMessageFile(s, msg, currentMessage, nil)
+		_, err := discord.EditMessage(s, msg, currentMessage)
 		if err != nil {
 			discord.LogSendErrorMessage(s, m, err.Error())
 			return "", msg, err
@@ -501,32 +483,4 @@ func PrependUserMessagePlaceholder(messages *[]anthropic.Message) {
 	if len(*messages) > 0 && (*messages)[0].Role == anthropic.RoleAssistant {
 		PrependMessage(anthropic.RoleUser, config.RequestContent{Text: "PLACEHOLDER MESSAGE - IGNORE"}, messages)
 	}
-}
-
-func antMessagesToString(messages []anthropic.Message) string {
-	var sb strings.Builder
-	for _, message := range messages {
-		text := getMessageText(message)
-		sb.WriteString(fmt.Sprintf("Role: %s: %s\n", message.Role, text))
-	}
-	return sb.String()
-}
-
-func getRequestMaxTokens(messages []anthropic.Message, model string) (maxTokens int, err error) {
-	maxTokens = openai.GetMaxModelTokens(model)
-	usedTokens := openai.NumTokensFromString(antMessagesToString(messages))
-
-	availableTokens := maxTokens - usedTokens
-
-	if availableTokens < 0 {
-		availableTokens = 0
-		err = fmt.Errorf("not enough tokens")
-		return availableTokens, err
-	}
-
-	if openai.IsOutputLimited(model) {
-		availableTokens = 4096
-	}
-
-	return availableTokens, nil
 }

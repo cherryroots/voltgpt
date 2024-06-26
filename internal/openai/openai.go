@@ -14,7 +14,6 @@ import (
 	"sync"
 
 	"github.com/bwmarrin/discordgo"
-	"github.com/liushuangls/go-anthropic/v2"
 	"github.com/pkoukk/tiktoken-go"
 	"github.com/sashabaranov/go-openai"
 
@@ -209,8 +208,6 @@ func messagesToString(messages []openai.ChatCompletionMessage) string {
 // GetMaxModelTokens returns the max tokens for the given model
 func GetMaxModelTokens(model string) (maxTokens int) {
 	switch model {
-	case anthropic.ModelClaude3Haiku20240307, anthropic.ModelClaude3Sonnet20240229, anthropic.ModelClaude3Opus20240229:
-		maxTokens = 200000
 	case openai.GPT4:
 		maxTokens = 8192
 	case openai.GPT4Turbo:
@@ -226,7 +223,7 @@ func GetMaxModelTokens(model string) (maxTokens int) {
 // IsOutputLimited returns true if the model is limited to 4096 tokens
 func IsOutputLimited(model string) bool {
 	switch model {
-	case openai.GPT4Turbo, openai.GPT3Dot5Turbo0125, anthropic.ModelClaude3Haiku20240307, anthropic.ModelClaude3Sonnet20240229, anthropic.ModelClaude3Opus20240229:
+	case openai.GPT4Turbo, openai.GPT3Dot5Turbo0125:
 		return true
 	default:
 		return false
