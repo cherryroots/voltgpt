@@ -87,10 +87,10 @@ func SplitParagraph(message string) (firstPart string, lastPart string) {
 		firstPart = message[:lastSecondaryIndex]
 		lastPart = message[lastSecondaryIndex+len(secondarySeparator):]
 
-	} else {
-		// if there's no separator, return the whole message, and start the next one
-		firstPart = message
-		lastPart = ""
+	}
+	if len(firstPart) > 1999 {
+		firstPart = message[:1999]
+		lastPart = message[1999:]
 	}
 
 	// if there's a code block in the first part that's not closed

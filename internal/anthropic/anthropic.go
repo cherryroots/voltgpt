@@ -197,15 +197,11 @@ func DrawSAIImage(prompt string, negativePrompt string, ratio string) ([]*discor
 func modelSwitch(messages []anthropic.Message) string {
 	usedTokens := openai.NumTokensFromString(antMessagesToString(messages))
 
-	if usedTokens > 20000 {
+	if usedTokens > 30000 {
 		return anthropic.ModelClaude3Haiku20240307
 	}
 
-	if usedTokens > 5000 {
-		return anthropic.ModelClaude3Sonnet20240229
-	}
-
-	return anthropic.ModelClaude3Opus20240229
+	return anthropic.ModelClaude3Dot5Sonnet20240620
 }
 
 // StreamMessageResponse streams the message response, dividing it up into multiple messsages if the discord limit is reached.
@@ -255,43 +251,31 @@ func StreamMessageResponse(s *discordgo.Session, m *discordgo.Message, messages 
 			currentMessage = currentMessage + *data.Delta.Text
 			fullMessage = fullMessage + *data.Delta.Text
 			i++
-			if i%40 == 0 || i == 5 {
+			if i%25 == 0 || i == 5 {
 				// If the message is too long, split it into a new message
 				currentMessage = strings.TrimSpace(utility.ReplaceMultiple(currentMessage, replacementStrings, ""))
-				if len(currentMessage) > 1800 {
-					firstPart, lastPart := utility.SplitParagraph(currentMessage)
-					if lastPart == "" {
-						lastPart = "..."
-					}
-
-					_, err = discord.EditMessageFile(s, msg, firstPart, nil)
-					if err != nil {
-						discord.LogSendErrorMessage(s, m, err.Error())
-						return
-					}
-					msg, err = discord.SendMessageFile(s, msg, lastPart, nil)
-					if err != nil {
-						discord.LogSendErrorMessage(s, m, err.Error())
-						return
-					}
-					currentMessage = lastPart
-				} else {
-					_, err = discord.EditMessageFile(s, msg, currentMessage, nil)
-					if err != nil {
-						discord.LogSendErrorMessage(s, m, err.Error())
-						return
-					}
+				currentMessage, msg, err = splitSend(s, m, msg, currentMessage)
+				if err != nil {
+					discord.LogSendErrorMessage(s, m, err.Error())
+					return
 				}
 			}
 		},
 		OnMessageStop: func(_ anthropic.MessagesEventMessageStopData) {
 			replacementStrings := []string{"<message>", "</message>", "<reply>", "</reply>"}
 			currentMessage = strings.TrimSpace(utility.ReplaceMultiple(currentMessage, replacementStrings, ""))
-			currentMessage = strings.TrimPrefix(currentMessage, "...")
-			_, err = discord.EditMessageFile(s, msg, currentMessage, nil)
+			currentMessage, msg, err = splitSend(s, m, msg, currentMessage)
 			if err != nil {
 				discord.LogSendErrorMessage(s, m, err.Error())
 				return
+			}
+			if strings.HasPrefix(currentMessage, "...") {
+				currentMessage = strings.TrimPrefix(currentMessage, "...")
+				_, err = discord.EditMessageFile(s, msg, currentMessage, nil)
+				if err != nil {
+					discord.LogSendErrorMessage(s, m, err.Error())
+					return
+				}
 			}
 			go func() {
 				request := getMessageText(messages[len(messages)-1])
@@ -330,6 +314,31 @@ func StreamMessageResponse(s *discordgo.Session, m *discordgo.Message, messages 
 		}
 		return
 	}
+}
+
+func splitSend(s *discordgo.Session, m *discordgo.Message, msg *discordgo.Message, currentMessage string) (string, *discordgo.Message, error) {
+	if len(currentMessage) > 1900 {
+		firstPart, lastPart := utility.SplitParagraph(currentMessage)
+		if lastPart == "" {
+			lastPart = "..."
+		}
+		_, err := discord.EditMessageFile(s, msg, firstPart, nil)
+		if err != nil {
+			return "", msg, err
+		}
+		msg, err = discord.SendMessageFile(s, msg, lastPart, nil)
+		if err != nil {
+			return "", msg, err
+		}
+		currentMessage = lastPart
+	} else {
+		_, err := discord.EditMessageFile(s, msg, currentMessage, nil)
+		if err != nil {
+			discord.LogSendErrorMessage(s, m, err.Error())
+			return "", msg, err
+		}
+	}
+	return currentMessage, msg, nil
 }
 
 // AppendMessage adds a new message to the end of the messages list
