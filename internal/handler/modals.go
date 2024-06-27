@@ -12,7 +12,6 @@ import (
 	"github.com/bwmarrin/discordgo"
 )
 
-// Modals is a map of modal IDs to their corresponding handler.
 var Modals = map[string]func(s *discordgo.Session, i *discordgo.InteractionCreate){
 	"modal_bet": func(s *discordgo.Session, i *discordgo.InteractionCreate) {
 		log.Printf("Received interaction: %s by %s", i.ModalSubmitData().CustomID, i.Interaction.Member.User.Username)

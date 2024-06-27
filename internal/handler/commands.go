@@ -95,7 +95,6 @@ var Commands = map[string]func(s *discordgo.Session, i *discordgo.InteractionCre
 
 		messageChannel := make(chan []*discordgo.Message) // create a channel containing messages
 
-		// get all messages concurrently into that channel
 		if threads {
 			go utility.GetAllChannelThreadMessages(s, fetchedMessages, channel.ID, messageChannel)
 		} else {
@@ -103,16 +102,16 @@ var Commands = map[string]func(s *discordgo.Session, i *discordgo.InteractionCre
 		}
 
 		var wg sync.WaitGroup
-		for messages := range messageChannel { // process the messages in the channel as they're put in, each entry is batches of ~100 messages
+		for messages := range messageChannel {
 			wg.Add(1)
 			go func(messages []*discordgo.Message) {
 				defer wg.Done()
-				msgCount += len(messages) // total messages being processed so far
+				msgCount += len(messages)
 				for _, message := range messages {
 					if utility.HasImageURL(message) || utility.HasVideoURL(message) {
 						options := hasher.HashOptions{Store: true}
 						_, count := hasher.HashAttachments(message, options)
-						hashCount += count // number of new hashes added to the hash store
+						hashCount += count
 					}
 				}
 				_, err := discord.EditMessage(s, hashedMessages, fmt.Sprintf("Status: ongoing\nMessages processed: %d\nHashes: %d", msgCount, hashCount))

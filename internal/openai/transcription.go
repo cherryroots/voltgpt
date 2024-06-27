@@ -19,7 +19,6 @@ import (
 	"github.com/sashabaranov/go-openai"
 )
 
-// TranscriptCache is a map of transcriptions.
 var TranscriptCache = struct {
 	sync.RWMutex
 	t map[string]Transcript
@@ -27,7 +26,6 @@ var TranscriptCache = struct {
 	t: make(map[string]Transcript),
 }
 
-// Transcript is a struct that contains the content URL and the response from the OpenAI API.
 type Transcript struct {
 	ContentURL *url.URL
 	Response   openai.AudioResponse
@@ -46,7 +44,6 @@ func (t Transcript) formatString() string {
 	return fmt.Sprintf("Transcription for %s: %s", t.String(), t.Response.Text)
 }
 
-// WriteToFile writes the global variable TranscriptCache to a file named "transcripts.gob".
 func WriteToFile() {
 	if _, err := os.Stat("transcripts.gob"); os.IsNotExist(err) {
 		file, err := os.Create("transcripts.gob")
@@ -83,7 +80,6 @@ func WriteToFile() {
 	}
 }
 
-// ReadFromFile reads data from a file named "transcripts.gob" and decodes it into the global variable TranscriptCache.
 func ReadFromFile() {
 	dataFile, err := os.Open("transcripts.gob")
 	if err != nil {
@@ -125,14 +121,12 @@ func checkTranscriptCache(contentURL string, locking bool) bool {
 	return ok
 }
 
-// TotalTranscripts returns the total number of transcripts
 func TotalTranscripts() int {
 	TranscriptCache.RLock()
 	defer TranscriptCache.RUnlock()
 	return len(TranscriptCache.t)
 }
 
-// GetTranscript returns the transcript of the message
 func GetTranscript(s *discordgo.Session, message *discordgo.Message) (text string) {
 	regex := regexp.MustCompile(`(?m)<?(https?://[^\s<>]+)>?\b`)
 	result := regex.FindAllStringSubmatch(message.Content, -1)
@@ -189,9 +183,7 @@ func GetTranscript(s *discordgo.Session, message *discordgo.Message) (text strin
 	return fmt.Sprintf("<transcript>%s</transcript>", text)
 }
 
-// GetTranscriptFromVideo returns the transcript of the video
 func GetTranscriptFromVideo(videoURL string, downloadType string) (Transcript, error) {
-	// Check if the video is already in the cache
 	if checkTranscriptCache(videoURL, false) {
 		transcript := readTranscriptCache(videoURL, false)
 		return transcript, nil
@@ -201,7 +193,6 @@ func GetTranscriptFromVideo(videoURL string, downloadType string) (Transcript, e
 	if openaiToken == "" {
 		log.Fatal("OPENAI_TOKEN is not set")
 	}
-	// Create a temp dir to store the video
 	dir, err := os.MkdirTemp("", "video-*")
 	if err != nil {
 		return Transcript{}, err
@@ -209,26 +200,21 @@ func GetTranscriptFromVideo(videoURL string, downloadType string) (Transcript, e
 	defer os.RemoveAll(dir)
 
 	if downloadType == "ytdlp" {
-		// Download the audio using ytdlp
 		cmd := exec.Command("yt-dlp", "-f", "bestaudio[ext=m4a]", "-x", "-o", fmt.Sprintf("%s/audio.%%(ext)s", dir), videoURL)
 		if err := cmd.Run(); err != nil {
 			return Transcript{}, err
 		}
 	} else {
-		// Download the audio using ffmpeg to .m4a
 		cmd := exec.Command("ffmpeg", "-i", videoURL, "-vn", "-acodec", "copy", fmt.Sprintf("%s/audio.m4a", dir))
 		if err := cmd.Run(); err != nil {
 			return Transcript{}, err
 		}
 	}
 
-	// Get the video path
 	videoPath := fmt.Sprintf("%s/audio.m4a", dir)
 
-	// Create the whisper client
 	client := openai.NewClient(openaiToken)
 
-	// Upload the video to whisper
 	resp, err := client.CreateTranscription(
 		context.Background(),
 		openai.AudioRequest{

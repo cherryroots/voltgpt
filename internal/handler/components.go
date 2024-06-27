@@ -13,7 +13,6 @@ import (
 	"github.com/bwmarrin/discordgo"
 )
 
-// Components is a map of component IDs to their corresponding handler.
 var Components = map[string]func(s *discordgo.Session, i *discordgo.InteractionCreate){
 	"button_refresh": func(s *discordgo.Session, i *discordgo.InteractionCreate) {
 		log.Printf("Received interaction: %s by %s", i.MessageComponentData().CustomID, i.Interaction.Member.User.Username)

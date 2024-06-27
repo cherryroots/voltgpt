@@ -42,17 +42,12 @@ type hashResult struct {
 	message  *discordgo.Message
 }
 
-// HashOptions represents the options for the CheckHash function.
 type HashOptions struct {
 	Store            bool
 	Threshold        int
 	IgnoreExtensions []string
 }
 
-// WriteToFile writes the hashStore content to a file named "imagehashes.gob".
-//
-// It checks if the file exists, creates a new file if it doesn't, encodes the hashStore content using gob,
-// and writes it to the file. It also handles errors that may occur during file operations.
 func WriteToFile() {
 	hashStore.RLock()
 	defer hashStore.RUnlock()
@@ -98,7 +93,6 @@ func WriteToFile() {
 	}
 }
 
-// ReadFromFile reads data from a file named "imagehashes.gob" and decodes it into hashStore.m using gob.
 func ReadFromFile() {
 	dataFile, err := os.Open("imagehashes.gob")
 	if err != nil {
@@ -116,14 +110,12 @@ func ReadFromFile() {
 	}
 }
 
-// TotalHashes returns the total number of hashes stored in hashStore.
 func TotalHashes() int {
 	hashStore.RLock()
 	defer hashStore.RUnlock()
 	return len(hashStore.m)
 }
 
-// HashAttachments hashes the attachments of a Discord message and stores the hashes if specified.
 func HashAttachments(m *discordgo.Message, options HashOptions) ([]string, int) {
 	images, videos := utility.GetMessageMediaURL(m)
 	allAttachments := append(images, videos...)
@@ -179,7 +171,6 @@ func HashAttachments(m *discordgo.Message, options HashOptions) ([]string, int) 
 	return hashes, count
 }
 
-// readFrameAsJpeg reads a frame as a JPEG image from the given URL at the specified frame number.
 func readFrameAsJpeg(url string, frameNum int) (io.Reader, error) {
 	outBuf := bytes.NewBuffer(nil)
 	err := ffmpeg.Input(url).
@@ -194,7 +185,6 @@ func readFrameAsJpeg(url string, frameNum int) (io.Reader, error) {
 	return outBuf, nil
 }
 
-// readHash reads a hash from hashStore.m based on the provided hashString.
 func readHash(hashString string, locking bool) *discordgo.Message {
 	if locking {
 		hashStore.Lock()
@@ -204,7 +194,6 @@ func readHash(hashString string, locking bool) *discordgo.Message {
 	return hashStore.m[hashString]
 }
 
-// writeHash writes a message to the hashStore using the provided hash key.
 func writeHash(hash string, message *discordgo.Message, locking bool) {
 	if locking {
 		hashStore.Lock()
@@ -214,7 +203,6 @@ func writeHash(hash string, message *discordgo.Message, locking bool) {
 	hashStore.m[hash] = message
 }
 
-// checkHash checks if a hash is present in the hashStore map based on the provided hash key.
 func checkHash(hash string, locking bool) bool {
 	if locking {
 		hashStore.Lock()
@@ -226,29 +214,22 @@ func checkHash(hash string, locking bool) bool {
 	return ok
 }
 
-// olderHash checks if a hash is older than the stored message in the hashStore map.
 func olderHash(hash string, message *discordgo.Message) bool {
 	if checkHash(hash, true) {
-		// get the stored message for our hash
 		oldMessage := readHash(hash, true)
-		// if the message we're parsing is older than the stored message
 		if message.Timestamp.Before(oldMessage.Timestamp) {
 			return true
 		}
 		return false
 	}
-	// return true if the hash doesn't exist
 	return true
 }
 
-// checkInHashes checks for matching hashes in the hashStore map based on the message content.
-// the threshold parameter specifies the maximum distance between the hashes and is inclusive.
 func checkInHashes(m *discordgo.Message, options HashOptions) (bool, []hashResult) {
 	var matchedMessages []hashResult
 	messageHashes, _ := HashAttachments(m, options)
 	hashStore.RLock()
 	defer hashStore.RUnlock()
-	// copy the map
 	for hashes := range hashStore.m {
 		hash1 := stringToHash(hashes)
 		for _, messageHash := range messageHashes {
@@ -269,7 +250,6 @@ func checkInHashes(m *discordgo.Message, options HashOptions) (bool, []hashResul
 	return false, nil
 }
 
-// stringToHash converts a string to an ExtImageHash.
 func stringToHash(s string) *goimagehash.ExtImageHash {
 	extHash, err := goimagehash.ExtImageHashFromString(s)
 	if err != nil {
@@ -279,7 +259,6 @@ func stringToHash(s string) *goimagehash.ExtImageHash {
 	return extHash
 }
 
-// uniqueHashResults generates unique hash results based on the provided results slice.
 func uniqueHashResults(results []hashResult) []hashResult {
 	uniqueMap := make(map[string]hashResult)
 
@@ -296,13 +275,10 @@ func uniqueHashResults(results []hashResult) []hashResult {
 	return uniqueResults
 }
 
-// FindSnails finds snail messages in the provided results and generates a formatted message content.
-// The threshold value is inclusive
 func FindSnails(guildID string, message *discordgo.Message, options HashOptions) (string, []*discordgo.MessageEmbed) {
 	isSnail, results := checkInHashes(message, options)
 	var messageContent string
 	var embeds []*discordgo.MessageEmbed
-	// keep ony unique results so we don't have any duplicates
 	if isSnail {
 		for _, result := range uniqueHashResults(results) {
 			if result.message.ID == message.ID {
@@ -320,7 +296,6 @@ func FindSnails(guildID string, message *discordgo.Message, options HashOptions)
 	return messageContent, embeds
 }
 
-// getFile retrieves a file from the specified URL using an HTTP GET request.
 func getFile(url string) (bytes.Buffer, error) {
 	var buf bytes.Buffer
 

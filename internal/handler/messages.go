@@ -14,8 +14,6 @@ import (
 	"github.com/liushuangls/go-anthropic/v2"
 )
 
-// HandleMessage is the main message handler function.
-// It checks for and processes messages containing media, mentions, and replies.
 func HandleMessage(s *discordgo.Session, m *discordgo.MessageCreate) {
 	// Delay 3 seconds to allow embeds to load
 	go func() {
@@ -31,21 +29,18 @@ func HandleMessage(s *discordgo.Session, m *discordgo.MessageCreate) {
 		}
 	}()
 
-	// Ignore messages from the bot itself
 	if m.Author.ID == s.State.User.ID {
 		return
 	}
 
-	// Ignore messages from other bots
 	if m.Author.Bot {
 		return
 	}
 
-	var chatMessages []anthropic.Message // Chat messages for building the message history
-	var cache []*discordgo.Message       // Cache of messages for replies
+	var chatMessages []anthropic.Message
+	var cache []*discordgo.Message
 	botMentioned, isReply := false, false
 
-	// Check if bot was mentioned in the message
 	for _, mention := range m.Mentions {
 		if mention.ID == s.State.User.ID {
 			botMentioned = true
@@ -53,18 +48,14 @@ func HandleMessage(s *discordgo.Session, m *discordgo.MessageCreate) {
 		}
 	}
 
-	// Check if message is a reply
 	if m.Type == discordgo.MessageTypeReply {
-		// Check if bot is mentioned or replied to in the referenced message
 		if (m.ReferencedMessage.Author.ID == s.State.User.ID || botMentioned) && m.ReferencedMessage != nil {
 			cache = utility.GetMessagesBefore(s, m.ChannelID, 100, m.ID)
 			isReply = true
 		}
 	}
 
-	// Process messages containing media, mentions, and replies
 	if botMentioned || isReply {
-		// Clean and prepare message content
 		m.Message = utility.CleanMessage(s, m.Message)
 		images, _ := utility.GetMessageMediaURL(m.Message)
 
@@ -84,16 +75,13 @@ func HandleMessage(s *discordgo.Session, m *discordgo.MessageCreate) {
 			URL: images,
 		}
 
-		// Append message to chat messages
 		ant.AppendMessage(anthropic.RoleUser, content, &chatMessages)
 
-		// Prepend reply messages to chat messages if applicable
 		if isReply {
 			ant.PrependReplyMessages(s, m.Message.Member, m.Message, cache, &chatMessages)
 			ant.PrependUserMessagePlaceholder(&chatMessages)
 		}
 
-		// Stream message response
 		ant.StreamMessageResponse(s, m.Message, chatMessages, nil)
 	}
 }

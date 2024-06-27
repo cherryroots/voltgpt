@@ -22,12 +22,10 @@ import (
 )
 
 func getTTSFile(message string, index int, hd bool) *discordgo.File {
-	// OpenAI API key
 	openaiToken := os.Getenv("OPENAI_TOKEN")
 	if openaiToken == "" {
 		log.Fatal("OPENAI_TOKEN is not set")
 	}
-	// Create a new OpenAI client
 	c := openai.NewClient(openaiToken)
 	ctx := context.Background()
 	model := openai.TTSModel1
@@ -62,12 +60,10 @@ func getTTSFile(message string, index int, hd bool) *discordgo.File {
 }
 
 func getFilenameSummary(message string) string {
-	// OpenAI API key
 	openaiToken := os.Getenv("OPENAI_TOKEN")
 	if openaiToken == "" {
 		log.Fatal("OPENAI_TOKEN is not set")
 	}
-	// Create a new OpenAI client
 	c := openai.NewClient(openaiToken)
 	ctx := context.Background()
 
@@ -96,12 +92,10 @@ func getFilenameSummary(message string) string {
 }
 
 func drawImage(message string, size string) ([]*discordgo.File, error) {
-	// OpenAI API key
 	openaiToken := os.Getenv("OPENAI_TOKEN")
 	if openaiToken == "" {
 		log.Fatal("OPENAI_TOKEN is not set")
 	}
-	// Create a new OpenAI client
 	c := openai.NewClient(openaiToken)
 	ctx := context.Background()
 
@@ -134,13 +128,11 @@ func drawImage(message string, size string) ([]*discordgo.File, error) {
 	return files, nil
 }
 
-// AppendMessage appends a message to the end of the messages array
 func AppendMessage(role string, name string, content config.RequestContent, messages *[]openai.ChatCompletionMessage) {
 	newMessages := append(*messages, createMessage(role, name, content)...)
 	*messages = newMessages
 }
 
-// PrependMessage prepends a message to the beginning of the messages array
 func PrependMessage(role string, name string, content config.RequestContent, messages *[]openai.ChatCompletionMessage) {
 	newMessages := append(createMessage(role, name, content), *messages...)
 	*messages = newMessages
@@ -178,7 +170,6 @@ func createMessage(role string, name string, content config.RequestContent) []op
 	return message
 }
 
-// CreateBatchMessages creates a batch messages from the given messages
 func CreateBatchMessages(s *discordgo.Session, messages []*discordgo.Message) []openai.ChatCompletionMessage {
 	var batchMessages []openai.ChatCompletionMessage
 
@@ -205,7 +196,6 @@ func messagesToString(messages []openai.ChatCompletionMessage) string {
 	return sb.String()
 }
 
-// GetMaxModelTokens returns the max tokens for the given model
 func GetMaxModelTokens(model string) (maxTokens int) {
 	switch model {
 	case openai.GPT4:
@@ -220,7 +210,6 @@ func GetMaxModelTokens(model string) (maxTokens int) {
 	return maxTokens
 }
 
-// IsOutputLimited returns true if the model is limited to 4096 tokens
 func IsOutputLimited(model string) bool {
 	switch model {
 	case openai.GPT4Turbo, openai.GPT3Dot5Turbo0125:
@@ -230,7 +219,6 @@ func IsOutputLimited(model string) bool {
 	}
 }
 
-// GetRequestMaxTokensString returns the max tokens for the given model
 func GetRequestMaxTokensString(message string, model string) (maxTokens int, err error) {
 	maxTokens = GetMaxModelTokens(model)
 	usedTokens := NumTokensFromString(message)
@@ -269,7 +257,6 @@ func getRequestMaxTokens(message []openai.ChatCompletionMessage, model string) (
 	return availableTokens, nil
 }
 
-// NumTokensFromString returns the number of tokens in the given string
 func NumTokensFromString(s string) (numTokens int) {
 	encoding := "cl100k_base"
 	tkm, err := tiktoken.GetEncoding(encoding)
@@ -283,7 +270,6 @@ func NumTokensFromString(s string) (numTokens int) {
 	return numTokens
 }
 
-// NumTokensFromMessages returns the number of tokens in the given messages
 func NumTokensFromMessages(messages []openai.ChatCompletionMessage, model string) (numTokens int) {
 	tkm, err := tiktoken.EncodingForModel(model)
 	if err != nil {
@@ -336,7 +322,6 @@ func NumTokensFromMessages(messages []openai.ChatCompletionMessage, model string
 	return numTokens
 }
 
-// SplitTTS takes a string and a boolean flag hd to chunk up the message into parts no longer than maxLength characters separated by newlines and return a slice of discordgo.File pointers.
 func SplitTTS(message string, hd bool) []*discordgo.File {
 	separator := "\n\n"
 	maxLength := 4000
@@ -353,7 +338,6 @@ func SplitTTS(message string, hd bool) []*discordgo.File {
 			// Find the last separator before the maxLength character limit
 			end := strings.LastIndex(message[:maxLength], separator)
 			if end == -1 {
-				// No separator found, so just cut at maxLength characters
 				end = maxLength
 			}
 			chunk = message[:end]
