@@ -29,59 +29,52 @@ func HandleMessage(s *discordgo.Session, m *discordgo.MessageCreate) {
 		}
 	}()
 
-	if m.Author.ID == s.State.User.ID {
-		return
-	}
-
-	if m.Author.Bot {
+	if m.Author.ID == s.State.User.ID || m.Author.Bot {
 		return
 	}
 
 	var chatMessages []anthropic.Message
 	var cache []*discordgo.Message
-	botMentioned, isReply := false, false
+	var isMentioned, isReply bool
 
 	for _, mention := range m.Mentions {
 		if mention.ID == s.State.User.ID {
-			botMentioned = true
+			isMentioned = true
 			break
 		}
 	}
 
 	if m.Type == discordgo.MessageTypeReply {
-		if (m.ReferencedMessage.Author.ID == s.State.User.ID || botMentioned) && m.ReferencedMessage != nil {
+		if m.ReferencedMessage.Author.ID == s.State.User.ID || isMentioned {
 			cache = utility.GetMessagesBefore(s, m.ChannelID, 100, m.ID)
 			isReply = true
 		}
 	}
 
-	if botMentioned || isReply {
-		m.Message = utility.CleanMessage(s, m.Message)
-		images, _ := utility.GetMessageMediaURL(m.Message)
-
-		var transcript string
-		if utility.HasAccessRole(m.Message.Member) {
-			transcript = openai.GetTranscript(s, m.Message)
-		}
-
-		content := config.RequestContent{
-			Text: fmt.Sprintf("%s: %s%s%s%s",
-				fmt.Sprintf("<username>%s</username>", m.Author.Username),
-				transcript,
-				utility.AttachmentText(m.Message),
-				utility.EmbedText(m.Message),
-				fmt.Sprintf("<message>%s</message>", m.Content),
-			),
-			URL: images,
-		}
-
-		ant.AppendMessage(anthropic.RoleUser, content, &chatMessages)
-
-		if isReply {
-			ant.PrependReplyMessages(s, m.Message.Member, m.Message, cache, &chatMessages)
-			ant.PrependUserMessagePlaceholder(&chatMessages)
-		}
-
-		ant.StreamMessageResponse(s, m.Message, chatMessages, nil)
+	if !isMentioned && !isReply {
+		return
 	}
+
+	m.Message = utility.CleanMessage(s, m.Message)
+	images, _ := utility.GetMessageMediaURL(m.Message)
+
+	content := config.RequestContent{
+		Text: fmt.Sprintf("%s: %s%s%s%s",
+			fmt.Sprintf("<username>%s</username>", m.Author.Username),
+			openai.GetTranscript(s, m.Message),
+			utility.AttachmentText(m.Message),
+			utility.EmbedText(m.Message),
+			fmt.Sprintf("<message>%s</message>", m.Content),
+		),
+		URL: images,
+	}
+
+	ant.AppendMessage(anthropic.RoleUser, content, &chatMessages)
+
+	if isReply {
+		ant.PrependReplyMessages(s, m.Message.Member, m.Message, cache, &chatMessages)
+		ant.PrependUserMessagePlaceholder(&chatMessages)
+	}
+
+	ant.StreamMessageResponse(s, m.Message, chatMessages, nil)
 }

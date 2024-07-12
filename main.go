@@ -2,6 +2,7 @@
 package main
 
 import (
+	"encoding/gob"
 	"log"
 	"os"
 	"os/signal"
@@ -20,12 +21,15 @@ import (
 )
 
 func init() {
-	// godotenv get environment variables from .env file
 	if err := godotenv.Load(); err != nil {
 		log.Print("No .env file found")
 	}
 
-	// try to read, if it fails, write a new one anyway in writeHashToFile() then read in the function
+	gob.Register(&discordgo.ActionsRow{})
+	gob.Register(&discordgo.Button{})
+	gob.Register(&discordgo.SelectMenu{})
+	gob.Register(&discordgo.TextInput{})
+
 	hasher.ReadFromFile()
 	gamble.ReadFromFile()
 	openai.ReadFromFile()
@@ -103,7 +107,6 @@ func main() {
 			registerCommands[i] = cmd
 		}
 
-		// delete commands that are not registered in commands.go
 		commands, err := dg.ApplicationCommands(dg.State.User.ID, guild.ID)
 		if err != nil {
 			log.Printf("could not get commands for guild %s: %v", guild.ID, err)

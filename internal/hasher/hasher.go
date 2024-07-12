@@ -70,11 +70,6 @@ func WriteToFile() {
 
 	buf := new(bytes.Buffer)
 
-	gob.Register(&discordgo.ActionsRow{})
-	gob.Register(&discordgo.Button{})
-	gob.Register(&discordgo.SelectMenu{})
-	gob.Register(&discordgo.TextInput{})
-
 	if err := gob.NewEncoder(buf).Encode(hashStore.m); err != nil {
 		log.Printf("Encode error: %v\n", err)
 		return
@@ -99,11 +94,6 @@ func ReadFromFile() {
 		return
 	}
 	defer dataFile.Close()
-
-	gob.Register(&discordgo.ActionsRow{})
-	gob.Register(&discordgo.Button{})
-	gob.Register(&discordgo.SelectMenu{})
-	gob.Register(&discordgo.TextInput{})
 
 	if err := gob.NewDecoder(dataFile).Decode(&hashStore.m); err != nil {
 		log.Fatal(err)

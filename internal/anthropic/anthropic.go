@@ -36,7 +36,7 @@ func getMessageText(msg anthropic.Message) string {
 	return sb.String()
 }
 
-func cleanInstructionsMessages(messages []anthropic.Message) []anthropic.Message {
+func removeInstructonMessages(messages []anthropic.Message) []anthropic.Message {
 	for i, message := range messages {
 		text := getMessageText(message)
 		tempMessage := createMessage(message.Role, config.RequestContent{Text: text})
@@ -211,9 +211,10 @@ func StreamMessageResponse(s *discordgo.Session, m *discordgo.Message, messages 
 
 	_, err = c.CreateMessagesStream(ctx, anthropic.MessagesStreamRequest{
 		MessagesRequest: anthropic.MessagesRequest{
-			Model:     anthropic.ModelClaude3Dot5Sonnet20240620,
-			System:    fmt.Sprintf("System: %s %s\n\nInstruction message: %s", config.SystemMessageDefault.Text, currentTime, instructionMessage.Text),
-			Messages:  cleanInstructionsMessages(messages),
+			Model: anthropic.ModelClaude3Dot5Sonnet20240620,
+			System: fmt.Sprintf("System message: %s %s\n\nInstruction message: %s",
+				config.SystemMessageDefault.Text, currentTime, instructionMessage.Text),
+			Messages:  removeInstructonMessages(messages),
 			MaxTokens: 4096,
 		},
 		OnContentBlockDelta: func(data anthropic.MessagesEventContentBlockDeltaData) {
@@ -282,7 +283,7 @@ func StreamMessageResponse(s *discordgo.Session, m *discordgo.Message, messages 
 }
 
 func splitSend(s *discordgo.Session, m *discordgo.Message, msg *discordgo.Message, currentMessage string) (string, *discordgo.Message, error) {
-	if len(currentMessage) > 1900 {
+	if len(currentMessage) > 1800 {
 		firstPart, lastPart := utility.SplitParagraph(currentMessage)
 		if lastPart == "" {
 			lastPart = "..."
@@ -307,13 +308,11 @@ func splitSend(s *discordgo.Session, m *discordgo.Message, msg *discordgo.Messag
 }
 
 func AppendMessage(role string, content config.RequestContent, messages *[]anthropic.Message) {
-	newMessages := append(*messages, createMessage(role, content)...)
-	*messages = newMessages
+	*messages = append(*messages, createMessage(role, content)...)
 }
 
 func PrependMessage(role string, content config.RequestContent, messages *[]anthropic.Message) {
-	newMessages := append(createMessage(role, content), *messages...)
-	*messages = newMessages
+	*messages = append(createMessage(role, content), *messages...)
 }
 
 func combineMessages(newMessage []anthropic.Message, messages *[]anthropic.Message) {
@@ -356,13 +355,9 @@ func PrependReplyMessages(s *discordgo.Session, originMember *discordgo.Member, 
 
 	reply := utility.CleanMessage(s, reference)
 	images, _ := utility.GetMessageMediaURL(reply)
-	var transcript string
-	if utility.HasAccessRole(originMember) {
-		transcript = openai.GetTranscript(s, reply)
-	}
 	replyContent := config.RequestContent{
 		Text: fmt.Sprintf("%s %s %s %s",
-			transcript,
+			openai.GetTranscript(s, reply),
 			utility.AttachmentText(reply),
 			utility.EmbedText(reply),
 			fmt.Sprintf("<message>%s</message>", reply.Content),

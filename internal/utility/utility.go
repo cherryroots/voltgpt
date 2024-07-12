@@ -26,15 +26,6 @@ func IsAdmin(id string) bool {
 	return false
 }
 
-func HasAccessRole(m *discordgo.Member) bool {
-	for _, role := range m.Roles {
-		if role == config.AccessRole.ID {
-			return true
-		}
-	}
-	return false
-}
-
 func LinkFromIMessage(guildID string, m *discordgo.Message) string {
 	return fmt.Sprintf("https://discord.com/channels/%s/%s/%s", guildID, m.ChannelID, m.ID)
 }
@@ -79,6 +70,7 @@ func SplitParagraph(message string) (firstPart string, lastPart string) {
 
 	}
 	if len(firstPart) > 1999 {
+		log.Printf("Splitting forcibly: %d", len(firstPart))
 		firstPart = message[:1999]
 		lastPart = message[1999:]
 	}
@@ -289,13 +281,6 @@ func CleanMessage(s *discordgo.Session, message *discordgo.Message) *discordgo.M
 	message.Content = mentionRegex.ReplaceAllString(message.Content, "")
 	message.Content = strings.TrimSpace(message.Content)
 	return message
-}
-
-func CleanMessages(s *discordgo.Session, messages []*discordgo.Message) []*discordgo.Message {
-	for i, message := range messages {
-		messages[i] = CleanMessage(s, message)
-	}
-	return messages
 }
 
 func CleanName(name string) string {
