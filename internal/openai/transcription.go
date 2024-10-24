@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/gob"
+	"errors"
 	"fmt"
 	"log"
 	"net/url"
@@ -166,7 +167,8 @@ func GetTranscript(s *discordgo.Session, message *discordgo.Message) (text strin
 
 		transcript, err := GetTranscriptFromVideo(videoURL.contentURL, videoURL.downloadMethod)
 		if err != nil {
-			log.Println(err)
+			log.Printf("Failed to get transcript: %s", err)
+			s.ChannelMessageDelete(message.ChannelID, msg.ID)
 			continue
 		}
 		transcripts = append(transcripts, transcript)
@@ -200,14 +202,18 @@ func GetTranscriptFromVideo(videoURL string, downloadType string) (Transcript, e
 	defer os.RemoveAll(dir)
 
 	if downloadType == "ytdlp" {
-		cmd := exec.Command("yt-dlp", "-f", "bestaudio[ext=m4a]", "-x", "-o", fmt.Sprintf("%s/audio.%%(ext)s", dir), videoURL)
-		if err := cmd.Run(); err != nil {
-			return Transcript{}, err
+		cmd := exec.Command("/home/bot/.pyenv/versions/3.12.2/bin/yt-dlp", "--username", "oauth2", "--password", "''", "-f", "bestaudio[ext=m4a]", "-x", "-o", fmt.Sprintf("%s/audio.%%(ext)s", dir), videoURL)
+		if out, err := cmd.CombinedOutput(); err != nil {
+			errMsg := fmt.Sprintf("Out: %s\nErr: %s", out, err)
+			newErr := errors.New(errMsg)
+			return Transcript{}, newErr
 		}
 	} else {
-		cmd := exec.Command("ffmpeg", "-i", videoURL, "-vn", "-acodec", "copy", fmt.Sprintf("%s/audio.m4a", dir))
-		if err := cmd.Run(); err != nil {
-			return Transcript{}, err
+		cmd := exec.Command("ffmpeg", "-i", videoURL, "-vn", "-acodec", "aac", "-b:a", "128k", fmt.Sprintf("%s/audio.m4a", dir))
+		if out, err := cmd.CombinedOutput(); err != nil {
+			errMsg := fmt.Sprintf("Out: %s\nErr: %s", out, err)
+			newErr := errors.New(errMsg)
+			return Transcript{}, newErr
 		}
 	}
 

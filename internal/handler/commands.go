@@ -28,7 +28,7 @@ var Commands = map[string]func(s *discordgo.Session, i *discordgo.InteractionCre
 			if option.Name == "prompt" {
 				prompt = option.StringValue()
 			}
-			if option.Name == "negative_prompt" {
+			if option.Name == "negative-prompt" {
 				negativePrompt = option.StringValue()
 			}
 			if option.Name == "ratio" {

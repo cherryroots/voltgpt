@@ -16,7 +16,7 @@ var (
 	Admins                  = []string{"102087943627243520", "123116664207179777", "95681688914366464"}
 	DefaultTemp     float32 = 0.7
 	DefaultOAIModel         = openai.GPT4Turbo
-	DefaultANTModel         = anthropic.ModelClaude3Dot5Sonnet20240620
+	DefaultANTModel         = anthropic.ModelClaude3Dot5Sonnet20241022
 
 	ModelChoices = []*discordgo.ApplicationCommandOptionChoice{
 		{Name: "gpt-4-turbo", Value: openai.GPT4Turbo},
@@ -64,16 +64,7 @@ type GenerationOptions struct {
 	Message     string
 	ImageURL    string
 	Temperature float32
-	Model       string
-}
-
-func NewOAIGenerationOptions() *GenerationOptions {
-	return &GenerationOptions{
-		Message:     "",
-		ImageURL:    "",
-		Temperature: DefaultTemp,
-		Model:       DefaultOAIModel,
-	}
+	Model       anthropic.Model
 }
 
 func NewANTGenerationOptions() *GenerationOptions {

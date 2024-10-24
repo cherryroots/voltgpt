@@ -198,6 +198,7 @@ func GetMessageMediaURL(m *discordgo.Message) (images []string, videos []string)
 	seen := make(map[string]bool)
 	var imgageURLs []string
 	var videoURLs []string
+	providerBlacklist := []string{"tenor"}
 
 	for _, attachment := range m.Attachments {
 		if attachment.Width > 0 && attachment.Height > 0 {
@@ -211,7 +212,7 @@ func GetMessageMediaURL(m *discordgo.Message) (images []string, videos []string)
 	}
 	for _, embed := range m.Embeds {
 		if embed.Thumbnail != nil {
-			if IsImageURL(embed.Thumbnail.URL) {
+			if IsImageURL(embed.Thumbnail.URL) && MatchMultiple(embed.Provider.Name, providerBlacklist) {
 				imgageURLs = append(imgageURLs, embed.Thumbnail.URL)
 			}
 			if IsImageURL(embed.Thumbnail.ProxyURL) {

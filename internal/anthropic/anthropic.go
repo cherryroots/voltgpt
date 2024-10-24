@@ -110,7 +110,7 @@ func getIntents(message string, questionType string) string {
 	}
 
 	resp, err := c.CreateMessages(ctx, anthropic.MessagesRequest{
-		Model:     anthropic.ModelClaude3Dot5Sonnet20240620,
+		Model:     anthropic.ModelClaude3Dot5Sonnet20241022,
 		Messages:  messages,
 		MaxTokens: 8,
 	})
@@ -132,7 +132,7 @@ func DrawSAIImage(prompt string, negativePrompt string, ratio string) ([]*discor
 		log.Fatal("STABILITY_TOKEN is not set")
 	}
 
-	url := "https://api.stability.ai/v2beta/stable-image/generate/sd3"
+	url := "https://api.stability.ai/v2beta/stable-image/generate/ultra"
 	ratios := []string{"16:9", "1:1", "21:9", "2:3", "3:2", "4:5", "5:4", "9:16", "9:21"}
 
 	body := &bytes.Buffer{}
@@ -188,7 +188,7 @@ func StreamMessageResponse(s *discordgo.Session, m *discordgo.Message, messages 
 	if token == "" {
 		log.Fatal("ANTHROPIC_TOKEN is not set")
 	}
-	c := anthropic.NewClient(token)
+	c := anthropic.NewClient(token, anthropic.WithBetaVersion(anthropic.BetaMaxTokens35Sonnet20240715))
 	ctx := context.Background()
 
 	var i int
@@ -223,7 +223,7 @@ func StreamMessageResponse(s *discordgo.Session, m *discordgo.Message, messages 
 			fullMessage = fullMessage + *data.Delta.Text
 			i++
 			if i%25 == 0 || i == 5 {
-				currentMessage = strings.TrimSpace(utility.ReplaceMultiple(currentMessage, replacementStrings, ""))
+				currentMessage = utility.ReplaceMultiple(currentMessage, replacementStrings, "")
 				currentMessage, msg, err = splitSend(s, m, msg, currentMessage)
 				if err != nil {
 					discord.LogSendErrorMessage(s, m, err.Error())
@@ -233,7 +233,7 @@ func StreamMessageResponse(s *discordgo.Session, m *discordgo.Message, messages 
 		},
 		OnMessageStop: func(_ anthropic.MessagesEventMessageStopData) {
 			replacementStrings := []string{"<message>", "</message>", "<reply>", "</reply>"}
-			currentMessage = strings.TrimSpace(utility.ReplaceMultiple(currentMessage, replacementStrings, ""))
+			currentMessage = utility.ReplaceMultiple(currentMessage, replacementStrings, "")
 			currentMessage, msg, err = splitSend(s, m, msg, currentMessage)
 			if err != nil {
 				discord.LogSendErrorMessage(s, m, err.Error())
@@ -283,7 +283,7 @@ func StreamMessageResponse(s *discordgo.Session, m *discordgo.Message, messages 
 }
 
 func splitSend(s *discordgo.Session, m *discordgo.Message, msg *discordgo.Message, currentMessage string) (string, *discordgo.Message, error) {
-	if len(currentMessage) > 1800 {
+	if len(currentMessage) > 1750 {
 		firstPart, lastPart := utility.SplitParagraph(currentMessage)
 		if lastPart == "" {
 			lastPart = "..."
@@ -307,11 +307,11 @@ func splitSend(s *discordgo.Session, m *discordgo.Message, msg *discordgo.Messag
 	return currentMessage, msg, nil
 }
 
-func AppendMessage(role string, content config.RequestContent, messages *[]anthropic.Message) {
+func AppendMessage(role anthropic.ChatRole, content config.RequestContent, messages *[]anthropic.Message) {
 	*messages = append(*messages, createMessage(role, content)...)
 }
 
-func PrependMessage(role string, content config.RequestContent, messages *[]anthropic.Message) {
+func PrependMessage(role anthropic.ChatRole, content config.RequestContent, messages *[]anthropic.Message) {
 	*messages = append(createMessage(role, content), *messages...)
 }
 
@@ -319,7 +319,7 @@ func combineMessages(newMessage []anthropic.Message, messages *[]anthropic.Messa
 	(*messages)[0].Content = append(newMessage[0].Content, (*messages)[0].Content...)
 }
 
-func createMessage(role string, content config.RequestContent) []anthropic.Message {
+func createMessage(role anthropic.ChatRole, content config.RequestContent) []anthropic.Message {
 	message := []anthropic.Message{
 		{
 			Role:    role,
@@ -394,14 +394,14 @@ func getReferencedMessage(s *discordgo.Session, message *discordgo.Message, cach
 	return nil
 }
 
-func determineRole(s *discordgo.Session, message *discordgo.Message) string {
+func determineRole(s *discordgo.Session, message *discordgo.Message) anthropic.ChatRole {
 	if message.Author.ID == s.State.User.ID {
 		return anthropic.RoleAssistant
 	}
 	return anthropic.RoleUser
 }
 
-func prependMessageByRole(role string, content config.RequestContent, chatMessages *[]anthropic.Message) {
+func prependMessageByRole(role anthropic.ChatRole, content config.RequestContent, chatMessages *[]anthropic.Message) {
 	if len(*chatMessages) == 0 || (*chatMessages)[0].Role != role {
 		if role == anthropic.RoleAssistant && len(content.URL) > 0 {
 			newMessage := createMessage(anthropic.RoleUser, config.RequestContent{URL: content.URL})
