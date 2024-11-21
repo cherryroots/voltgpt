@@ -96,7 +96,7 @@ func ReadFromFile() {
 	defer dataFile.Close()
 
 	if err := gob.NewDecoder(dataFile).Decode(&hashStore.m); err != nil {
-		log.Fatal(err)
+		log.Fatalf("Decode error imagehashes.gob: %v\n", err)
 	}
 }
 
@@ -107,7 +107,7 @@ func TotalHashes() int {
 }
 
 func HashAttachments(m *discordgo.Message, options HashOptions) ([]string, int) {
-	images, videos := utility.GetMessageMediaURL(m)
+	images, videos, _ := utility.GetMessageMediaURL(m)
 	allAttachments := append(images, videos...)
 	var hashes []string
 	var count int

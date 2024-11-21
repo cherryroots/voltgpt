@@ -39,8 +39,8 @@ var (
 			},
 		},
 		{
-			Name:                     "hash_channel",
-			Description:              "Hash all the images and videos in the channel",
+			Name:                     "hash_server",
+			Description:              "Hash all the images and videos in the server",
 			DefaultMemberPermissions: &writePermission,
 			DMPermission:             &dmPermission,
 			Options: []*discordgo.ApplicationCommandOption{
@@ -48,12 +48,18 @@ var (
 					Type:        discordgo.ApplicationCommandOptionChannel,
 					Name:        "channel",
 					Description: "Which channel to retrieve messages from",
-					Required:    true,
+					Required:    false,
 				},
 				{
 					Type:        discordgo.ApplicationCommandOptionBoolean,
 					Name:        "threads",
 					Description: "Whether to include threads",
+					Required:    false,
+				},
+				{
+					Type:        discordgo.ApplicationCommandOptionString,
+					Name:        "date",
+					Description: "yyyy/mm/dd, inclusive",
 					Required:    false,
 				},
 			},

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log"
 	"sync"
+	"time"
 
 	ant "voltgpt/internal/anthropic"
 	"voltgpt/internal/config"
@@ -58,48 +59,59 @@ var Commands = map[string]func(s *discordgo.Session, i *discordgo.InteractionCre
 			log.Println(err)
 		}
 	},
-	"hash_channel": func(s *discordgo.Session, i *discordgo.InteractionCreate) {
+	"hash_server": func(s *discordgo.Session, i *discordgo.InteractionCreate) {
 		log.Printf("Received interaction: %s by %s", i.ApplicationCommandData().Name, i.Interaction.Member.User.Username)
 		discord.DeferResponse(s, i)
 
-		var channel *discordgo.Channel
+		var channels []*discordgo.Channel
 		var threads bool
-		var outputMessage string
+		var endDate time.Time
 		msgCount, hashCount := 0, 0
 
 		for _, option := range i.ApplicationCommandData().Options {
 			if option.Name == "channel" {
-				channel = option.ChannelValue(s)
+				channels = append(channels, option.ChannelValue(s))
 			}
 			if option.Name == "threads" {
 				threads = option.BoolValue()
 			}
+			if option.Name == "date" {
+				// date is a string in yyyy/mm/dd format
+				endDate, _ = time.Parse("2006/01/02", option.StringValue())
+			}
 		}
 
 		if !utility.IsAdmin(i.Interaction.Member.User.ID) {
-			_, err := discord.SendFollowup(s, i, "Only admins can add players to the wheel!")
+			_, err := discord.SendFollowup(s, i, "Only admins can use this command!")
 			if err != nil {
 				log.Println(err)
 			}
 			return
 		}
 
-		if threads {
-			outputMessage = fmt.Sprintf("Retrieving thread messages for channel: <#%s>", channel.ID)
-		} else {
-			outputMessage = fmt.Sprintf("Retrieving messages for channel: <#%s>", channel.ID)
-		}
-
-		hashedMessages, _ := discord.SendFollowup(s, i, "Hashing messages...")
-		fetchedMessages, _ := discord.SendMessage(s, hashedMessages, outputMessage)
+		hashedStatus, _ := discord.SendFollowup(s, i, "Hashing messages...")
+		fetchedStatus, _ := discord.SendMessage(s, hashedStatus, "Fetching channels...")
 
 		messageChannel := make(chan []*discordgo.Message) // create a channel containing messages
 
-		if threads {
-			go utility.GetAllChannelThreadMessages(s, fetchedMessages, channel.ID, messageChannel)
-		} else {
-			go utility.GetAllChannelMessages(s, fetchedMessages, channel.ID, messageChannel)
+		if channels == nil {
+			allChannels, err := s.GuildChannels(i.GuildID)
+			if err != nil {
+				log.Println(err)
+			}
+			for _, channel := range allChannels {
+				_, err := s.UserChannelPermissions(s.State.User.ID, channel.ID)
+				if err != nil {
+					continue
+				}
+
+				if channel.Type == discordgo.ChannelTypeGuildText || channel.Type == discordgo.ChannelTypeGuildPublicThread || channel.Type == discordgo.ChannelTypeGuildPrivateThread {
+					channels = append(channels, channel)
+				}
+			}
 		}
+
+		go utility.GetAllServerMessages(s, fetchedStatus, channels, threads, endDate, messageChannel)
 
 		var wg sync.WaitGroup
 		for messages := range messageChannel {
@@ -114,7 +126,8 @@ var Commands = map[string]func(s *discordgo.Session, i *discordgo.InteractionCre
 						hashCount += count
 					}
 				}
-				_, err := discord.EditMessage(s, hashedMessages, fmt.Sprintf("Status: ongoing\nMessages processed: %d\nHashes: %d", msgCount, hashCount))
+				// format time to yyyy/mm/dd
+				_, err := discord.EditMessage(s, hashedStatus, fmt.Sprintf("Status: ongoing\nThreads included: %t\nHashing until: %s\nMessages processed: %d\nHashes: %d", threads, endDate.Format("2006/01/02"), msgCount, hashCount))
 				if err != nil {
 					log.Println(err)
 				}
@@ -123,9 +136,7 @@ var Commands = map[string]func(s *discordgo.Session, i *discordgo.InteractionCre
 
 		wg.Wait()
 
-		outputMessage = fmt.Sprintf("Status: done\nMessages processed: %d\nHashes: %d", msgCount, hashCount)
-
-		_, err := discord.EditMessage(s, hashedMessages, outputMessage)
+		_, err := discord.EditMessage(s, hashedStatus, fmt.Sprintf("Status: done\n Threads included: %t\nHashing until: %s\nMessages processed: %d\nHashes: %d", threads, endDate.Format("2006/01/02"), msgCount, hashCount))
 		if err != nil {
 			log.Println(err)
 		}
@@ -220,15 +231,16 @@ var Commands = map[string]func(s *discordgo.Session, i *discordgo.InteractionCre
 		var cache []*discordgo.Message
 
 		m = utility.CleanMessage(s, m)
-		images, _ := utility.GetMessageMediaURL(m)
+		images, _, pdfs := utility.GetMessageMediaURL(m)
 		content := config.RequestContent{
-			Text: fmt.Sprintf("%s", m.Content),
-			URL:  images,
+			Text:   fmt.Sprintf("%s", m.Content),
+			Images: images,
+			PDFs:   pdfs,
 		}
 
 		ant.AppendMessage(anthropic.RoleAssistant, content, &chatMessages)
 
-		cache = utility.GetMessagesBefore(s, m.ChannelID, 100, m.ID)
+		cache, _ = utility.GetMessagesBefore(s, m.ChannelID, 100, m.ID)
 		ant.PrependReplyMessages(s, i.Interaction.Member, m, cache, &chatMessages)
 
 		ant.StreamMessageResponse(s, m, chatMessages, m)

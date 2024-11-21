@@ -65,7 +65,7 @@ func ReadFromFile() {
 	defer dataFile.Close()
 
 	if err := gob.NewDecoder(dataFile).Decode(&Wheel); err != nil {
-		log.Fatal(err)
+		log.Fatalf("Decode error wheel.gob: %v\n", err)
 	}
 }
 

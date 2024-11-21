@@ -8,15 +8,16 @@ import (
 )
 
 type RequestContent struct {
-	Text string
-	URL  []string
+	Text   string
+	Images []string
+	PDFs   []string
 }
 
 var (
 	Admins                  = []string{"102087943627243520", "123116664207179777", "95681688914366464"}
 	DefaultTemp     float32 = 0.7
 	DefaultOAIModel         = openai.GPT4Turbo
-	DefaultANTModel         = anthropic.ModelClaude3Dot5Sonnet20241022
+	DefaultANTModel         = anthropic.ModelClaude3Dot5SonnetLatest
 
 	ModelChoices = []*discordgo.ApplicationCommandOptionChoice{
 		{Name: "gpt-4-turbo", Value: openai.GPT4Turbo},
@@ -41,6 +42,7 @@ var (
 			"When an image is requested put your prompt between two § and it will be extracted, you don't have to elaborate much outside of them.\n" +
 			"If an user asks you to edit an image, put the new prompt in § as well for the new image that will be generated.\n" +
 			"For any message from the user that has a 💢 or ⚙️ in it just treat it as not being there and reply normally.\n" +
+			"If a transcript tag is found with an error message in it, explain it to the user. " +
 			"The messages you recieve contain XML tags to make it easier for you to parse.\n" +
 			"Don't reply with any XML tags. Training data cutoff: April 2024.",
 	}

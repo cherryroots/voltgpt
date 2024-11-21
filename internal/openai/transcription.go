@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/gob"
-	"errors"
 	"fmt"
 	"log"
 	"net/url"
@@ -42,7 +41,7 @@ func (t Transcript) String() string {
 }
 
 func (t Transcript) formatString() string {
-	return fmt.Sprintf("Transcription for %s: %s", t.String(), t.Response.Text)
+	return fmt.Sprintf("<URL>%s</URL> <response>%s</response>", t.String(), t.Response.Text)
 }
 
 func WriteToFile() {
@@ -89,7 +88,7 @@ func ReadFromFile() {
 	defer dataFile.Close()
 
 	if err := gob.NewDecoder(dataFile).Decode(&TranscriptCache.t); err != nil {
-		log.Fatal(err)
+		log.Fatalf("Decode error transcripts.gob: %v\n", err)
 	}
 }
 
@@ -131,7 +130,7 @@ func TotalTranscripts() int {
 func GetTranscript(s *discordgo.Session, message *discordgo.Message) (text string) {
 	regex := regexp.MustCompile(`(?m)<?(https?://[^\s<>]+)>?\b`)
 	result := regex.FindAllStringSubmatch(message.Content, -1)
-	_, videos := utility.GetMessageMediaURL(message)
+	_, videos, _ := utility.GetMessageMediaURL(message)
 
 	var videoURLs []videoType
 	var transcripts []Transcript
@@ -167,22 +166,26 @@ func GetTranscript(s *discordgo.Session, message *discordgo.Message) (text strin
 
 		transcript, err := GetTranscriptFromVideo(videoURL.contentURL, videoURL.downloadMethod)
 		if err != nil {
-			log.Printf("Failed to get transcript: %s", err)
-			s.ChannelMessageDelete(message.ChannelID, msg.ID)
-			continue
+			errMsg := fmt.Sprintf("Failed to get transcript for video %d: %s", count+1, err)
+			errURL, err := url.Parse(videoURL.contentURL)
+			if err != nil {
+				log.Println(err)
+				continue
+			}
+			transcript = Transcript{ContentURL: errURL, Response: openai.AudioResponse{Text: errMsg}}
 		}
 		transcripts = append(transcripts, transcript)
 
 		s.ChannelMessageDelete(message.ChannelID, msg.ID)
 	}
 
-	for _, transcript := range transcripts {
+	for id, transcript := range transcripts {
 		if transcript.ContentURL == nil {
 			continue
 		}
-		text += transcript.formatString() + "\n"
+		text += fmt.Sprintf("<transcript %d>%s</transcript %d>\n", id+1, transcript.formatString(), id+1)
 	}
-	return fmt.Sprintf("<transcript>%s</transcript>", text)
+	return fmt.Sprintf("<transcripts>%s</transcripts>", text)
 }
 
 func GetTranscriptFromVideo(videoURL string, downloadType string) (Transcript, error) {
@@ -204,16 +207,14 @@ func GetTranscriptFromVideo(videoURL string, downloadType string) (Transcript, e
 	if downloadType == "ytdlp" {
 		cmd := exec.Command("/home/bot/.pyenv/versions/3.12.2/bin/yt-dlp", "--username", "oauth2", "--password", "''", "-f", "bestaudio[ext=m4a]", "-x", "-o", fmt.Sprintf("%s/audio.%%(ext)s", dir), videoURL)
 		if out, err := cmd.CombinedOutput(); err != nil {
-			errMsg := fmt.Sprintf("Out: %s\nErr: %s", out, err)
-			newErr := errors.New(errMsg)
-			return Transcript{}, newErr
+			errMsg := fmt.Errorf("Out: %s\nErr: %s", out, err)
+			return Transcript{}, errMsg
 		}
 	} else {
 		cmd := exec.Command("ffmpeg", "-i", videoURL, "-vn", "-acodec", "aac", "-b:a", "128k", fmt.Sprintf("%s/audio.m4a", dir))
 		if out, err := cmd.CombinedOutput(); err != nil {
-			errMsg := fmt.Sprintf("Out: %s\nErr: %s", out, err)
-			newErr := errors.New(errMsg)
-			return Transcript{}, newErr
+			errMsg := fmt.Errorf("Out: %s\nErr: %s", out, err)
+			return Transcript{}, errMsg
 		}
 	}
 

@@ -46,7 +46,7 @@ func HandleMessage(s *discordgo.Session, m *discordgo.MessageCreate) {
 
 	if m.Type == discordgo.MessageTypeReply {
 		if m.ReferencedMessage.Author.ID == s.State.User.ID || isMentioned {
-			cache = utility.GetMessagesBefore(s, m.ChannelID, 100, m.ID)
+			cache, _ = utility.GetMessagesBefore(s, m.ChannelID, 100, m.ID)
 			isReply = true
 		}
 	}
@@ -56,7 +56,7 @@ func HandleMessage(s *discordgo.Session, m *discordgo.MessageCreate) {
 	}
 
 	m.Message = utility.CleanMessage(s, m.Message)
-	images, _ := utility.GetMessageMediaURL(m.Message)
+	images, _, pdfs := utility.GetMessageMediaURL(m.Message)
 
 	content := config.RequestContent{
 		Text: fmt.Sprintf("%s: %s%s%s%s",
@@ -66,7 +66,8 @@ func HandleMessage(s *discordgo.Session, m *discordgo.MessageCreate) {
 			utility.EmbedText(m.Message),
 			fmt.Sprintf("<message>%s</message>", m.Content),
 		),
-		URL: images,
+		Images: images,
+		PDFs:   pdfs,
 	}
 
 	ant.AppendMessage(anthropic.RoleUser, content, &chatMessages)

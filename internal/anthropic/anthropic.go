@@ -84,7 +84,7 @@ func getIntents(message string, questionType string) string {
 	if token == "" {
 		log.Fatal("ANTHROPIC_TOKEN is not set")
 	}
-	c := anthropic.NewClient(token)
+	c := anthropic.NewClient(token, anthropic.WithBetaVersion(anthropic.BetaMaxTokens35Sonnet20240715, "pdfs-2024-09-25"))
 	ctx := context.Background()
 	var messages []anthropic.Message
 
@@ -110,7 +110,7 @@ func getIntents(message string, questionType string) string {
 	}
 
 	resp, err := c.CreateMessages(ctx, anthropic.MessagesRequest{
-		Model:     anthropic.ModelClaude3Dot5Sonnet20241022,
+		Model:     anthropic.ModelClaude3Dot5SonnetLatest,
 		Messages:  messages,
 		MaxTokens: 8,
 	})
@@ -188,7 +188,7 @@ func StreamMessageResponse(s *discordgo.Session, m *discordgo.Message, messages 
 	if token == "" {
 		log.Fatal("ANTHROPIC_TOKEN is not set")
 	}
-	c := anthropic.NewClient(token, anthropic.WithBetaVersion(anthropic.BetaMaxTokens35Sonnet20240715))
+	c := anthropic.NewClient(token, anthropic.WithBetaVersion(anthropic.BetaMaxTokens35Sonnet20240715, "pdfs-2024-09-25"))
 	ctx := context.Background()
 
 	var i int
@@ -211,7 +211,7 @@ func StreamMessageResponse(s *discordgo.Session, m *discordgo.Message, messages 
 
 	_, err = c.CreateMessagesStream(ctx, anthropic.MessagesStreamRequest{
 		MessagesRequest: anthropic.MessagesRequest{
-			Model: anthropic.ModelClaude3Dot5Sonnet20240620,
+			Model: anthropic.ModelClaude3Dot5SonnetLatest,
 			System: fmt.Sprintf("System message: %s %s\n\nInstruction message: %s",
 				config.SystemMessageDefault.Text, currentTime, instructionMessage.Text),
 			Messages:  removeInstructonMessages(messages),
@@ -327,17 +327,30 @@ func createMessage(role anthropic.ChatRole, content config.RequestContent) []ant
 		},
 	}
 
-	for _, url := range content.URL {
+	for _, url := range content.Images {
 		data, err := utility.DownloadURL(url)
 		if err != nil {
 			log.Printf("Error downloading image: %v", err)
 			continue
 		}
-		message[0].Content = append(message[0].Content, anthropic.NewImageMessageContent(anthropic.MessageContentImageSource{
-			Type:      "base64",
-			MediaType: utility.MediaType(url),
-			Data:      data,
-		}))
+		message[0].Content = append(message[0].Content, anthropic.NewImageMessageContent(anthropic.NewMessageContentSource(
+			anthropic.MessagesContentSourceTypeBase64,
+			utility.MediaType(url),
+			data,
+		)))
+	}
+
+	for _, url := range content.PDFs {
+		data, err := utility.DownloadURL(url)
+		if err != nil {
+			log.Printf("Error downloading PDF: %v", err)
+			continue
+		}
+		message[0].Content = append(message[0].Content, anthropic.NewDocumentMessageContent(anthropic.NewMessageContentSource(
+			anthropic.MessagesContentSourceTypeBase64,
+			"application/pdf",
+			data,
+		)))
 	}
 
 	if content.Text != "" {
@@ -354,7 +367,7 @@ func PrependReplyMessages(s *discordgo.Session, originMember *discordgo.Member, 
 	}
 
 	reply := utility.CleanMessage(s, reference)
-	images, _ := utility.GetMessageMediaURL(reply)
+	images, _, pdfs := utility.GetMessageMediaURL(reply)
 	replyContent := config.RequestContent{
 		Text: fmt.Sprintf("%s %s %s %s",
 			openai.GetTranscript(s, reply),
@@ -362,7 +375,8 @@ func PrependReplyMessages(s *discordgo.Session, originMember *discordgo.Member, 
 			utility.EmbedText(reply),
 			fmt.Sprintf("<message>%s</message>", reply.Content),
 		),
-		URL: images,
+		Images: images,
+		PDFs:   pdfs,
 	}
 
 	role := determineRole(s, reply)
@@ -403,8 +417,8 @@ func determineRole(s *discordgo.Session, message *discordgo.Message) anthropic.C
 
 func prependMessageByRole(role anthropic.ChatRole, content config.RequestContent, chatMessages *[]anthropic.Message) {
 	if len(*chatMessages) == 0 || (*chatMessages)[0].Role != role {
-		if role == anthropic.RoleAssistant && len(content.URL) > 0 {
-			newMessage := createMessage(anthropic.RoleUser, config.RequestContent{URL: content.URL})
+		if role == anthropic.RoleAssistant && len(content.Images) > 0 {
+			newMessage := createMessage(anthropic.RoleUser, config.RequestContent{Images: content.Images})
 			combineMessages(newMessage, chatMessages)
 			PrependMessage(anthropic.RoleAssistant, config.RequestContent{Text: content.Text}, chatMessages)
 			return

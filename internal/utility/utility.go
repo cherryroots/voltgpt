@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"time"
 
 	"github.com/bwmarrin/discordgo"
 
@@ -87,105 +88,109 @@ func SplitParagraph(message string) (firstPart string, lastPart string) {
 	return firstPart, lastPart
 }
 
-func GetMessagesBefore(s *discordgo.Session, channelID string, count int, messageID string) []*discordgo.Message {
+func GetMessagesBefore(s *discordgo.Session, channelID string, count int, messageID string) ([]*discordgo.Message, error) {
 	messages, err := s.ChannelMessages(channelID, count, messageID, "", "")
 	if err != nil {
-		return nil
+		return nil, err
 	}
-	return messages
+	return messages, nil
 }
 
 func GetChannelMessages(s *discordgo.Session, channelID string, count int) []*discordgo.Message {
 	var messages []*discordgo.Message
-	var lastMessageID string
+	var lastMessage *discordgo.Message
 
 	iterations := count / 100
 	remainder := count % 100
 
 	for range iterations {
-		batch := GetMessagesBefore(s, channelID, 100, lastMessageID)
-		lastMessageID = batch[len(batch)-1].ID
+		batch, err := GetMessagesBefore(s, channelID, 100, lastMessage.ID)
+		if err != nil {
+			log.Printf("Error getting messages: %s\nClosest message: %s", err, lastMessage.Timestamp.String())
+		}
+		lastMessage = batch[len(batch)-1]
 		messages = append(messages, batch...)
 	}
 
 	if remainder > 0 {
-		batch := GetMessagesBefore(s, channelID, remainder, lastMessageID)
+		batch, err := GetMessagesBefore(s, channelID, remainder, lastMessage.ID)
+		if err != nil {
+			log.Printf("Error getting messages: %s\nClosest message: %s", err, lastMessage.Timestamp.String())
+		}
 		messages = append(messages, batch...)
 	}
 	return messages
 }
 
-func GetAllChannelMessages(s *discordgo.Session, refMsg *discordgo.Message, channelID string, c chan []*discordgo.Message) {
-	defer close(c)
-	var lastMessageID string
-	messagesRetrieved := 100
-	count := 0
-
-	for messagesRetrieved == 100 {
-		batch := GetMessagesBefore(s, channelID, 100, lastMessageID)
-		if len(batch) == 0 || batch == nil {
-			log.Println("getAllChannelMessages: no messages retrieved")
-			break
-		}
-		lastMessageID = batch[len(batch)-1].ID
-		messagesRetrieved = len(batch)
-		count += messagesRetrieved
-		_, err := discord.EditMessage(s, refMsg, fmt.Sprintf("%s\n- Retrieved %d messages", refMsg.Content, count))
-		if err != nil {
-			log.Println(err)
-		}
-		c <- batch
-	}
-
-	log.Println("getAllChannelMessages: done")
-}
-
-func GetAllChannelThreadMessages(s *discordgo.Session, refMsg *discordgo.Message, channelID string, c chan []*discordgo.Message) {
+func GetAllServerMessages(s *discordgo.Session, statusMessage *discordgo.Message, channels []*discordgo.Channel, threads bool, endDate time.Time, c chan []*discordgo.Message) {
 	defer close(c)
 
-	activeThreads, err := s.ThreadsActive(channelID)
-	if err != nil {
-		log.Println(err)
-	}
-	archivedThreads, err := s.ThreadsArchived(channelID, nil, 0)
-	if err != nil {
-		log.Println(err)
-	}
-	var threadChannels []*discordgo.Channel
-	threadChannels = append(threadChannels, activeThreads.Threads...)
-	threadChannels = append(threadChannels, archivedThreads.Threads...)
+	var hashChannels []*discordgo.Channel
 
-	for _, thread := range threadChannels {
-		outputMessage := fmt.Sprintf("Fetching messages for thread: <#%s>", thread.ID)
-		if len(refMsg.Content) > 1800 {
-			refMsg, err = discord.SendMessage(s, refMsg, outputMessage)
+	if threads {
+		discord.EditMessage(s, statusMessage, fmt.Sprintf("Fetching threads for %d channels...", len(channels)))
+		for _, channel := range channels {
+			activeThreads, err := s.ThreadsActive(channel.ID)
+			if err != nil {
+				log.Printf("Error getting active threads for channel %s: %s\n", channel.Name, err)
+			}
+			archivedThreads, err := s.ThreadsArchived(channel.ID, nil, 0)
+			if err != nil {
+				log.Printf("Error getting archived threads for channel %s: %s\n", channel.Name, err)
+			}
+			hashChannels = append(hashChannels, channel)
+			hashChannels = append(hashChannels, activeThreads.Threads...)
+			hashChannels = append(hashChannels, archivedThreads.Threads...)
+		}
+	} else {
+		hashChannels = channels
+	}
+
+	for _, channel := range hashChannels {
+		var outputMessage string
+		var err error
+		if channel.IsThread() {
+			outputMessage = fmt.Sprintf("Fetching messages for thread: <#%s>", channel.ID)
 		} else {
-			refMsg, err = discord.EditMessage(s, refMsg, fmt.Sprintf("%s\n%s", refMsg.Content, outputMessage))
+			outputMessage = fmt.Sprintf("Fetching messages for channel: <#%s>", channel.ID)
+		}
+		if len(statusMessage.Content) > 1800 {
+			statusMessage, err = discord.SendMessage(s, statusMessage, outputMessage)
+		} else {
+			statusMessage, err = discord.EditMessage(s, statusMessage, fmt.Sprintf("Fetching messages for %d channels...\n%s", outputMessage))
 		}
 		if err != nil {
 			log.Println(err)
 			return
 		}
 
-		var lastMessageID string
 		messagesRetrieved := 100
 		count := 0
+		lastMessage := &discordgo.Message{
+			ID: "",
+		}
 		for messagesRetrieved == 100 {
-			batch := GetMessagesBefore(s, thread.ID, 100, lastMessageID)
+			batch, err := GetMessagesBefore(s, channel.ID, 100, lastMessage.ID)
+			if err != nil {
+				log.Printf("Error getting messages: %s\nClosest message: %s", err, lastMessage.Timestamp.String())
+			}
 			if len(batch) == 0 || batch == nil {
 				log.Println("getAllChannelMessages: no messages retrieved")
 				break
 			}
-			lastMessageID = batch[len(batch)-1].ID
+			if batch[0].Timestamp.Before(endDate) {
+				break
+			}
+			lastMessage = batch[len(batch)-1]
 			messagesRetrieved = len(batch)
 			count += messagesRetrieved
-			_, err = discord.EditMessage(s, refMsg, fmt.Sprintf("%s\n- Retrieved %d messages", refMsg.Content, count))
+			_, err = discord.EditMessage(s, statusMessage, fmt.Sprintf("%s\n- Retrieved %d messages", statusMessage.Content, count))
 			if err != nil {
 				log.Println(err)
 			}
 			c <- batch
 		}
-		refMsg, err = discord.EditMessage(s, refMsg, fmt.Sprintf("%s\n- Retrieved %d messages", refMsg.Content, count))
+		statusMessage, err = discord.EditMessage(s, statusMessage, fmt.Sprintf("%s\n- Retrieved %d messages", statusMessage.Content, count))
 		if err != nil {
 			log.Println(err)
 		}
@@ -194,45 +199,60 @@ func GetAllChannelThreadMessages(s *discordgo.Session, refMsg *discordgo.Message
 	log.Println("getAllChannelThreadMessages: done")
 }
 
-func GetMessageMediaURL(m *discordgo.Message) (images []string, videos []string) {
+func GetMessageMediaURL(m *discordgo.Message) (images []string, videos []string, pdfs []string) {
 	seen := make(map[string]bool)
-	var imgageURLs []string
-	var videoURLs []string
 	providerBlacklist := []string{"tenor"}
+
+	// Helper function to add URL if not seen
+	addIfNotSeen := func(url string, collection *[]string) {
+		checkURL := cleanURL(url)
+		if !seen[checkURL] {
+			seen[checkURL] = true
+			*collection = append(*collection, url)
+		}
+	}
 
 	for _, attachment := range m.Attachments {
 		if attachment.Width > 0 && attachment.Height > 0 {
 			if IsImageURL(attachment.URL) {
-				imgageURLs = append(imgageURLs, attachment.URL)
+				addIfNotSeen(attachment.URL, &images)
 			}
 			if IsVideoURL(attachment.URL) {
-				videoURLs = append(videoURLs, attachment.URL)
+				addIfNotSeen(attachment.URL, &videos)
 			}
 		}
+		if IsPDFURL(attachment.URL) {
+			addIfNotSeen(attachment.URL, &pdfs)
+		}
 	}
+
 	for _, embed := range m.Embeds {
 		if embed.Thumbnail != nil {
-			if IsImageURL(embed.Thumbnail.URL) && MatchMultiple(embed.Provider.Name, providerBlacklist) {
-				imgageURLs = append(imgageURLs, embed.Thumbnail.URL)
+			provider := ""
+			if embed.Provider != nil {
+				provider = embed.Provider.Name
+			}
+			if IsImageURL(embed.Thumbnail.URL) && MatchMultiple(provider, providerBlacklist) {
+				addIfNotSeen(embed.Thumbnail.URL, &images)
 			}
 			if IsImageURL(embed.Thumbnail.ProxyURL) {
-				imgageURLs = append(imgageURLs, embed.Thumbnail.ProxyURL)
+				addIfNotSeen(embed.Thumbnail.ProxyURL, &images)
 			}
 		}
 		if embed.Image != nil {
 			if IsImageURL(embed.Image.URL) {
-				imgageURLs = append(imgageURLs, embed.Image.URL)
+				addIfNotSeen(embed.Image.URL, &images)
 			}
 			if IsImageURL(embed.Image.ProxyURL) {
-				imgageURLs = append(imgageURLs, embed.Image.ProxyURL)
+				addIfNotSeen(embed.Image.ProxyURL, &images)
 			}
 		}
 		if embed.Video != nil {
 			if IsVideoURL(embed.Video.URL) {
-				videoURLs = append(videoURLs, embed.Video.URL)
+				addIfNotSeen(embed.Video.URL, &videos)
 			}
 			if IsImageURL(embed.Video.URL) {
-				imgageURLs = append(imgageURLs, embed.Video.URL)
+				addIfNotSeen(embed.Video.URL, &images)
 			}
 		}
 	}
@@ -240,31 +260,19 @@ func GetMessageMediaURL(m *discordgo.Message) (images []string, videos []string)
 	regex := regexp.MustCompile(`(?m)<?(https?://[^\s<>]+)>?\b`)
 	result := regex.FindAllStringSubmatch(m.Content, -1)
 	for _, match := range result {
-		if IsImageURL(match[1]) {
-			imgageURLs = append(imgageURLs, match[1])
+		url := match[1]
+		if IsImageURL(url) {
+			addIfNotSeen(url, &images)
 		}
-		if IsVideoURL(match[1]) {
-			videoURLs = append(videoURLs, match[1])
+		if IsVideoURL(url) {
+			addIfNotSeen(url, &videos)
 		}
-	}
-
-	for _, u := range imgageURLs {
-		checkURL := cleanURL(u)
-		if !seen[checkURL] {
-			seen[checkURL] = true
-			images = append(images, u)
+		if IsPDFURL(url) {
+			addIfNotSeen(url, &pdfs)
 		}
 	}
 
-	for _, v := range videoURLs {
-		checkURL := cleanURL(v)
-		if !seen[checkURL] {
-			seen[checkURL] = true
-			videos = append(videos, v)
-		}
-	}
-
-	return images, videos
+	return images, videos, pdfs
 }
 
 func CheckCache(cache []*discordgo.Message, messageID string) *discordgo.Message {
@@ -328,20 +336,19 @@ func EmbedText(m *discordgo.Message) (text string) {
 		return ""
 	}
 	for i, embed := range m.Embeds {
-		embedStrings = append(embedStrings, fmt.Sprintf("Embed %d", i+1))
+		embedStrings = append(embedStrings, fmt.Sprintf("<embed id>%d</embed id>", i+1))
 		if embed.Title != "" {
-			embedStrings = append(embedStrings, fmt.Sprintf("Title: %s", embed.Title))
+			embedStrings = append(embedStrings, fmt.Sprintf("<title>%s</title>", embed.Title))
 		}
 		if embed.Description != "" {
-			embedStrings = append(embedStrings, fmt.Sprintf("Description: %s", embed.Description))
+			embedStrings = append(embedStrings, fmt.Sprintf("<description>%s</description>", embed.Description))
 		}
 		for j, field := range embed.Fields {
-			embedStrings = append(embedStrings, fmt.Sprintf("Field %d Name: %s", j+1, field.Name))
-			embedStrings = append(embedStrings, fmt.Sprintf("Field %d Value: %s", j+1, field.Value))
+			embedStrings = append(embedStrings, fmt.Sprintf("<field id>%d</field id><field name>%s</field name><field value>%s</field value>", j+1, field.Name, field.Value))
 		}
 	}
 
-	text = strings.Join(embedStrings, "\n") + "\n"
+	text = "<embed>" + strings.Join(embedStrings, "\n") + "</embed>\n"
 
 	return fmt.Sprintf("<embeds>%s</embeds>\n", text)
 }
@@ -438,6 +445,20 @@ func IsVideoURL(urlStr string) bool {
 
 	switch fileExt {
 	case ".mp4", ".webm", ".mov":
+		return true
+	default:
+		return false
+	}
+}
+
+func IsPDFURL(urlStr string) bool {
+	fileExt, err := urlToExt(urlStr)
+	if err != nil {
+		return false
+	}
+
+	switch fileExt {
+	case ".pdf":
 		return true
 	default:
 		return false

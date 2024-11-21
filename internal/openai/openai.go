@@ -157,7 +157,7 @@ func createMessage(role string, name string, content config.RequestContent) []op
 		})
 	}
 
-	for _, u := range content.URL {
+	for _, u := range content.Images {
 		message[0].MultiContent = append(message[0].MultiContent, openai.ChatMessagePart{
 			Type: openai.ChatMessagePartTypeImageURL,
 			ImageURL: &openai.ChatMessageImageURL{
@@ -174,10 +174,11 @@ func CreateBatchMessages(s *discordgo.Session, messages []*discordgo.Message) []
 	var batchMessages []openai.ChatCompletionMessage
 
 	for _, message := range messages {
-		images, _ := utility.GetMessageMediaURL(message)
+		images, _, pdfs := utility.GetMessageMediaURL(message)
 		content := config.RequestContent{
-			Text: message.Content,
-			URL:  images,
+			Text:   message.Content,
+			Images: images,
+			PDFs:   pdfs,
 		}
 		if message.Author.ID == s.State.User.ID {
 			PrependMessage(openai.ChatMessageRoleAssistant, message.Author.Username, content, &batchMessages)
