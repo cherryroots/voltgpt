@@ -6,12 +6,13 @@ import (
 	"sync"
 	"time"
 
-	ant "voltgpt/internal/anthropic"
+	ant "voltgpt/internal/apis/anthropic"
+	oai "voltgpt/internal/apis/openai"
+	"voltgpt/internal/apis/simplicity"
 	"voltgpt/internal/config"
 	"voltgpt/internal/discord"
 	"voltgpt/internal/gamble"
 	"voltgpt/internal/hasher"
-	oai "voltgpt/internal/openai"
 	"voltgpt/internal/utility"
 
 	"github.com/bwmarrin/discordgo"
@@ -43,7 +44,7 @@ var Commands = map[string]func(s *discordgo.Session, i *discordgo.InteractionCre
 			ratio = "1:1"
 		}
 
-		image, err := ant.DrawSAIImage(prompt, negativePrompt, ratio)
+		image, err := simplicity.DrawImage(prompt, negativePrompt, ratio)
 		if err != nil {
 			log.Println(err)
 			_, err = discord.SendFollowup(s, i, err.Error())

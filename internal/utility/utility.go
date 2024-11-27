@@ -88,6 +88,31 @@ func SplitParagraph(message string) (firstPart string, lastPart string) {
 	return firstPart, lastPart
 }
 
+func SplitSend(s *discordgo.Session, m *discordgo.Message, msg *discordgo.Message, currentMessage string) (string, *discordgo.Message, error) {
+	if len(currentMessage) > 1750 {
+		firstPart, lastPart := SplitParagraph(currentMessage)
+		if lastPart == "" {
+			lastPart = "..."
+		}
+		_, err := discord.EditMessage(s, msg, firstPart)
+		if err != nil {
+			return "", msg, err
+		}
+		msg, err = discord.SendMessageFile(s, msg, lastPart, nil)
+		if err != nil {
+			return "", msg, err
+		}
+		currentMessage = lastPart
+	} else {
+		_, err := discord.EditMessage(s, msg, currentMessage)
+		if err != nil {
+			discord.LogSendErrorMessage(s, m, err.Error())
+			return "", msg, err
+		}
+	}
+	return currentMessage, msg, nil
+}
+
 func GetMessagesBefore(s *discordgo.Session, channelID string, count int, messageID string) ([]*discordgo.Message, error) {
 	messages, err := s.ChannelMessages(channelID, count, messageID, "", "")
 	if err != nil {
@@ -275,12 +300,30 @@ func GetMessageMediaURL(m *discordgo.Message) (images []string, videos []string,
 	return images, videos, pdfs
 }
 
-func CheckCache(cache []*discordgo.Message, messageID string) *discordgo.Message {
+func checkCache(cache []*discordgo.Message, messageID string) *discordgo.Message {
 	for _, message := range cache {
 		if message.ID == messageID {
 			return message
 		}
 	}
+	return nil
+}
+
+func GetReferencedMessage(s *discordgo.Session, message *discordgo.Message, cache []*discordgo.Message) *discordgo.Message {
+	if message.ReferencedMessage != nil {
+		return message.ReferencedMessage
+	}
+
+	if message.MessageReference != nil {
+		cachedMessage := checkCache(cache, message.MessageReference.MessageID)
+		if cachedMessage != nil {
+			return cachedMessage
+		}
+
+		referencedMessage, _ := s.ChannelMessage(message.MessageReference.ChannelID, message.MessageReference.MessageID)
+		return referencedMessage
+	}
+
 	return nil
 }
 

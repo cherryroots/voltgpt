@@ -2,16 +2,17 @@ package handler
 
 import (
 	"fmt"
+	"strings"
 	"time"
 
-	ant "voltgpt/internal/anthropic"
+	oai "voltgpt/internal/apis/openai"
 	"voltgpt/internal/config"
 	"voltgpt/internal/hasher"
-	"voltgpt/internal/openai"
+	"voltgpt/internal/transcription"
 	"voltgpt/internal/utility"
 
 	"github.com/bwmarrin/discordgo"
-	"github.com/liushuangls/go-anthropic/v2"
+	"github.com/sashabaranov/go-openai"
 )
 
 func HandleMessage(s *discordgo.Session, m *discordgo.MessageCreate) {
@@ -33,7 +34,7 @@ func HandleMessage(s *discordgo.Session, m *discordgo.MessageCreate) {
 		return
 	}
 
-	var chatMessages []anthropic.Message
+	var chatMessages []openai.ChatCompletionMessage
 	var cache []*discordgo.Message
 	var isMentioned, isReply bool
 
@@ -59,23 +60,21 @@ func HandleMessage(s *discordgo.Session, m *discordgo.MessageCreate) {
 	images, _, pdfs := utility.GetMessageMediaURL(m.Message)
 
 	content := config.RequestContent{
-		Text: fmt.Sprintf("%s: %s%s%s%s",
-			fmt.Sprintf("<username>%s</username>", m.Author.Username),
-			openai.GetTranscript(s, m.Message),
+		Text: strings.TrimSpace(fmt.Sprintf("%s%s%s%s",
+			transcription.GetTranscript(s, m.Message),
 			utility.AttachmentText(m.Message),
 			utility.EmbedText(m.Message),
 			fmt.Sprintf("<message>%s</message>", m.Content),
-		),
+		)),
 		Images: images,
 		PDFs:   pdfs,
 	}
 
-	ant.AppendMessage(anthropic.RoleUser, content, &chatMessages)
+	oai.AppendMessage(openai.ChatMessageRoleUser, m.Message.Author.Username, content, &chatMessages)
 
 	if isReply {
-		ant.PrependReplyMessages(s, m.Message.Member, m.Message, cache, &chatMessages)
-		ant.PrependUserMessagePlaceholder(&chatMessages)
+		oai.PrependReplyMessages(s, m.Message.Member, m.Message, cache, &chatMessages)
 	}
 
-	ant.StreamMessageResponse(s, m.Message, chatMessages, nil)
+	oai.StreamMessageResponse(s, m.Message, chatMessages, nil)
 }

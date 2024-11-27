@@ -2,22 +2,18 @@
 package anthropic
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"log"
-	"mime/multipart"
-	"net/http"
 	"os"
 	"strings"
 	"time"
 
+	"voltgpt/internal/apis/simplicity"
 	"voltgpt/internal/config"
 	"voltgpt/internal/discord"
-	"voltgpt/internal/openai"
+	"voltgpt/internal/transcription"
 	"voltgpt/internal/utility"
 
 	"github.com/bwmarrin/discordgo"
@@ -126,63 +122,6 @@ func getIntents(message string, questionType string) string {
 	return *resp.Content[0].Text
 }
 
-func DrawSAIImage(prompt string, negativePrompt string, ratio string) ([]*discordgo.File, error) {
-	stabilityToken := os.Getenv("STABILITY_TOKEN")
-	if stabilityToken == "" {
-		log.Fatal("STABILITY_TOKEN is not set")
-	}
-
-	url := "https://api.stability.ai/v2beta/stable-image/generate/ultra"
-	ratios := []string{"16:9", "1:1", "21:9", "2:3", "3:2", "4:5", "5:4", "9:16", "9:21"}
-
-	body := &bytes.Buffer{}
-	writer := multipart.NewWriter(body)
-	_ = writer.WriteField("prompt", prompt)
-	_ = writer.WriteField("output_format", "png")
-	if negativePrompt != "" && negativePrompt != "none" {
-		_ = writer.WriteField("negative_prompt", negativePrompt)
-	}
-	if utility.MatchMultiple(ratio, ratios) {
-		_ = writer.WriteField("aspect_ratio", ratio)
-	}
-	_ = writer.Close()
-
-	req, err := http.NewRequest("POST", url, body)
-	if err != nil {
-		return nil, err
-	}
-	req.Header.Add("Content-Type", writer.FormDataContentType())
-	req.Header.Add("Accept", "image/*")
-	req.Header.Add("Authorization", stabilityToken)
-
-	client := &http.Client{}
-	resp, err := client.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		errInterface := make(map[string]interface{})
-		err = json.NewDecoder(resp.Body).Decode(&errInterface)
-		return nil, fmt.Errorf("unexpected status code: %d\n%s", resp.StatusCode, errInterface)
-	}
-
-	imageBytes, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, err
-	}
-
-	files := []*discordgo.File{
-		{
-			Name:   "image.png",
-			Reader: bytes.NewReader(imageBytes),
-		},
-	}
-
-	return files, nil
-}
-
 func StreamMessageResponse(s *discordgo.Session, m *discordgo.Message, messages []anthropic.Message, refMsg *discordgo.Message) {
 	token := os.Getenv("ANTHROPIC_TOKEN")
 	if token == "" {
@@ -224,7 +163,7 @@ func StreamMessageResponse(s *discordgo.Session, m *discordgo.Message, messages 
 			i++
 			if i%25 == 0 || i == 5 {
 				currentMessage = utility.ReplaceMultiple(currentMessage, replacementStrings, "")
-				currentMessage, msg, err = splitSend(s, m, msg, currentMessage)
+				currentMessage, msg, err = utility.SplitSend(s, m, msg, currentMessage)
 				if err != nil {
 					discord.LogSendErrorMessage(s, m, err.Error())
 					return
@@ -234,7 +173,7 @@ func StreamMessageResponse(s *discordgo.Session, m *discordgo.Message, messages 
 		OnMessageStop: func(_ anthropic.MessagesEventMessageStopData) {
 			replacementStrings := []string{"<message>", "</message>", "<reply>", "</reply>"}
 			currentMessage = utility.ReplaceMultiple(currentMessage, replacementStrings, "")
-			currentMessage, msg, err = splitSend(s, m, msg, currentMessage)
+			currentMessage, msg, err = utility.SplitSend(s, m, msg, currentMessage)
 			if err != nil {
 				discord.LogSendErrorMessage(s, m, err.Error())
 				return
@@ -256,7 +195,7 @@ func StreamMessageResponse(s *discordgo.Session, m *discordgo.Message, messages 
 					return
 				}
 				ratio := getIntents(request, "ratio")
-				files, err := DrawSAIImage(prompt, "", strings.ToLower(ratio))
+				files, err := simplicity.DrawImage(prompt, "", strings.ToLower(ratio))
 				if err != nil {
 					discord.LogSendErrorMessage(s, m, err.Error())
 				}
@@ -280,31 +219,6 @@ func StreamMessageResponse(s *discordgo.Session, m *discordgo.Message, messages 
 		}
 		return
 	}
-}
-
-func splitSend(s *discordgo.Session, m *discordgo.Message, msg *discordgo.Message, currentMessage string) (string, *discordgo.Message, error) {
-	if len(currentMessage) > 1750 {
-		firstPart, lastPart := utility.SplitParagraph(currentMessage)
-		if lastPart == "" {
-			lastPart = "..."
-		}
-		_, err := discord.EditMessage(s, msg, firstPart)
-		if err != nil {
-			return "", msg, err
-		}
-		msg, err = discord.SendMessageFile(s, msg, lastPart, nil)
-		if err != nil {
-			return "", msg, err
-		}
-		currentMessage = lastPart
-	} else {
-		_, err := discord.EditMessage(s, msg, currentMessage)
-		if err != nil {
-			discord.LogSendErrorMessage(s, m, err.Error())
-			return "", msg, err
-		}
-	}
-	return currentMessage, msg, nil
 }
 
 func AppendMessage(role anthropic.ChatRole, content config.RequestContent, messages *[]anthropic.Message) {
@@ -361,7 +275,7 @@ func createMessage(role anthropic.ChatRole, content config.RequestContent) []ant
 }
 
 func PrependReplyMessages(s *discordgo.Session, originMember *discordgo.Member, message *discordgo.Message, cache []*discordgo.Message, chatMessages *[]anthropic.Message) {
-	reference := getReferencedMessage(s, message, cache)
+	reference := utility.GetReferencedMessage(s, message, cache)
 	if reference == nil {
 		return
 	}
@@ -370,7 +284,7 @@ func PrependReplyMessages(s *discordgo.Session, originMember *discordgo.Member, 
 	images, _, pdfs := utility.GetMessageMediaURL(reply)
 	replyContent := config.RequestContent{
 		Text: fmt.Sprintf("%s %s %s %s",
-			openai.GetTranscript(s, reply),
+			transcription.GetTranscript(s, reply),
 			utility.AttachmentText(reply),
 			utility.EmbedText(reply),
 			fmt.Sprintf("<message>%s</message>", reply.Content),
@@ -388,24 +302,6 @@ func PrependReplyMessages(s *discordgo.Session, originMember *discordgo.Member, 
 	if reply.Type == discordgo.MessageTypeReply {
 		PrependReplyMessages(s, originMember, reference, cache, chatMessages)
 	}
-}
-
-func getReferencedMessage(s *discordgo.Session, message *discordgo.Message, cache []*discordgo.Message) *discordgo.Message {
-	if message.ReferencedMessage != nil {
-		return message.ReferencedMessage
-	}
-
-	if message.MessageReference != nil {
-		cachedMessage := utility.CheckCache(cache, message.MessageReference.MessageID)
-		if cachedMessage != nil {
-			return cachedMessage
-		}
-
-		referencedMessage, _ := s.ChannelMessage(message.MessageReference.ChannelID, message.MessageReference.MessageID)
-		return referencedMessage
-	}
-
-	return nil
 }
 
 func determineRole(s *discordgo.Session, message *discordgo.Message) anthropic.ChatRole {
