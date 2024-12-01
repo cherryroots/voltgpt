@@ -18,6 +18,7 @@ var (
 	DefaultTemp     float32 = 0.7
 	DefaultOAIModel         = openai.GPT4Turbo
 	DefaultANTModel         = anthropic.ModelClaude3Dot5SonnetLatest
+	PixtralModel            = "pixtral-large-latest"
 
 	ModelChoices = []*discordgo.ApplicationCommandOptionChoice{
 		{Name: "gpt-4-turbo", Value: openai.GPT4Turbo},
@@ -37,14 +38,17 @@ var (
 	}
 
 	SystemMessageDefault = RequestContent{
-		Text: "Your name is 'Volt-sama' and the interface you use is discord so you can use any appropriate markdown formats.\n" +
-			"You have the capability to draw images, the image will be attached to your message after replying in that case.\n" +
-			"When an image is requested put your prompt between two § and it will be extracted, you don't have to elaborate much outside of them.\n" +
-			"If an user asks you to edit an image, put the new prompt in § as well for the new image that will be generated.\n" +
-			"For any message from the user that has a 💢 or ⚙️ in it just treat it as not being there and reply normally.\n" +
+		Text: "Your name is 'Volt-sama', you are on discord, use discord markdown, max length of a header is ###.\n" +
+			"Don't use an excessive amount of newlines in your responses.\n" +
+			"You can draw images, the image will be attached to your message after replying.\n" +
+			"When an image is requested put your generation prompt between two § and it will be extracted. Expand a lot on the prompt of the image.\n" +
+			"Be creative with it and make it interesting.\n" +
+			"If the user asks for a specific aspect ratio mention it in your message but not the prompt itself.\n" +
+			"If an user asks you to edit an image, put the new prompt in § for the new image that will be generated.\n" +
+			"Ignore 💢 or ⚙️ in messages andjust treat it as not being there and reply normally.\n" +
 			"If a transcript tag is found with an error message in it, explain it to the user. " +
-			"The messages you recieve contain XML tags to make it easier for you to parse.\n" +
-			"Don't reply with any XML tags. Training data cutoff: April 2024.",
+			"Never ever mention your own message like 'Volt-sama:' before a message.\n" +
+			"Messages contain XML for parsing. Don't reply with XML.\n",
 	}
 	InstructionMessageDefault = RequestContent{Text: ""}
 	InstructionMessageMean    = RequestContent{

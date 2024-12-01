@@ -3,12 +3,13 @@ package handler
 import (
 	"fmt"
 	"log"
+	"strconv"
 	"sync"
 	"time"
 
 	ant "voltgpt/internal/apis/anthropic"
+	"voltgpt/internal/apis/bfl"
 	oai "voltgpt/internal/apis/openai"
-	"voltgpt/internal/apis/simplicity"
 	"voltgpt/internal/config"
 	"voltgpt/internal/discord"
 	"voltgpt/internal/gamble"
@@ -25,26 +26,24 @@ var Commands = map[string]func(s *discordgo.Session, i *discordgo.InteractionCre
 		log.Printf("Received interaction: %s by %s", i.ApplicationCommandData().Name, i.Interaction.Member.User.Username)
 		discord.DeferResponse(s, i)
 
-		var prompt, negativePrompt, ratio string
+		var prompt, ratio string
+		var raw bool
 		for _, option := range i.ApplicationCommandData().Options {
 			if option.Name == "prompt" {
 				prompt = option.StringValue()
 			}
-			if option.Name == "negative-prompt" {
-				negativePrompt = option.StringValue()
-			}
 			if option.Name == "ratio" {
 				ratio = option.StringValue()
 			}
-		}
-		if negativePrompt == "" {
-			negativePrompt = "none"
+			if option.Name == "raw" {
+				raw = option.BoolValue()
+			}
 		}
 		if ratio == "" {
 			ratio = "1:1"
 		}
 
-		image, err := simplicity.DrawImage(prompt, negativePrompt, ratio)
+		image, err := bfl.DrawImage(prompt, ratio, strconv.FormatBool(raw))
 		if err != nil {
 			log.Println(err)
 			_, err = discord.SendFollowup(s, i, err.Error())
@@ -53,8 +52,7 @@ var Commands = map[string]func(s *discordgo.Session, i *discordgo.InteractionCre
 			}
 			return
 		}
-		message := fmt.Sprintf("Prompt: %s\nNegative prompt: %s\nRatio: %s\n", prompt, negativePrompt, ratio)
-		log.Printf("Drawing: %s", message)
+		message := fmt.Sprintf("Prompt: %s\nRatio: %s\nRaw: %t", prompt, ratio, raw)
 		_, err = discord.SendFollowupFile(s, i, message, image)
 		if err != nil {
 			log.Println(err)

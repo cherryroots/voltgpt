@@ -60,7 +60,8 @@ func HandleMessage(s *discordgo.Session, m *discordgo.MessageCreate) {
 	images, _, pdfs := utility.GetMessageMediaURL(m.Message)
 
 	content := config.RequestContent{
-		Text: strings.TrimSpace(fmt.Sprintf("%s%s%s%s",
+		Text: strings.TrimSpace(fmt.Sprintf("<username>%s</username>: %s%s%s%s",
+			m.Message.Author.Username,
 			transcription.GetTranscript(s, m.Message),
 			utility.AttachmentText(m.Message),
 			utility.EmbedText(m.Message),

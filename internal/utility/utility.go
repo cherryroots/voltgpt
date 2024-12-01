@@ -106,7 +106,6 @@ func SplitSend(s *discordgo.Session, m *discordgo.Message, msg *discordgo.Messag
 	} else {
 		_, err := discord.EditMessage(s, msg, currentMessage)
 		if err != nil {
-			discord.LogSendErrorMessage(s, m, err.Error())
 			return "", msg, err
 		}
 	}
@@ -182,7 +181,7 @@ func GetAllServerMessages(s *discordgo.Session, statusMessage *discordgo.Message
 		if len(statusMessage.Content) > 1800 {
 			statusMessage, err = discord.SendMessage(s, statusMessage, outputMessage)
 		} else {
-			statusMessage, err = discord.EditMessage(s, statusMessage, fmt.Sprintf("Fetching messages for %d channels...\n%s", outputMessage))
+			statusMessage, err = discord.EditMessage(s, statusMessage, fmt.Sprintf("%s\n%s", statusMessage.Content, outputMessage))
 		}
 		if err != nil {
 			log.Println(err)

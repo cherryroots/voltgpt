@@ -27,14 +27,15 @@ var (
 				},
 				{
 					Type:        discordgo.ApplicationCommandOptionString,
-					Name:        "negative-prompt",
-					Description: "negative prompt to use",
-				},
-				{
-					Type:        discordgo.ApplicationCommandOptionString,
 					Name:        "ratio",
 					Description: "ratio to use",
 					Choices:     RatioChoices,
+				},
+				{
+					Type:        discordgo.ApplicationCommandOptionBoolean,
+					Name:        "raw",
+					Description: "raw image",
+					Required:    false,
 				},
 			},
 		},
