@@ -43,7 +43,7 @@ var Commands = map[string]func(s *discordgo.Session, i *discordgo.InteractionCre
 			ratio = "1:1"
 		}
 
-		image, err := bfl.DrawImage(prompt, ratio, strconv.FormatBool(raw))
+		image, err := bfl.DrawImage(prompt, ratio, strconv.FormatBool(raw), "")
 		if err != nil {
 			log.Println(err)
 			_, err = discord.SendFollowup(s, i, err.Error())
