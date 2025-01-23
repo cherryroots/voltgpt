@@ -67,15 +67,19 @@ func getResult(id string) (string, error) {
 		return "", err
 	}
 
+	if result.Status == statusPending {
+		return "", nil
+	}
+
 	if result.Status != statusReady {
-		return "", fmt.Errorf("unexpected status: %s", result.Status)
+		return "", fmt.Errorf("Unexpected image status: %s", result.Status)
 	}
 
 	return result.Result.(map[string]interface{})["sample"].(string), nil
 }
 
 // DrawImage makes a request to the BFL API to generate an image
-func DrawImage(prompt string, aspectRatio string, raw string) ([]*discordgo.File, error) {
+func DrawImage(prompt string, aspectRatio string, raw string, image string) ([]*discordgo.File, error) {
 	bflToken := os.Getenv("BFL_TOKEN")
 	if bflToken == "" {
 		log.Fatal("BFL_TOKEN is not set")
@@ -94,6 +98,9 @@ func DrawImage(prompt string, aspectRatio string, raw string) ([]*discordgo.File
 	}
 	if raw != "false" {
 		payload["raw"] = raw
+	}
+	if image != "" {
+		payload["image_prompt"] = image
 	}
 
 	jsonData, err := json.Marshal(payload)
@@ -134,12 +141,12 @@ func DrawImage(prompt string, aspectRatio string, raw string) ([]*discordgo.File
 	for {
 		sample, err = getResult(result.ID)
 		if err != nil {
-			time.Sleep(time.Second)
-			continue
+			return nil, err
 		}
 		if sample != "" {
 			break
 		}
+		time.Sleep(time.Second)
 	}
 
 	data, err := utility.DownloadURL(sample)
