@@ -14,16 +14,14 @@ type RequestContent struct {
 }
 
 var (
-	Admins                  = []string{"102087943627243520", "123116664207179777", "95681688914366464"}
-	DefaultTemp     float32 = 0.7
-	DefaultOAIModel         = openai.GPT4Turbo
-	DefaultANTModel         = anthropic.ModelClaude3Dot5SonnetLatest
-	PixtralModel            = "pixtral-large-latest"
-
-	ModelChoices = []*discordgo.ApplicationCommandOptionChoice{
-		{Name: "gpt-4-turbo", Value: openai.GPT4Turbo},
-		{Name: "gpt-3.5-turbo-0125", Value: openai.GPT3Dot5Turbo0125},
-	}
+	Admins          = []string{"102087943627243520", "123116664207179777", "95681688914366464"}
+	DefaultTemp     = 1.0
+	OpenAIModel     = openai.GPT4Turbo
+	AnthropicModel  = anthropic.ModelClaude3Dot5SonnetLatest
+	MistralBaseURL  = "https://api.mistral.ai/v1"
+	MistralModel    = "pixtral-large-latest"
+	DeepseekBaseURL = "https://api.deepseek.com/v1"
+	DeepseekModel   = "deepseek-reasoner"
 
 	RatioChoices = []*discordgo.ApplicationCommandOptionChoice{
 		{Name: "1:1", Value: "1:1"},
@@ -38,16 +36,17 @@ var (
 	}
 
 	SystemMessageDefault = RequestContent{
-		Text: "Your name is 'Volt-sama', you are on discord, use discord markdown, max length of a header is ###.\n" +
+		Text: "Your name is 'Volt-仙女', you are on discord, use discord markdown.\n" +
 			"Don't use an excessive amount of newlines in your responses.\n" +
-			"You can draw images, the image will be attached to your message after replying.\n" +
-			"When an image is requested put your generation prompt between two § and it will be extracted. Expand a lot on the prompt of the image.\n" +
-			"Be creative with it and make it interesting.\n" +
-			"If the user asks for a specific aspect ratio mention it in your message but not the prompt itself.\n" +
-			"If an user asks you to edit an image, put the new prompt in § for the new image that will be generated.\n" +
-			"Ignore 💢 or ⚙️ in messages andjust treat it as not being there and reply normally.\n" +
+			"You can draw images on request and only on request, the image will be attached to your message after replying, be creative with the prompt, don't refer to the prompt text outside of the prompt itself.\n" +
+			"Put the requested prompt between two §, like this: §prompt§, \n" +
+			"Never provide a prompt unless explicitly asked for.\n" +
+			"Ignore 💢 or ⚙️ in messages andjust treat it as not being there and reply normally, ignore the content in the pairwise ⚙️ .\n" +
+			"Ignore 🌡️ in a message and the content wapped in the pairwise 🌡️.\n" +
 			"If a transcript tag is found with an error message in it, explain it to the user. " +
-			"Never ever mention your own message like 'Volt-sama:' before a message.\n" +
+			"Never ever mention your own message like 'Volt-仙女:' before a message.\n" +
+			"If two separate usernames are in one message, it's a merged message of multiple users, don't pretend to be any of them, you're only volt-仙女.\n" +
+			"Don't mention the time provided in the system message out of the blue, and when you do format it in a more descriptive way.\n" +
 			"Messages contain XML for parsing. Don't reply with XML.\n",
 	}
 	InstructionMessageDefault = RequestContent{Text: ""}
@@ -77,7 +76,7 @@ func NewANTGenerationOptions() *GenerationOptions {
 	return &GenerationOptions{
 		Message:     "",
 		ImageURL:    "",
-		Temperature: DefaultTemp,
-		Model:       DefaultANTModel,
+		Temperature: float32(DefaultTemp),
+		Model:       AnthropicModel,
 	}
 }

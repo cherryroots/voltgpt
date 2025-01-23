@@ -3,11 +3,13 @@ package openai
 
 import (
 	"context"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"io"
 	"log"
 	"os"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -23,12 +25,12 @@ import (
 )
 
 func StreamMessageResponse(s *discordgo.Session, m *discordgo.Message, messages []openai.ChatCompletionMessage, refMsg *discordgo.Message) {
-	token := os.Getenv("MISTRAL_TOKEN")
+	token := os.Getenv("DEEPSEEK_TOKEN")
 	if token == "" {
-		log.Fatal("MISTRAL_TOKEN is not set")
+		log.Fatal("DEEPSEEK_TOKEN is not set")
 	}
 	cfg := openai.DefaultConfig(token)
-	cfg.BaseURL = "https://api.mistral.ai/v1"
+	cfg.BaseURL = config.DeepseekBaseURL
 	c := openai.NewClientWithConfig(cfg)
 	ctx := context.Background()
 
@@ -50,24 +52,27 @@ func StreamMessageResponse(s *discordgo.Session, m *discordgo.Message, messages 
 
 	instructionMessage := instructionSwitch(messages)
 	currentTime := fmt.Sprintf("Current date and time in CET right now: %s", time.Now().Format("2006-01-02 15:04:05"))
-	replacementStrings := []string{"<message>", "</message>", "<reply>", "</reply>", "<username>", "</username>"}
+	replacementStrings := []string{"<message>", "</message>", "<reply>", "</reply>", "<username>", "</username>", "<attachments>", "</attachments>"}
+	newMessages := append([]openai.ChatCompletionMessage{
+		{
+			Role:    openai.ChatMessageRoleSystem,
+			Content: fmt.Sprintf("System message: %s %s\n\nInstruction message: %s", config.SystemMessageDefault.Text, currentTime, instructionMessage.Text),
+		},
+	}, removeInstructonMessages(messages)...)
 
 	stream, err := c.CreateChatCompletionStream(ctx, openai.ChatCompletionRequest{
-		Model: config.PixtralModel,
-		Messages: append([]openai.ChatCompletionMessage{
-			{
-				Role:    openai.ChatMessageRoleSystem,
-				Content: fmt.Sprintf("System message: %s %s\n\nInstruction message: %s", config.SystemMessageDefault.Text, currentTime, instructionMessage.Text),
-			},
-		}, removeInstructonMessages(messages)...),
-		Temperature: config.DefaultTemp,
+		Model:       config.DeepseekModel,
+		Messages:    mergeMessages(newMessages),
+		Temperature: float32(temperatureSwitch(messages)),
 		Stream:      true,
 	})
 	if err != nil {
-		discord.LogSendErrorMessage(s, m, fmt.Sprintf("Stream error: %v", err))
+		discord.LogSendErrorMessage(s, m, fmt.Sprintf("Stream error on start: %v", err))
 		return
 	}
 	defer stream.Close()
+
+	log.Printf("Temperature: %v", temperatureSwitch(messages))
 
 	ticker := time.NewTicker(time.Second)
 	done := make(chan bool)
@@ -82,7 +87,7 @@ func StreamMessageResponse(s *discordgo.Session, m *discordgo.Message, messages 
 					var err error
 					currentBuffer, msg, err = utility.SplitSend(s, m, msg, currentBuffer)
 					if err != nil {
-						discord.LogSendErrorMessage(s, m, fmt.Sprintf("Stream error: %v", err))
+						discord.LogSendErrorMessage(s, m, fmt.Sprintf("Stream error on update: %v", err))
 						bufferMutex.Unlock()
 						return
 					}
@@ -100,7 +105,7 @@ func StreamMessageResponse(s *discordgo.Session, m *discordgo.Message, messages 
 			break
 		}
 		if err != nil {
-			discord.LogSendErrorMessage(s, m, fmt.Sprintf("Stream error: %v", err))
+			discord.LogSendErrorMessage(s, m, fmt.Sprintf("Stream error during response: %v", err))
 			ticker.Stop()
 			close(done)
 			return
@@ -133,7 +138,7 @@ func StreamMessageResponse(s *discordgo.Session, m *discordgo.Message, messages 
 	currentBuffer, msg, err = utility.SplitSend(s, m, msg, currentBuffer)
 	bufferMutex.Unlock()
 	if err != nil {
-		discord.LogSendErrorMessage(s, m, fmt.Sprintf("Stream error: %v", err))
+		discord.LogSendErrorMessage(s, m, fmt.Sprintf("Stream error on final update: %v", err))
 		return
 	}
 
@@ -158,25 +163,44 @@ func StreamMessageResponse(s *discordgo.Session, m *discordgo.Message, messages 
 			value string
 			name  string
 		}
-		intentChan := make(chan intentResult, 2)
-		intents := []string{"ratio", "raw"}
+		intentChan := make(chan intentResult, 3)
+		intents := []string{"ratio", "raw", "redraw"}
 		for _, intent := range intents {
 			go func() {
 				intentChan <- intentResult{getIntents(request, intent), intent}
 			}()
 		}
 
-		var ratio, raw string
-		for i := 0; i < 2; i++ {
+		var ratio, raw, redraw string
+		for i := 0; i < 3; i++ {
 			result := <-intentChan
 			switch result.name {
 			case "ratio":
 				ratio = result.value
 			case "raw":
 				raw = result.value
+			case "redraw":
+				redraw = result.value
 			}
 		}
-		files, err := bfl.DrawImage(prompt, ratio, raw)
+		var base64Image string
+		if redraw != "" {
+			messageImages, _, _ := utility.GetMessageMediaURL(m)
+			var replyImages []string
+			if m.Type == discordgo.MessageTypeReply {
+				replyImages, _, _ = utility.GetMessageMediaURL(m.ReferencedMessage)
+			}
+			replyImages = append(replyImages, messageImages...)
+			if len(replyImages) > 0 {
+				imageData, err := utility.DownloadURL(replyImages[len(replyImages)-1])
+				if err != nil {
+					log.Printf("Error downloading image: %v", err)
+				}
+				base64Image = base64.StdEncoding.EncodeToString(imageData)
+			}
+		}
+		log.Printf("Drawing image - Prompt: %s, Ratio: %s, Raw: %s, redraw: %s", prompt, ratio, raw, redraw)
+		files, err := bfl.DrawImage(prompt, ratio, raw, base64Image)
 		if err != nil {
 			discord.LogSendErrorMessage(s, m, err.Error())
 		}
@@ -189,16 +213,47 @@ func StreamMessageResponse(s *discordgo.Session, m *discordgo.Message, messages 
 }
 
 func AppendMessage(role string, name string, content config.RequestContent, messages *[]openai.ChatCompletionMessage) {
-	newMessages := append(*messages, createMessage(role, name, content)...)
+	newMessages := append(*messages, createSimpleMessage(role, name, content)...)
 	*messages = newMessages
 }
 
 func PrependMessage(role string, name string, content config.RequestContent, messages *[]openai.ChatCompletionMessage) {
-	newMessages := append(createMessage(role, name, content), *messages...)
+	newMessages := append(createSimpleMessage(role, name, content), *messages...)
 	*messages = newMessages
 }
 
-func createMessage(role string, name string, content config.RequestContent) []openai.ChatCompletionMessage {
+func createSimpleMessage(role string, name string, content config.RequestContent) []openai.ChatCompletionMessage {
+	message := []openai.ChatCompletionMessage{
+		{
+			Role:    role,
+			Content: "",
+		},
+	}
+
+	if name != "" {
+		message[0].Name = utility.CleanName(name)
+	}
+
+	if content.Text != "" {
+		message[0].Content = content.Text
+	}
+
+	/* ignores images
+	for _, u := range content.Images {
+		message[0].MultiContent = append(message[0].MultiContent, openai.ChatMessagePart{
+			Type: openai.ChatMessagePartTypeImageURL,
+			ImageURL: &openai.ChatMessageImageURL{
+				URL:    u,
+				Detail: openai.ImageURLDetailAuto,
+			},
+		})
+	}
+	*/
+
+	return message
+}
+
+func createComplexMessage(role string, name string, content config.RequestContent) []openai.ChatCompletionMessage {
 	message := []openai.ChatCompletionMessage{
 		{
 			Role:         role,
@@ -206,11 +261,9 @@ func createMessage(role string, name string, content config.RequestContent) []op
 		},
 	}
 
-	/*
-		if name != "" {
-			message[0].Name = utility.CleanName(name)
-		}
-	*/
+	if name != "" {
+		message[0].Name = utility.CleanName(name)
+	}
 
 	if content.Text != "" {
 		message[0].MultiContent = append(message[0].MultiContent, openai.ChatMessagePart{
@@ -248,6 +301,30 @@ func CreateBatchMessages(s *discordgo.Session, messages []*discordgo.Message) []
 	}
 
 	return batchMessages
+}
+
+func mergeMessages(messages []openai.ChatCompletionMessage) []openai.ChatCompletionMessage {
+	var mergedMessages []openai.ChatCompletionMessage
+
+	if len(messages) == 0 {
+		return mergedMessages
+	}
+
+	current := messages[0]
+
+	for i := 1; i < len(messages); i++ {
+		if messages[i].Role == current.Role {
+			current.Content += "\n" + messages[i].Content
+			current.Name += " | " + messages[i].Name
+		} else {
+			mergedMessages = append(mergedMessages, current)
+			current = messages[i]
+		}
+	}
+
+	mergedMessages = append(mergedMessages, current)
+
+	return mergedMessages
 }
 
 func PrependReplyMessages(s *discordgo.Session, originMember *discordgo.Member, message *discordgo.Message, cache []*discordgo.Message, chatMessages *[]openai.ChatCompletionMessage) {
@@ -296,11 +373,14 @@ func messagesToString(messages []openai.ChatCompletionMessage) string {
 
 func messageToString(message openai.ChatCompletionMessage) string {
 	var sb strings.Builder
+	if message.Content != "" {
+		sb.WriteString(message.Content)
+	}
 	if len(message.MultiContent) == 1 {
 		if message.MultiContent[0].Type == openai.ChatMessagePartTypeText {
 			sb.WriteString(message.MultiContent[0].Text)
 		}
-	} else {
+	} else if len(message.MultiContent) > 1 {
 		for _, content := range message.MultiContent {
 			if content.Type == openai.ChatMessagePartTypeText {
 				sb.WriteString(content.Text + "\n")
@@ -313,7 +393,7 @@ func messageToString(message openai.ChatCompletionMessage) string {
 func removeInstructonMessages(messages []openai.ChatCompletionMessage) []openai.ChatCompletionMessage {
 	for i, message := range messages {
 		text := messageToString(message)
-		tempMessage := createMessage(message.Role, "", config.RequestContent{Text: text})
+		tempMessage := createComplexMessage(message.Role, "", config.RequestContent{Text: text})
 		instruction := instructionSwitch(tempMessage)
 		if instruction.Text == "" {
 			continue
@@ -329,6 +409,41 @@ func removeInstructonMessages(messages []openai.ChatCompletionMessage) []openai.
 		}
 	}
 	return messages
+}
+
+func temperatureSwitch(m []openai.ChatCompletionMessage) float64 {
+	var text string
+
+	firstMessageText := messageToString(m[0])
+	lastMessageText := messageToString(m[len(m)-1])
+
+	if firstMessageText == lastMessageText {
+		text = lastMessageText
+	} else {
+		text = fmt.Sprintf("%s\n%s", firstMessageText, lastMessageText)
+	}
+
+	temp := 1.0
+
+	if tmpMsg := utility.ExtractPairText(text, "🌡️"); tmpMsg != "" {
+		num, err := strconv.ParseFloat(strings.TrimSpace(tmpMsg), 64)
+		if err != nil {
+			return temp
+		}
+		temp = num
+	} else if tmpMsg := utility.ExtractPairText(text, "�"); tmpMsg != "" {
+		num, err := strconv.ParseFloat(strings.TrimSpace(tmpMsg), 64)
+		if err != nil {
+			return temp
+		}
+		temp = num
+	}
+
+	if temp < 0 || temp > 2.0 {
+		temp = 1.0
+	}
+
+	return temp
 }
 
 func instructionSwitch(m []openai.ChatCompletionMessage) config.RequestContent {
@@ -378,31 +493,26 @@ func getIntents(message string, questionType string) string {
 		"They can also ask for a phone, tablet or desktop aspect ratio, do your best to closely match that. \n " +
 		"Don't include anything except the aspect ratio in the generated text under any cirmustances, and without quote marks or <message></message>: " + message}
 
-	heightPrompt := config.RequestContent{Text: "What's the height requested in this message? Heights can be between '256' and '1440'. Default is '768'.\n " +
-		"If they ask for something like 'tall' or 'short' use the closest height to that. \n " +
-		"Don't include anything except the height in the generated text under any cirmustances, and without quote marks or <message></message>: " + message}
-
-	widthPrompt := config.RequestContent{Text: "What's the width requested in this message? Widths can be between '256' and '1440'. Default is '1024'.\n " +
-		"If they ask for something like 'wide' or 'narrow' use the closest width to that. \n " +
-		"Don't include anything except the width in the generated text under any cirmustances, and without quote marks or <message></message>: " + message}
-
 	rawPrompt := config.RequestContent{Text: "What's the realism requested in this message? Realism can be 'true' or 'false'.\n " +
 		"The 'true' realism is for when the message asks to draw, generate, or change some kind of realistic image. " +
 		"The request has to be very specific, don't just say 'true' if they mention the word realistic.\n " +
 		"'false' realism is for when no specific realism level is requested.\n " +
 		"Don't include anything except the realism level in the generated text under any circumstances, and without quote marks or <message></message>: " + message}
 
+	redrawPrompt := config.RequestContent{Text: "What's the redraw requested in this message? Redraw can be 'true' or 'false'.\n " +
+		"The 'true' redraw is for when the user asks to modify a previous image with some new features.\n " +
+		"The 'false' redraw is for when the user asks to draw, generate, but not change it.\n " +
+		"Don't include anything except the redraw level in the generated text under any circumstances, and without quote marks or <message></message>: " + message}
+
 	switch questionType {
 	case "intent":
-		messages = createMessage(openai.ChatMessageRoleUser, "", intentPrompt)
+		messages = createComplexMessage(openai.ChatMessageRoleUser, "", intentPrompt)
 	case "ratio":
-		messages = createMessage(openai.ChatMessageRoleUser, "", ratioPrompt)
-	case "height":
-		messages = createMessage(openai.ChatMessageRoleUser, "", heightPrompt)
-	case "width":
-		messages = createMessage(openai.ChatMessageRoleUser, "", widthPrompt)
+		messages = createComplexMessage(openai.ChatMessageRoleUser, "", ratioPrompt)
 	case "raw":
-		messages = createMessage(openai.ChatMessageRoleUser, "", rawPrompt)
+		messages = createComplexMessage(openai.ChatMessageRoleUser, "", rawPrompt)
+	case "redraw":
+		messages = createComplexMessage(openai.ChatMessageRoleUser, "", redrawPrompt)
 	default:
 		return "none"
 	}
