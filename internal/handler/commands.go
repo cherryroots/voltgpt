@@ -7,7 +7,6 @@ import (
 	"sync"
 	"time"
 
-	ant "voltgpt/internal/apis/anthropic"
 	"voltgpt/internal/apis/bfl"
 	oai "voltgpt/internal/apis/openai"
 	"voltgpt/internal/config"
@@ -17,7 +16,7 @@ import (
 	"voltgpt/internal/utility"
 
 	"github.com/bwmarrin/discordgo"
-	"github.com/liushuangls/go-anthropic/v2"
+	"github.com/sashabaranov/go-openai"
 )
 
 // Commands is a map of command names and their corresponding functions.
@@ -226,7 +225,7 @@ var Commands = map[string]func(s *discordgo.Session, i *discordgo.InteractionCre
 			log.Println(err)
 		}
 
-		var chatMessages []anthropic.Message
+		var chatMessages []openai.ChatCompletionMessage
 		var cache []*discordgo.Message
 
 		m = utility.CleanMessage(s, m)
@@ -237,12 +236,12 @@ var Commands = map[string]func(s *discordgo.Session, i *discordgo.InteractionCre
 			PDFs:   pdfs,
 		}
 
-		ant.AppendMessage(anthropic.RoleAssistant, content, &chatMessages)
+		oai.AppendMessage(openai.ChatMessageRoleAssistant, "", content, &chatMessages)
 
 		cache, _ = utility.GetMessagesBefore(s, m.ChannelID, 100, m.ID)
-		ant.PrependReplyMessages(s, i.Interaction.Member, m, cache, &chatMessages)
+		oai.PrependReplyMessages(s, i.Interaction.Member, m, cache, &chatMessages)
 
-		ant.StreamMessageResponse(s, m, chatMessages, m)
+		oai.StreamMessageResponse(s, m, chatMessages, m)
 	},
 	"wheel_status": func(s *discordgo.Session, i *discordgo.InteractionCreate) {
 		log.Printf("Received interaction: %s by %s", i.ApplicationCommandData().Name, i.Interaction.Member.User.Username)

@@ -68,7 +68,7 @@ func getFilenameSummary(message string) string {
 
 	req := openai.ChatCompletionRequest{
 		Model:       openai.GPT3Dot5Turbo0125,
-		Messages:    createComplexMessage(openai.ChatMessageRoleUser, "", config.RequestContent{Text: prompt}),
+		Messages:    createMessage(openai.ChatMessageRoleUser, "", config.RequestContent{Text: prompt}),
 		Temperature: float32(config.DefaultTemp),
 		MaxTokens:   maxTokens,
 	}

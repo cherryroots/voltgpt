@@ -25,12 +25,12 @@ import (
 )
 
 func StreamMessageResponse(s *discordgo.Session, m *discordgo.Message, messages []openai.ChatCompletionMessage, refMsg *discordgo.Message) {
-	token := os.Getenv("DEEPSEEK_TOKEN")
+	token := os.Getenv("OPENROUTER_TOKEN")
 	if token == "" {
-		log.Fatal("DEEPSEEK_TOKEN is not set")
+		log.Fatal("OPENROUTER_TOKEN is not set")
 	}
 	cfg := openai.DefaultConfig(token)
-	cfg.BaseURL = config.DeepseekBaseURL
+	cfg.BaseURL = config.OpenRouterBaseURL
 	c := openai.NewClientWithConfig(cfg)
 	ctx := context.Background()
 
@@ -61,8 +61,9 @@ func StreamMessageResponse(s *discordgo.Session, m *discordgo.Message, messages 
 	}, removeInstructonMessages(messages)...)
 
 	stream, err := c.CreateChatCompletionStream(ctx, openai.ChatCompletionRequest{
-		Model:       config.DeepseekModel,
-		Messages:    mergeMessages(newMessages),
+		Model:       searchModelSwitch(messages),
+		Messages:    newMessages,
+		MaxTokens:   16384,
 		Temperature: float32(temperatureSwitch(messages)),
 		Stream:      true,
 	})
@@ -213,47 +214,16 @@ func StreamMessageResponse(s *discordgo.Session, m *discordgo.Message, messages 
 }
 
 func AppendMessage(role string, name string, content config.RequestContent, messages *[]openai.ChatCompletionMessage) {
-	newMessages := append(*messages, createSimpleMessage(role, name, content)...)
+	newMessages := append(*messages, createMessage(role, name, content)...)
 	*messages = newMessages
 }
 
 func PrependMessage(role string, name string, content config.RequestContent, messages *[]openai.ChatCompletionMessage) {
-	newMessages := append(createSimpleMessage(role, name, content), *messages...)
+	newMessages := append(createMessage(role, name, content), *messages...)
 	*messages = newMessages
 }
 
-func createSimpleMessage(role string, name string, content config.RequestContent) []openai.ChatCompletionMessage {
-	message := []openai.ChatCompletionMessage{
-		{
-			Role:    role,
-			Content: "",
-		},
-	}
-
-	if name != "" {
-		message[0].Name = utility.CleanName(name)
-	}
-
-	if content.Text != "" {
-		message[0].Content = content.Text
-	}
-
-	/* ignores images
-	for _, u := range content.Images {
-		message[0].MultiContent = append(message[0].MultiContent, openai.ChatMessagePart{
-			Type: openai.ChatMessagePartTypeImageURL,
-			ImageURL: &openai.ChatMessageImageURL{
-				URL:    u,
-				Detail: openai.ImageURLDetailAuto,
-			},
-		})
-	}
-	*/
-
-	return message
-}
-
-func createComplexMessage(role string, name string, content config.RequestContent) []openai.ChatCompletionMessage {
+func createMessage(role string, name string, content config.RequestContent) []openai.ChatCompletionMessage {
 	message := []openai.ChatCompletionMessage{
 		{
 			Role:         role,
@@ -276,8 +246,7 @@ func createComplexMessage(role string, name string, content config.RequestConten
 		message[0].MultiContent = append(message[0].MultiContent, openai.ChatMessagePart{
 			Type: openai.ChatMessagePartTypeImageURL,
 			ImageURL: &openai.ChatMessageImageURL{
-				URL:    u,
-				Detail: openai.ImageURLDetailAuto,
+				URL: u,
 			},
 		})
 	}
@@ -393,7 +362,7 @@ func messageToString(message openai.ChatCompletionMessage) string {
 func removeInstructonMessages(messages []openai.ChatCompletionMessage) []openai.ChatCompletionMessage {
 	for i, message := range messages {
 		text := messageToString(message)
-		tempMessage := createComplexMessage(message.Role, "", config.RequestContent{Text: text})
+		tempMessage := createMessage(message.Role, "", config.RequestContent{Text: text})
 		instruction := instructionSwitch(tempMessage)
 		if instruction.Text == "" {
 			continue
@@ -444,6 +413,16 @@ func temperatureSwitch(m []openai.ChatCompletionMessage) float64 {
 	}
 
 	return temp
+}
+
+func searchModelSwitch(m []openai.ChatCompletionMessage) string {
+	text := messageToString(m[len(m)-1])
+
+	search := strings.Contains(text, "🌐") || strings.Contains(text, "�")
+	if search {
+		return config.DeepseekSearchModel
+	}
+	return config.DeepseekModel
 }
 
 func instructionSwitch(m []openai.ChatCompletionMessage) config.RequestContent {
@@ -506,13 +485,13 @@ func getIntents(message string, questionType string) string {
 
 	switch questionType {
 	case "intent":
-		messages = createComplexMessage(openai.ChatMessageRoleUser, "", intentPrompt)
+		messages = createMessage(openai.ChatMessageRoleUser, "", intentPrompt)
 	case "ratio":
-		messages = createComplexMessage(openai.ChatMessageRoleUser, "", ratioPrompt)
+		messages = createMessage(openai.ChatMessageRoleUser, "", ratioPrompt)
 	case "raw":
-		messages = createComplexMessage(openai.ChatMessageRoleUser, "", rawPrompt)
+		messages = createMessage(openai.ChatMessageRoleUser, "", rawPrompt)
 	case "redraw":
-		messages = createComplexMessage(openai.ChatMessageRoleUser, "", redrawPrompt)
+		messages = createMessage(openai.ChatMessageRoleUser, "", redrawPrompt)
 	default:
 		return "none"
 	}

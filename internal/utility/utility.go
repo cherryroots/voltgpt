@@ -2,6 +2,7 @@
 package utility
 
 import (
+	"encoding/base64"
 	"fmt"
 	"io"
 	"log"
@@ -552,6 +553,14 @@ func DownloadURL(url string) ([]byte, error) {
 	}
 
 	return data, nil
+}
+
+func Base64Image(url string) string {
+	data, err := DownloadURL(url)
+	if err != nil {
+		return ""
+	}
+	return base64.StdEncoding.EncodeToString(data)
 }
 
 func MatchVideoWebsites(urlStr string) bool {

@@ -6,8 +6,7 @@ require (
 	github.com/bwmarrin/discordgo v0.28.2-0.20241006165315-247b6f7a76f9
 	github.com/corona10/goimagehash v1.1.0
 	github.com/joho/godotenv v1.5.1
-	github.com/liushuangls/go-anthropic/v2 v2.13.0
-	github.com/sashabaranov/go-openai v1.36.1
+	github.com/sashabaranov/go-openai v1.36.2-0.20250131190529-45aa99607be0
 	github.com/u2takey/ffmpeg-go v0.5.0
 	golang.org/x/image v0.23.0
 )

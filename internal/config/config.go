@@ -3,7 +3,6 @@ package config
 
 import (
 	"github.com/bwmarrin/discordgo"
-	"github.com/liushuangls/go-anthropic/v2"
 	"github.com/sashabaranov/go-openai"
 )
 
@@ -14,14 +13,12 @@ type RequestContent struct {
 }
 
 var (
-	Admins          = []string{"102087943627243520", "123116664207179777", "95681688914366464"}
-	DefaultTemp     = 1.0
-	OpenAIModel     = openai.GPT4Turbo
-	AnthropicModel  = anthropic.ModelClaude3Dot5SonnetLatest
-	MistralBaseURL  = "https://api.mistral.ai/v1"
-	MistralModel    = "pixtral-large-latest"
-	DeepseekBaseURL = "https://api.deepseek.com/v1"
-	DeepseekModel   = "deepseek-reasoner"
+	Admins              = []string{"102087943627243520", "123116664207179777", "95681688914366464"}
+	DefaultTemp         = 1.0
+	OpenAIModel         = openai.GPT4Turbo
+	OpenRouterBaseURL   = "https://openrouter.ai/api/v1"
+	DeepseekModel       = "deepseek/deepseek-r1:nitro"
+	DeepseekSearchModel = "deepseek/deepseek-r1:nitro:online"
 
 	RatioChoices = []*discordgo.ApplicationCommandOptionChoice{
 		{Name: "1:1", Value: "1:1"},
@@ -36,7 +33,8 @@ var (
 	}
 
 	SystemMessageDefault = RequestContent{
-		Text: "Your name is 'Volt-仙女', you are on discord, use discord markdown.\n" +
+		Text: "Your name is 'Volt-仙女', you are a chatbot, don't start a message with it, you are on discord, use discord markdown.\n" +
+			"Use lots of cute kaomoji.\n" + // like (◕ᴗ◕✿) >⩊< (≧◡≦) ⸜(｡˃ ᵕ ˂ )⸝♡ (*ᴗ͈ˬᴗ͈)ꕤ*.ﾟ (๑>◡<๑) (,,>﹏<,,) (ᵕ—ᴗ—) (⸝⸝> ᴗ•⸝⸝) (¬`‸´¬).\n" +
 			"Don't use an excessive amount of newlines in your responses.\n" +
 			"You can draw images on request and only on request, the image will be attached to your message after replying, be creative with the prompt, don't refer to the prompt text outside of the prompt itself.\n" +
 			"Put the requested prompt between two §, like this: §prompt§, \n" +
@@ -44,9 +42,9 @@ var (
 			"Ignore 💢 or ⚙️ in messages andjust treat it as not being there and reply normally, ignore the content in the pairwise ⚙️ .\n" +
 			"Ignore 🌡️ in a message and the content wapped in the pairwise 🌡️.\n" +
 			"If a transcript tag is found with an error message in it, explain it to the user. " +
-			"Never ever mention your own message like 'Volt-仙女:' before a message.\n" +
 			"If two separate usernames are in one message, it's a merged message of multiple users, don't pretend to be any of them, you're only volt-仙女.\n" +
 			"Don't mention the time provided in the system message out of the blue, and when you do format it in a more descriptive way.\n" +
+			"If a web search result is included in a message, wrap the url in '<>' to disable discord embedding. Like [cnn.com](<https://www.cnn.com>).\n" +
 			"Messages contain XML for parsing. Don't reply with XML.\n",
 	}
 	InstructionMessageDefault = RequestContent{Text: ""}
@@ -69,14 +67,5 @@ type GenerationOptions struct {
 	Message     string
 	ImageURL    string
 	Temperature float32
-	Model       anthropic.Model
-}
-
-func NewANTGenerationOptions() *GenerationOptions {
-	return &GenerationOptions{
-		Message:     "",
-		ImageURL:    "",
-		Temperature: float32(DefaultTemp),
-		Model:       AnthropicModel,
-	}
+	Model       openai.Model
 }
