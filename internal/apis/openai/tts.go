@@ -16,23 +16,19 @@ import (
 	"github.com/sashabaranov/go-openai"
 )
 
-func getTTSFile(message string, index int, hd bool) *discordgo.File {
+func getTTSFile(message string, index int) *discordgo.File {
 	openaiToken := os.Getenv("OPENAI_TOKEN")
 	if openaiToken == "" {
 		log.Fatal("OPENAI_TOKEN is not set")
 	}
 	c := openai.NewClient(openaiToken)
 	ctx := context.Background()
-	model := openai.TTSModel1
-
-	if hd {
-		model = openai.TTSModel1HD
-	}
+	var model openai.SpeechModel = "gpt-4o-mini-tts"
 
 	res, err := c.CreateSpeech(ctx, openai.CreateSpeechRequest{
 		Model: model,
 		Input: message,
-		Voice: openai.VoiceNova,
+		Voice: "sage",
 	})
 	if err != nil {
 		log.Printf("CreateSpeech error: %v\n", err)
@@ -82,7 +78,7 @@ func getFilenameSummary(message string) string {
 	return resp.Choices[0].Message.Content
 }
 
-func SplitTTS(message string, hd bool) []*discordgo.File {
+func SplitTTS(message string) []*discordgo.File {
 	separator := "\n\n"
 	maxLength := 4000
 	type fileIndex struct {
@@ -115,7 +111,7 @@ func SplitTTS(message string, hd bool) []*discordgo.File {
 		wg.Add(1)
 		go func(count int, chunk string) {
 			defer wg.Done()
-			file := getTTSFile(chunk, count+1, hd)
+			file := getTTSFile(chunk, count+1)
 			fileIndexes = append(fileIndexes, fileIndex{file: file, index: count + 1})
 		}(count, chunk)
 	}

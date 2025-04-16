@@ -61,8 +61,8 @@ func SplitParagraph(message string) (firstPart string, lastPart string) {
 	primarySeparator := "\n\n"
 	secondarySeparator := "\n"
 
-	lastPrimaryIndex := strings.LastIndex(message, primarySeparator)
-	lastSecondaryIndex := strings.LastIndex(message, secondarySeparator)
+	lastPrimaryIndex := strings.LastIndex(message[:min(1999, len(message))], primarySeparator)
+	lastSecondaryIndex := strings.LastIndex(message[:min(1999, len(message))], secondarySeparator)
 	if lastPrimaryIndex != -1 {
 		firstPart = message[:lastPrimaryIndex]
 		lastPart = message[lastPrimaryIndex+len(primarySeparator):]
@@ -90,7 +90,7 @@ func SplitParagraph(message string) (firstPart string, lastPart string) {
 }
 
 func SplitSend(s *discordgo.Session, m *discordgo.Message, msg *discordgo.Message, currentMessage string) (string, *discordgo.Message, error) {
-	if len(currentMessage) > 1750 {
+	if len(currentMessage) > 1800 {
 		firstPart, lastPart := SplitParagraph(currentMessage)
 		if lastPart == "" {
 			lastPart = "..."

@@ -145,7 +145,7 @@ var Commands = map[string]func(s *discordgo.Session, i *discordgo.InteractionCre
 
 		message := i.ApplicationCommandData().Resolved.Messages[i.ApplicationCommandData().TargetID]
 
-		files := oai.SplitTTS(message.Content, true)
+		files := oai.SplitTTS(message.Content)
 
 		_, err := discord.SendFollowupFile(s, i, utility.LinkFromIMessage(i.GuildID, message), files)
 		if err != nil {

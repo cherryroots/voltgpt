@@ -30,7 +30,7 @@ func StreamMessageResponse(s *discordgo.Session, m *discordgo.Message, messages 
 		log.Fatal("OPENROUTER_TOKEN is not set")
 	}
 	cfg := openai.DefaultConfig(token)
-	cfg.BaseURL = config.OpenRouterBaseURL
+	cfg.BaseURL = config.DefaultBaseURL
 	c := openai.NewClientWithConfig(cfg)
 	ctx := context.Background()
 
@@ -40,7 +40,7 @@ func StreamMessageResponse(s *discordgo.Session, m *discordgo.Message, messages 
 	var err error
 
 	if refMsg == nil {
-		msg, err = discord.SendMessageFile(s, m, "Generating response...", nil)
+		msg, err = discord.SendMessageFile(s, m, "Thinking...", nil)
 		if err != nil {
 			discord.LogSendErrorMessage(s, m, err.Error())
 			return
@@ -61,9 +61,11 @@ func StreamMessageResponse(s *discordgo.Session, m *discordgo.Message, messages 
 	}, removeInstructonMessages(messages)...)
 
 	stream, err := c.CreateChatCompletionStream(ctx, openai.ChatCompletionRequest{
-		Model:       searchModelSwitch(messages),
-		Messages:    newMessages,
-		MaxTokens:   16384,
+		Model: searchModelSwitch(messages),
+		// Model:           config.OpenAIModel,
+		Messages:  newMessages,
+		MaxTokens: 16384,
+		// ReasoningEffort: "medium",
 		Temperature: float32(temperatureSwitch(messages)),
 		Stream:      true,
 	})
@@ -112,6 +114,11 @@ func StreamMessageResponse(s *discordgo.Session, m *discordgo.Message, messages 
 			return
 		}
 
+		bufferMutex.Lock()
+		currentBuffer += response.Choices[0].Delta.Content
+		fullBuffer += response.Choices[0].Delta.Content
+		bufferMutex.Unlock()
+
 		if response.Choices[0].FinishReason != "" {
 			bufferMutex.Lock()
 			switch response.Choices[0].FinishReason {
@@ -121,13 +128,7 @@ func StreamMessageResponse(s *discordgo.Session, m *discordgo.Message, messages 
 				currentBuffer += "**Content filter triggered.**"
 			}
 			bufferMutex.Unlock()
-			break
 		}
-
-		bufferMutex.Lock()
-		currentBuffer += response.Choices[0].Delta.Content
-		fullBuffer += response.Choices[0].Delta.Content
-		bufferMutex.Unlock()
 	}
 
 	ticker.Stop()
@@ -246,7 +247,8 @@ func createMessage(role string, name string, content config.RequestContent) []op
 		message[0].MultiContent = append(message[0].MultiContent, openai.ChatMessagePart{
 			Type: openai.ChatMessagePartTypeImageURL,
 			ImageURL: &openai.ChatMessageImageURL{
-				URL: u,
+				// URL: u,
+				URL: fmt.Sprintf("data:%s;base64,%s", utility.MediaType(u), utility.Base64Image(u)),
 			},
 		})
 	}
@@ -392,7 +394,7 @@ func temperatureSwitch(m []openai.ChatCompletionMessage) float64 {
 		text = fmt.Sprintf("%s\n%s", firstMessageText, lastMessageText)
 	}
 
-	temp := 1.0
+	temp := config.DefaultTemp
 
 	if tmpMsg := utility.ExtractPairText(text, "🌡️"); tmpMsg != "" {
 		num, err := strconv.ParseFloat(strings.TrimSpace(tmpMsg), 64)
@@ -408,8 +410,8 @@ func temperatureSwitch(m []openai.ChatCompletionMessage) float64 {
 		temp = num
 	}
 
-	if temp < 0 || temp > 2.0 {
-		temp = 1.0
+	if temp < 0 || temp > 2.0 { // clamp temp
+		temp = config.DefaultTemp
 	}
 
 	return temp
@@ -420,9 +422,9 @@ func searchModelSwitch(m []openai.ChatCompletionMessage) string {
 
 	search := strings.Contains(text, "🌐") || strings.Contains(text, "�")
 	if search {
-		return config.DeepseekSearchModel
+		return fmt.Sprintf("%s:online", config.DefaultModel)
 	}
-	return config.DeepseekModel
+	return config.DefaultModel
 }
 
 func instructionSwitch(m []openai.ChatCompletionMessage) config.RequestContent {
