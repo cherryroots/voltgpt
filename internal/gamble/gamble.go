@@ -4,11 +4,11 @@ package gamble
 import (
 	"bytes"
 	"encoding/gob"
-	"errors"
 	"fmt"
 	"log"
 	"os"
 	"strconv"
+	"strings"
 
 	"github.com/bwmarrin/discordgo"
 
@@ -309,13 +309,13 @@ func (r *round) RemoveBet(by Player, on Player) {
 	}
 }
 
-func (r *round) HasBet(newBet Bet) (Bet, error) {
+func (r *round) HasBet(newBet Bet) (Bet, bool) {
 	for _, b := range r.Bets {
 		if b.By.ID() == newBet.By.ID() && b.On.ID() == newBet.On.ID() {
-			return b, nil
+			return b, true
 		}
 	}
-	return Bet{}, errors.New("no bet found")
+	return Bet{}, false
 }
 
 func (r *round) SetWinner(winner Player) {
@@ -373,15 +373,23 @@ func (g *game) StatusEmbed(r round) discordgo.MessageEmbed {
 	}
 	var playerNames, playerMoney, betPercentage string
 	for _, player := range g.Players {
-		playerNames += player.User.Username + "\n"
+		playerNames += player.User.DisplayName() + "\n"
 		playerMoney += strconv.Itoa(g.playerMoney(player, r)) + "\n"
 		betPercentage += strconv.Itoa(g.betsPercentage(player, r)) + "%" + "\n"
 	}
-	var claims, claimAmount string
-	for _, claim := range r.Claims {
-		claims += claim.User.Username + "\n"
-		claimAmount += strconv.Itoa(100) + "\n"
+	var claims []string
+	var temp string
+	for i, claim := range r.Claims {
+		if i%3 == 0 && i > 0 && len(temp) > 0 {
+			claims = append(claims, temp[:len(temp)-2])
+			temp = ""
+		}
+		temp += claim.User.Username + ", "
 	}
+	if len(temp) > 0 {
+		claims = append(claims, temp[:len(temp)-2])
+	}
+
 	var PlayerBetsBy, PlayerBetsOn, PlayerBetsAmount string
 	for _, bet := range r.Bets {
 		PlayerBetsBy += bet.By.User.Username + "\n"
@@ -392,15 +400,15 @@ func (g *game) StatusEmbed(r round) discordgo.MessageEmbed {
 	options := len(g.wheelOptions(r))
 	for _, result := range r.roundOutcome() {
 		if result.won {
-			outcome += fmt.Sprintf("Won: %s\n", result.player.User.Username)
+			outcome += fmt.Sprintf("Won: %s\n", result.player.User.DisplayName())
 			outcomeAmount += strconv.Itoa(result.bet.Amount*max(options-1, 0)) + "\n"
 		} else {
-			outcome += fmt.Sprintf("Lost: %s\n", result.player.User.Username)
+			outcome += fmt.Sprintf("Lost: %s\n", result.player.User.DisplayName())
 			outcomeAmount += strconv.Itoa(-result.bet.Amount) + "\n"
 		}
 	}
 	for _, player := range g.underThresholdPlayers(r) {
-		outcome += fmt.Sprintf("Taxed: %s\n", player.User.Username)
+		outcome += fmt.Sprintf("Taxed: %s\n", player.User.DisplayName())
 		outcomeAmount += "-" + strconv.Itoa(g.playerTax(player, r)) + "\n"
 	}
 	embed.Fields = append(embed.Fields, &discordgo.MessageEmbedField{
@@ -423,14 +431,9 @@ func (g *game) StatusEmbed(r round) discordgo.MessageEmbed {
 		Inline: true,
 	})
 	embed.Fields = append(embed.Fields, &discordgo.MessageEmbedField{
-		Name:   "Claims",
-		Value:  claims,
-		Inline: true,
-	})
-	embed.Fields = append(embed.Fields, &discordgo.MessageEmbedField{
-		Name:   "Amount",
-		Value:  claimAmount,
-		Inline: true,
+		Name:   "Claims (100)",
+		Value:  strings.Join(claims, "\n"),
+		Inline: false,
 	})
 	embed.Fields = append(embed.Fields, &discordgo.MessageEmbedField{
 		Name:  "✨ Round bets ✨",
@@ -468,7 +471,7 @@ func (g *game) SendMenu(s *discordgo.Session, i *discordgo.InteractionCreate, re
 	var options []discordgo.SelectMenuOption
 	for _, player := range g.CurrentWheelOptions() {
 		options = append(options, discordgo.SelectMenuOption{
-			Label: player.User.Username,
+			Label: player.User.DisplayName(),
 			Value: player.ID(),
 		})
 	}

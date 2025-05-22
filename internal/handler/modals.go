@@ -42,9 +42,9 @@ var Modals = map[string]func(s *discordgo.Session, i *discordgo.InteractionCreat
 			Amount: amount,
 		}
 
-		existingBet, err := gamble.Wheel.Rounds[gamble.Wheel.CurrentRound().ID].HasBet(bet)
+		existingBet, hasBet := gamble.Wheel.Rounds[gamble.Wheel.CurrentRound().ID].HasBet(bet)
 		existingAmount := 0
-		if err == nil {
+		if hasBet {
 			existingAmount = existingBet.Amount
 		}
 
@@ -53,7 +53,7 @@ var Modals = map[string]func(s *discordgo.Session, i *discordgo.InteractionCreat
 		if options%2 == 1 {
 			options++
 		}
-		if PlayerBets >= (options / 2) {
+		if PlayerBets >= (options/2) && !hasBet {
 			err := discord.UpdateResponse(s, i, "You can only bet on half of the players")
 			if err != nil {
 				log.Println(err)
@@ -79,7 +79,7 @@ var Modals = map[string]func(s *discordgo.Session, i *discordgo.InteractionCreat
 		}
 
 		gamble.Wheel.Rounds[gamble.Wheel.CurrentRound().ID].AddBet(bet)
-		message := fmt.Sprintf("Bet on %s for %d", onPlayer.User.Username, amount)
+		message := fmt.Sprintf("Bet on %s for %d", onPlayer.User.DisplayName(), amount)
 
 		err = discord.UpdateResponse(s, i, message)
 		if err != nil {

@@ -2,7 +2,6 @@
 package handler
 
 import (
-	"fmt"
 	"log"
 	"strings"
 
@@ -16,14 +15,15 @@ import (
 var Components = map[string]func(s *discordgo.Session, i *discordgo.InteractionCreate){
 	"button_refresh": func(s *discordgo.Session, i *discordgo.InteractionCreate) {
 		log.Printf("Received interaction: %s by %s", i.MessageComponentData().CustomID, i.Interaction.Member.User.Username)
-		discord.DeferEphemeralResponse(s, i)
+		s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+			Type: discordgo.InteractionResponseUpdateMessage,
+		})
 
 		if len(gamble.Wheel.Rounds) == 0 {
 			gamble.Wheel.AddRound()
 		}
 
 		embed := gamble.Wheel.StatusEmbed(gamble.Wheel.CurrentRound())
-		message := fmt.Sprintf("Refreshed wheel to round %d", gamble.Wheel.CurrentRound().ID+1)
 
 		_, err := s.ChannelMessageEditComplex(&discordgo.MessageEdit{
 			Channel:    i.ChannelID,
@@ -31,19 +31,6 @@ var Components = map[string]func(s *discordgo.Session, i *discordgo.InteractionC
 			Embeds:     &[]*discordgo.MessageEmbed{&embed},
 			Components: &gamble.RoundMessageComponents,
 		})
-		if err != nil {
-			log.Println(err)
-			message += "\n\n" + err.Error()
-		}
-
-		_, err = s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
-			Content: &message,
-		})
-		if err != nil {
-			log.Println(err)
-		}
-
-		err = discord.SleepDeleteInteraction(s, i, 3)
 		if err != nil {
 			log.Println(err)
 		}

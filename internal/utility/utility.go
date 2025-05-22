@@ -61,8 +61,8 @@ func SplitParagraph(message string) (firstPart string, lastPart string) {
 	primarySeparator := "\n\n"
 	secondarySeparator := "\n"
 
-	lastPrimaryIndex := strings.LastIndex(message[:min(1999, len(message))], primarySeparator)
-	lastSecondaryIndex := strings.LastIndex(message[:min(1999, len(message))], secondarySeparator)
+	lastPrimaryIndex := strings.LastIndex(message[:min(1990, len(message))], primarySeparator)
+	lastSecondaryIndex := strings.LastIndex(message[:min(1990, len(message))], secondarySeparator)
 	if lastPrimaryIndex != -1 {
 		firstPart = message[:lastPrimaryIndex]
 		lastPart = message[lastPrimaryIndex+len(primarySeparator):]
@@ -71,10 +71,10 @@ func SplitParagraph(message string) (firstPart string, lastPart string) {
 		lastPart = message[lastSecondaryIndex+len(secondarySeparator):]
 
 	}
-	if len(firstPart) > 1999 {
+	if len(firstPart) > 1990 {
 		log.Printf("Splitting forcibly: %d", len(firstPart))
-		firstPart = message[:1999]
-		lastPart = message[1999:]
+		firstPart = message[:1990]
+		lastPart = message[1990:]
 	}
 
 	if strings.Count(firstPart, "```")%2 != 0 {

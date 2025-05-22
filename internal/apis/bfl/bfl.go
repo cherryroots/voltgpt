@@ -86,17 +86,18 @@ func DrawImage(prompt string, aspectRatio string, raw string, image string) ([]*
 	}
 
 	url := "https://api.bfl.ml/v1/flux-pro-1.1-ultra"
-	ratios := []string{"16:9", "1:1", "21:9", "2:3", "3:2", "4:5", "5:4", "9:16", "9:21"}
+	ratioChoices := []string{"16:9", "1:1", "21:9", "2:3", "3:2", "4:5", "5:4", "9:16", "9:21"}
+	rawChoices := []string{"false", "true"}
 
 	payload := map[string]string{
 		"prompt":           prompt,
 		"output_format":    "png",
 		"safety_tolerance": "6",
 	}
-	if utility.MatchMultiple(aspectRatio, ratios) {
+	if utility.MatchMultiple(aspectRatio, ratioChoices) {
 		payload["aspect_ratio"] = aspectRatio
 	}
-	if raw != "false" {
+	if utility.MatchMultiple(raw, rawChoices) {
 		payload["raw"] = raw
 	}
 	if image != "" {

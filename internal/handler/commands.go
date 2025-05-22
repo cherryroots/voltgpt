@@ -301,10 +301,10 @@ var Commands = map[string]func(s *discordgo.Session, i *discordgo.InteractionCre
 		}
 		if remove {
 			gamble.Wheel.RemoveWheelOption(player)
-			message = fmt.Sprintf("Removed %s from the wheel!", player.User.Username)
+			message = fmt.Sprintf("Removed %s from the wheel!", player.User.DisplayName())
 		} else {
 			gamble.Wheel.AddWheelOption(player)
-			message = fmt.Sprintf("Added %s to the wheel!", player.User.Username)
+			message = fmt.Sprintf("Added %s to the wheel!", player.User.DisplayName())
 		}
 
 		_, err := discord.SendFollowup(s, i, message)
@@ -359,11 +359,11 @@ var Commands = map[string]func(s *discordgo.Session, i *discordgo.InteractionCre
 
 		if bet.Amount == 0 {
 			gamble.Wheel.Rounds[round-1].RemoveBet(byPlayer, onPlayer)
-			message = fmt.Sprintf("Removed bet on %s, by %s on round %d", onPlayer.User.Username, byPlayer.User.Username, round)
+			message = fmt.Sprintf("Removed bet on %s, by %s on round %d", onPlayer.User.DisplayName(), byPlayer.User.DisplayName(), round)
 
 		} else {
 			gamble.Wheel.Rounds[round-1].AddBet(bet)
-			message = fmt.Sprintf("Added bet on %s, by %s for %d on round %d", onPlayer.User.Username, byPlayer.User.Username, amount, round)
+			message = fmt.Sprintf("Added bet on %s, by %s for %d on round %d", onPlayer.User.DisplayName(), byPlayer.User.DisplayName(), amount, round)
 
 		}
 

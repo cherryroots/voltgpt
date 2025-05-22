@@ -25,13 +25,11 @@ import (
 )
 
 func StreamMessageResponse(s *discordgo.Session, m *discordgo.Message, messages []openai.ChatCompletionMessage, refMsg *discordgo.Message) {
-	token := os.Getenv("OPENROUTER_TOKEN")
+	token := os.Getenv("OPENAI_TOKEN")
 	if token == "" {
-		log.Fatal("OPENROUTER_TOKEN is not set")
+		log.Fatal("OPENAI_TOKEN is not set")
 	}
-	cfg := openai.DefaultConfig(token)
-	cfg.BaseURL = config.DefaultBaseURL
-	c := openai.NewClientWithConfig(cfg)
+	c := openai.NewClient(token)
 	ctx := context.Background()
 
 	var currentBuffer, fullBuffer string
@@ -61,21 +59,19 @@ func StreamMessageResponse(s *discordgo.Session, m *discordgo.Message, messages 
 	}, removeInstructonMessages(messages)...)
 
 	stream, err := c.CreateChatCompletionStream(ctx, openai.ChatCompletionRequest{
-		Model: searchModelSwitch(messages),
-		// Model:           config.OpenAIModel,
-		Messages:  newMessages,
-		MaxTokens: 16384,
-		// ReasoningEffort: "medium",
-		Temperature: float32(temperatureSwitch(messages)),
-		Stream:      true,
+		// Model: searchModelSwitch(messages),
+		Model:               config.OpenAIModel,
+		Messages:            newMessages,
+		MaxCompletionTokens: 16384,
+		ReasoningEffort:     "high",
+		// Temperature:         float32(temperatureSwitch(messages)),
+		Stream: true,
 	})
 	if err != nil {
 		discord.LogSendErrorMessage(s, m, fmt.Sprintf("Stream error on start: %v", err))
 		return
 	}
 	defer stream.Close()
-
-	log.Printf("Temperature: %v", temperatureSwitch(messages))
 
 	ticker := time.NewTicker(time.Second)
 	done := make(chan bool)
@@ -481,7 +477,7 @@ func getIntents(message string, questionType string) string {
 		"Don't include anything except the realism level in the generated text under any circumstances, and without quote marks or <message></message>: " + message}
 
 	redrawPrompt := config.RequestContent{Text: "What's the redraw requested in this message? Redraw can be 'true' or 'false'.\n " +
-		"The 'true' redraw is for when the user asks to modify a previous image with some new features.\n " +
+		"The 'true' redraw is for when the user asks to modify/edit a previous image with some new features.\n " +
 		"The 'false' redraw is for when the user asks to draw, generate, but not change it.\n " +
 		"Don't include anything except the redraw level in the generated text under any circumstances, and without quote marks or <message></message>: " + message}
 
@@ -499,7 +495,7 @@ func getIntents(message string, questionType string) string {
 	}
 
 	resp, err := c.CreateChatCompletion(ctx, openai.ChatCompletionRequest{
-		Model:     openai.GPT4oMini,
+		Model:     "gpt-4.1-mini",
 		Messages:  messages,
 		MaxTokens: 8,
 	})
