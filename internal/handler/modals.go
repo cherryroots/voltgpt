@@ -18,6 +18,13 @@ var Modals = map[string]func(s *discordgo.Session, i *discordgo.InteractionCreat
 
 		userID := strings.Split(i.ModalSubmitData().CustomID, "-")[1]
 		user, _ := s.GuildMember(i.GuildID, userID)
+		if user == nil {
+			err := discord.UpdateResponse(s, i, "User is not in the server!")
+			if err != nil {
+				log.Println(err)
+			}
+			return
+		}
 
 		byPlayer := gamble.Player{
 			User: i.Interaction.Member.User,

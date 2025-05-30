@@ -3,11 +3,9 @@ package handler
 import (
 	"fmt"
 	"log"
-	"strconv"
 	"sync"
 	"time"
 
-	"voltgpt/internal/apis/bfl"
 	oai "voltgpt/internal/apis/openai"
 	"voltgpt/internal/config"
 	"voltgpt/internal/discord"
@@ -25,24 +23,28 @@ var Commands = map[string]func(s *discordgo.Session, i *discordgo.InteractionCre
 		log.Printf("Received interaction: %s by %s", i.ApplicationCommandData().Name, i.Interaction.Member.User.Username)
 		discord.DeferResponse(s, i)
 
-		var prompt, ratio string
-		var raw bool
+		var prompt config.RequestContent
+		var resolution config.Resolution
+		var quality config.Quality
 		for _, option := range i.ApplicationCommandData().Options {
 			if option.Name == "prompt" {
-				prompt = option.StringValue()
+				prompt.Text = option.StringValue()
 			}
-			if option.Name == "ratio" {
-				ratio = option.StringValue()
+			if option.Name == "resolution" {
+				resolution = config.Resolution(option.StringValue())
 			}
-			if option.Name == "raw" {
-				raw = option.BoolValue()
+			if option.Name == "quality" {
+				quality = config.Quality(option.StringValue())
 			}
 		}
-		if ratio == "" {
-			ratio = "1:1"
+		if resolution == "" {
+			resolution = config.ResSquare
+		}
+		if quality == "" {
+			quality = config.QualMedium
 		}
 
-		image, err := bfl.DrawImage(prompt, ratio, strconv.FormatBool(raw), "")
+		image, err := oai.DrawImage(prompt.Text, resolution, quality)
 		if err != nil {
 			log.Println(err)
 			_, err = discord.SendFollowup(s, i, err.Error())
@@ -51,7 +53,7 @@ var Commands = map[string]func(s *discordgo.Session, i *discordgo.InteractionCre
 			}
 			return
 		}
-		message := fmt.Sprintf("Prompt: %s\nRatio: %s\nRaw: %t", prompt, ratio, raw)
+		message := fmt.Sprintf("Prompt: %s\nResolution: %s\nQuality: %s", prompt.Text, resolution, quality)
 		_, err = discord.SendFollowupFile(s, i, message, image)
 		if err != nil {
 			log.Println(err)

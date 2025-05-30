@@ -12,6 +12,21 @@ type RequestContent struct {
 	PDFs   []string
 }
 
+type (
+	Resolution string
+	Quality    string
+)
+
+const (
+	ResSquare    Resolution = "1024x1024"
+	ResPortrait  Resolution = "1536x1024"
+	ResLandscape Resolution = "1024x1536"
+
+	QualLow    Quality = "low"
+	QualMedium Quality = "medium"
+	QualHigh   Quality = "high"
+)
+
 var (
 	Admins                 = []string{"102087943627243520", "123116664207179777", "95681688914366464"}
 	OpenRouterBaseURL      = "https://openrouter.ai/api/v1"
@@ -25,16 +40,15 @@ var (
 	DefaultModel   = GeminiModel
 	DefaultTemp    = 0.8
 
-	RatioChoices = []*discordgo.ApplicationCommandOptionChoice{
-		{Name: "1:1", Value: "1:1"},
-		{Name: "16:9", Value: "16:9"},
-		{Name: "21:9", Value: "21:9"},
-		{Name: "2:3", Value: "2:3"},
-		{Name: "3:2", Value: "3:2"},
-		{Name: "4:5", Value: "4:5"},
-		{Name: "5:4", Value: "5:4"},
-		{Name: "9:16", Value: "9:16"},
-		{Name: "9:21", Value: "9:21"},
+	ResolutionChoices = []*discordgo.ApplicationCommandOptionChoice{
+		{Name: "1024x1024", Value: ResSquare},
+		{Name: "1536x1024", Value: ResPortrait},
+		{Name: "1024x1536", Value: ResLandscape},
+	}
+	QualityChoices = []*discordgo.ApplicationCommandOptionChoice{
+		{Name: "Low", Value: QualLow},
+		{Name: "Medium", Value: QualMedium},
+		{Name: "High", Value: QualHigh},
 	}
 
 	SystemMessageDefault = RequestContent{
