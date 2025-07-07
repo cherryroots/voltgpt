@@ -45,10 +45,10 @@ var (
 		{Name: "1536x1024", Value: ResPortrait},
 		{Name: "1024x1536", Value: ResLandscape},
 	}
-	QualityChoices = []*discordgo.ApplicationCommandOptionChoice{
-		{Name: "Low", Value: QualLow},
-		{Name: "Medium", Value: QualMedium},
-		{Name: "High", Value: QualHigh},
+
+	DurationChoices = []*discordgo.ApplicationCommandOptionChoice{
+		{Name: "5", Value: 5},
+		{Name: "10", Value: 10},
 	}
 
 	SystemMessageDefault = RequestContent{

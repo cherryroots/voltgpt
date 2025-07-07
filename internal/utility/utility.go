@@ -360,7 +360,7 @@ func AttachmentText(m *discordgo.Message) (text string) {
 			continue
 		}
 
-		ext, err := urlToExt(u)
+		ext, err := UrlToExt(u)
 		if err != nil {
 			log.Printf("Error getting extension: %v", err)
 			continue
@@ -455,7 +455,7 @@ func HasVideoURL(m *discordgo.Message) bool {
 	return false
 }
 
-func urlToExt(urlStr string) (string, error) {
+func UrlToExt(urlStr string) (string, error) {
 	parsedURL, err := url.Parse(urlStr)
 	if err != nil {
 		return "", err
@@ -467,7 +467,7 @@ func urlToExt(urlStr string) (string, error) {
 }
 
 func IsImageURL(urlStr string) bool {
-	fileExt, err := urlToExt(urlStr)
+	fileExt, err := UrlToExt(urlStr)
 	if err != nil {
 		return false
 	}
@@ -481,7 +481,7 @@ func IsImageURL(urlStr string) bool {
 }
 
 func IsVideoURL(urlStr string) bool {
-	fileExt, err := urlToExt(urlStr)
+	fileExt, err := UrlToExt(urlStr)
 	if err != nil {
 		return false
 	}
@@ -495,7 +495,7 @@ func IsVideoURL(urlStr string) bool {
 }
 
 func IsPDFURL(urlStr string) bool {
-	fileExt, err := urlToExt(urlStr)
+	fileExt, err := UrlToExt(urlStr)
 	if err != nil {
 		return false
 	}
@@ -509,7 +509,7 @@ func IsPDFURL(urlStr string) bool {
 }
 
 func MediaType(urlStr string) string {
-	fileExt, err := urlToExt(urlStr)
+	fileExt, err := UrlToExt(urlStr)
 	if err != nil {
 		return ""
 	}
@@ -581,7 +581,7 @@ func HasExtension(URL string, extensions []string) bool {
 		return false
 	}
 	for _, extension := range extensions {
-		urlExt, _ := urlToExt(URL)
+		urlExt, _ := UrlToExt(URL)
 		if urlExt == extension {
 			return true
 		}

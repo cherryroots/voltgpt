@@ -10,6 +10,7 @@ var (
 	dmPermission         = false
 	tempMin              = 0.01
 	integerMin   float64 = 1
+	guidanceMin  float64
 
 	// Commands are the commands that the bot will respond to.
 	Commands = []*discordgo.ApplicationCommand{
@@ -33,11 +34,39 @@ var (
 					Choices:     ResolutionChoices,
 				},
 				{
-					Type:        discordgo.ApplicationCommandOptionString,
-					Name:        "quality",
-					Description: "quality to use",
+					Type:        discordgo.ApplicationCommandOptionInteger,
+					Name:        "guidance",
+					Description: "How close the model should follow the prompt",
 					Required:    false,
-					Choices:     QualityChoices,
+					MinValue:    &guidanceMin,
+					MaxValue:    20.0,
+				},
+			},
+		},
+		{
+			Name:                     "video",
+			Description:              "Create a video",
+			DefaultMemberPermissions: &writePermission,
+			DMPermission:             &dmPermission,
+			Options: []*discordgo.ApplicationCommandOption{
+				{
+					Type:        discordgo.ApplicationCommandOptionString,
+					Name:        "prompt",
+					Description: "prompt to use",
+					Required:    false,
+				},
+				{
+					Type:        discordgo.ApplicationCommandOptionAttachment,
+					Name:        "image",
+					Description: "Image to use",
+					Required:    false,
+				},
+				{
+					Type:        discordgo.ApplicationCommandOptionInteger,
+					Name:        "duration",
+					Description: "Duration of the video",
+					Required:    false,
+					Choices:     DurationChoices,
 				},
 			},
 		},

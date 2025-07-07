@@ -7,6 +7,7 @@ import (
 	"time"
 
 	oai "voltgpt/internal/apis/openai"
+	wave "voltgpt/internal/apis/wavespeed"
 	"voltgpt/internal/config"
 	"voltgpt/internal/discord"
 	"voltgpt/internal/gamble"
@@ -24,27 +25,35 @@ var Commands = map[string]func(s *discordgo.Session, i *discordgo.InteractionCre
 		discord.DeferResponse(s, i)
 
 		var prompt config.RequestContent
-		var resolution config.Resolution
-		var quality config.Quality
+		var resolution string
+		var guidance float64
 		for _, option := range i.ApplicationCommandData().Options {
 			if option.Name == "prompt" {
 				prompt.Text = option.StringValue()
 			}
 			if option.Name == "resolution" {
-				resolution = config.Resolution(option.StringValue())
+				resolution = option.StringValue()
 			}
-			if option.Name == "quality" {
-				quality = config.Quality(option.StringValue())
+			if option.Name == "guidance" {
+				guidance = option.FloatValue()
 			}
 		}
 		if resolution == "" {
-			resolution = config.ResSquare
+			resolution = "1024x1024"
 		}
-		if quality == "" {
-			quality = config.QualMedium
+		if guidance == 0 {
+			guidance = 2.5
+		}
+		syncMode := true
+
+		req := wave.SeedDreamSubmissionRequest{
+			Prompt:        prompt.Text,
+			Size:          &resolution,
+			GuidanceScale: &guidance,
+			SyncMode:      &syncMode,
 		}
 
-		image, err := oai.DrawImage(prompt.Text, resolution, quality)
+		resp, err := wave.SendSeedDreamRequest(req)
 		if err != nil {
 			log.Println(err)
 			_, err = discord.SendFollowup(s, i, err.Error())
@@ -53,7 +62,126 @@ var Commands = map[string]func(s *discordgo.Session, i *discordgo.InteractionCre
 			}
 			return
 		}
-		message := fmt.Sprintf("Prompt: %s\nResolution: %s\nQuality: %s", prompt.Text, resolution, quality)
+		image, err := wave.DownloadResult(resp)
+		if err != nil {
+			log.Println(err)
+			_, err = discord.SendFollowup(s, i, err.Error())
+			if err != nil {
+				log.Println(err)
+			}
+			return
+		}
+		message := fmt.Sprintf("Prompt: %s\nResolution: %s\nGuidance: %.1f", prompt.Text, resolution, guidance)
+		_, err = discord.SendFollowupFile(s, i, message, image)
+		if err != nil {
+			log.Println(err)
+		}
+	},
+	"video": func(s *discordgo.Session, i *discordgo.InteractionCreate) {
+		log.Printf("Received interaction: %s by %s", i.ApplicationCommandData().Name, i.Interaction.Member.User.Username)
+		discord.DeferResponse(s, i)
+
+		var prompt config.RequestContent
+		var img string
+		var duration int
+		for _, option := range i.ApplicationCommandData().Options {
+			if option.Name == "prompt" {
+				prompt.Text = option.StringValue()
+			}
+			if option.Name == "image" {
+				img = i.ApplicationCommandData().Resolved.Attachments[option.Value.(string)].URL
+			}
+			if option.Name == "duration" {
+				duration = int(option.IntValue())
+			}
+		}
+
+		if prompt.Text == "" && img == "" {
+			_, err := discord.SendFollowup(s, i, "Please provide a prompt or an image")
+			if err != nil {
+				log.Println(err)
+			}
+			return
+		}
+
+		imgFilled := img != ""
+		// if imgFilled check if it's an actual image
+		if imgFilled {
+			if !wave.IsImageURL(img) {
+				_, err := discord.SendFollowup(s, i, "Please provide a valid image URL")
+				if err != nil {
+					log.Println(err)
+				}
+				return
+			}
+		}
+
+		if duration == 0 {
+			duration = 5
+		}
+
+		if duration != 5 && duration != 10 {
+			_, err := discord.SendFollowup(s, i, "Duration must be 5 or 10")
+			if err != nil {
+				log.Println(err)
+			}
+			return
+		}
+
+		version := wave.SeedDancePro
+		resolution := wave.SeedDance480p
+
+		var resp *wave.WaveSpeedResponse
+		var err error
+		if imgFilled {
+			req := wave.SeedDanceI2VSubmissionRequest{
+				Prompt:   &prompt.Text,
+				Image:    utility.Base64Image(img),
+				Duration: &duration,
+			}
+			resp, err = wave.SendSeedDanceI2VRequest(req, version, wave.SeedDanceI2V, resolution)
+		} else {
+			req := wave.SeedDanceT2VSubmissionRequest{
+				Prompt:   prompt.Text,
+				Duration: &duration,
+			}
+			resp, err = wave.SendSeedDanceT2VRequest(req, version, wave.SeedDanceT2V, resolution)
+		}
+		if err != nil {
+			log.Println(err)
+			_, err = discord.SendFollowup(s, i, err.Error())
+			if err != nil {
+				log.Println(err)
+			}
+			return
+		}
+
+		_, err = discord.SendFollowup(s, i, "Processing...")
+		if err != nil {
+			log.Println(err)
+			return
+		}
+
+		resp, err = wave.WaitForComplete(resp.Data.ID)
+		if err != nil {
+			log.Println(err)
+			_, err = discord.SendFollowup(s, i, err.Error())
+			if err != nil {
+				log.Println(err)
+			}
+			return
+		}
+
+		image, err := wave.DownloadResult(resp)
+		if err != nil {
+			log.Println(err)
+			_, err = discord.SendFollowup(s, i, err.Error())
+			if err != nil {
+				log.Println(err)
+			}
+			return
+		}
+		message := fmt.Sprintf("Prompt: %s", prompt.Text)
 		_, err = discord.SendFollowupFile(s, i, message, image)
 		if err != nil {
 			log.Println(err)
