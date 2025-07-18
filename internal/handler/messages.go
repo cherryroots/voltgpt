@@ -46,7 +46,7 @@ func HandleMessage(s *discordgo.Session, m *discordgo.MessageCreate) {
 	}
 
 	if m.Type == discordgo.MessageTypeReply {
-		if m.ReferencedMessage.Author.ID == s.State.User.ID || isMentioned {
+		if (m.ReferencedMessage.Author.ID == s.State.User.ID && isMentioned) || isMentioned {
 			cache, _ = utility.GetMessagesBefore(s, m.ChannelID, 100, m.ID)
 			isReply = true
 		}

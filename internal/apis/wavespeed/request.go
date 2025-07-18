@@ -159,7 +159,7 @@ func QueryWaveSpeedResult(id string) (*WaveSpeedResponse, error) {
 }
 
 func WaitForComplete(id string) (*WaveSpeedResponse, error) {
-	maxRetries := 60
+	maxRetries := 100
 	retryDelay := 3 * time.Second
 
 	for i := 0; i < maxRetries; i++ {
@@ -180,7 +180,7 @@ func WaitForComplete(id string) (*WaveSpeedResponse, error) {
 		time.Sleep(retryDelay)
 	}
 
-	return nil, fmt.Errorf("timed out waiting for task completion after %d attempts (%s seconds)", maxRetries, maxRetries*3)
+	return nil, fmt.Errorf("timed out waiting for task completion after %d attempts (%d seconds)", maxRetries, maxRetries*3)
 }
 
 func DownloadResult(resp *WaveSpeedResponse) ([]*discordgo.File, error) {

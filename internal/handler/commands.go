@@ -3,6 +3,7 @@ package handler
 import (
 	"fmt"
 	"log"
+	"math/rand"
 	"sync"
 	"time"
 
@@ -84,6 +85,7 @@ var Commands = map[string]func(s *discordgo.Session, i *discordgo.InteractionCre
 		var prompt config.RequestContent
 		var img string
 		var duration int
+		var seed int
 		for _, option := range i.ApplicationCommandData().Options {
 			if option.Name == "prompt" {
 				prompt.Text = option.StringValue()
@@ -93,6 +95,9 @@ var Commands = map[string]func(s *discordgo.Session, i *discordgo.InteractionCre
 			}
 			if option.Name == "duration" {
 				duration = int(option.IntValue())
+			}
+			if option.Name == "seed" {
+				seed = int(option.IntValue())
 			}
 		}
 
@@ -120,6 +125,10 @@ var Commands = map[string]func(s *discordgo.Session, i *discordgo.InteractionCre
 			duration = 5
 		}
 
+		if seed == 0 {
+			seed = rand.Intn(2147483647)
+		}
+
 		if duration != 5 && duration != 10 {
 			_, err := discord.SendFollowup(s, i, "Duration must be 5 or 10")
 			if err != nil {
@@ -138,6 +147,7 @@ var Commands = map[string]func(s *discordgo.Session, i *discordgo.InteractionCre
 				Prompt:   &prompt.Text,
 				Image:    utility.Base64Image(img),
 				Duration: &duration,
+				Seed:     &seed,
 			}
 			resp, err = wave.SendSeedDanceI2VRequest(req, version, wave.SeedDanceI2V, resolution)
 		} else {
@@ -156,7 +166,7 @@ var Commands = map[string]func(s *discordgo.Session, i *discordgo.InteractionCre
 			return
 		}
 
-		_, err = discord.SendFollowup(s, i, "Processing...")
+		msg, err := discord.SendFollowup(s, i, "Processing...")
 		if err != nil {
 			log.Println(err)
 			return
@@ -181,8 +191,8 @@ var Commands = map[string]func(s *discordgo.Session, i *discordgo.InteractionCre
 			}
 			return
 		}
-		message := fmt.Sprintf("Prompt: %s", prompt.Text)
-		_, err = discord.SendFollowupFile(s, i, message, image)
+		message := fmt.Sprintf("Gen time: %ds\nSeed: %d\n%s", resp.Data.Timings.Inference/1000, seed, prompt.Text)
+		_, err = discord.EditFollowupFile(s, i, msg.ID, message, image)
 		if err != nil {
 			log.Println(err)
 		}
