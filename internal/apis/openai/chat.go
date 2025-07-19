@@ -48,7 +48,7 @@ func StreamMessageResponse(s *discordgo.Session, m *discordgo.Message, messages 
 
 	instructionMessage := instructionSwitch(messages)
 	currentTime := fmt.Sprintf("Current date and time in CET right now: %s", time.Now().Format("2006-01-02 15:04:05"))
-	replacementStrings := []string{"<message>", "</message>", "<reply>", "</reply>", "<username>", "</username>", "<attachments>", "</attachments>"}
+	replacementStrings := []string{"<message>", "</message>", "<reply>", "</reply>", "<username>", "</username>", "<attachments>", "</attachments>", "..."}
 	newMessages := append([]openai.ChatCompletionMessage{
 		{
 			Role:    openai.ChatMessageRoleSystem,
@@ -69,19 +69,25 @@ func StreamMessageResponse(s *discordgo.Session, m *discordgo.Message, messages 
 	}
 	defer stream.Close()
 
+	var tickerDone bool
+	defer func() { tickerDone = true }()
+
 	go func() {
 		for range time.Tick(time.Second) {
+			if strings.TrimSpace(currentBuffer) == "" {
+				continue
+			}
 			bufferMutex.Lock()
-			if strings.TrimSpace(currentBuffer) != "" {
-				currentBuffer = utility.ReplaceMultiple(currentBuffer, replacementStrings, "")
-				var err error
-				currentBuffer, msg, err = utility.SplitSend(s, m, msg, currentBuffer)
-				if err != nil {
-					bufferMutex.Unlock()
-					return
-				}
+			currentBuffer = utility.ReplaceMultiple(currentBuffer, replacementStrings, "")
+			currentBuffer, msg, err = utility.SplitSend(s, m, msg, currentBuffer)
+			if err != nil {
+				bufferMutex.Unlock()
+				return
 			}
 			bufferMutex.Unlock()
+			if tickerDone {
+				return
+			}
 		}
 	}()
 
@@ -108,23 +114,6 @@ func StreamMessageResponse(s *discordgo.Session, m *discordgo.Message, messages 
 				currentBuffer += "**Content filter triggered.**"
 			}
 			bufferMutex.Unlock()
-		}
-	}
-
-	// Final update
-	bufferMutex.Lock()
-	currentBuffer = utility.ReplaceMultiple(currentBuffer, replacementStrings, "")
-	currentBuffer, msg, err = utility.SplitSend(s, m, msg, currentBuffer)
-	bufferMutex.Unlock()
-	if err != nil {
-		return fmt.Errorf("stream error on final update: %v", err)
-	}
-
-	if after, ok := strings.CutPrefix(currentBuffer, "..."); ok {
-		currentBuffer = after
-		_, err = discord.EditMessage(s, msg, currentBuffer)
-		if err != nil {
-			return fmt.Errorf("stream error on final update: %v", err)
 		}
 	}
 
