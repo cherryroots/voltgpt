@@ -342,13 +342,13 @@ var Commands = map[string]func(s *discordgo.Session, i *discordgo.InteractionCre
 		m := i.ApplicationCommandData().Resolved.Messages[i.ApplicationCommandData().TargetID]
 
 		if m.Author.ID != s.State.User.ID {
-			_, err := discord.SendFollowup(s, i, fmt.Sprint("Not a voltbot message"))
+			_, err := discord.SendFollowup(s, i, "Not a voltbot message")
 			if err != nil {
 				log.Println(err)
 			}
 			return
 		} else if m.Type != discordgo.MessageTypeReply {
-			_, err := discord.SendFollowup(s, i, fmt.Sprint("Not a reply message"))
+			_, err := discord.SendFollowup(s, i, "Not a reply message")
 			if err != nil {
 				log.Println(err)
 			}
@@ -356,7 +356,7 @@ var Commands = map[string]func(s *discordgo.Session, i *discordgo.InteractionCre
 		}
 
 		log.Printf("%s continue: %s", i.Interaction.Member.User.Username, utility.LinkFromIMessage(i.GuildID, m))
-		_, err := discord.SendFollowup(s, i, fmt.Sprint("Continuing..."))
+		_, err := discord.SendFollowup(s, i, "Continuing...")
 		if err != nil {
 			log.Println(err)
 		}

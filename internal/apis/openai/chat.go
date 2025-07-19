@@ -52,7 +52,7 @@ func StreamMessageResponse(s *discordgo.Session, m *discordgo.Message, messages 
 	newMessages := append([]openai.ChatCompletionMessage{
 		{
 			Role:    openai.ChatMessageRoleSystem,
-			Content: fmt.Sprintf("System message: %s %s\n\nInstruction message: %s", config.SystemMessageMinimal.Text, currentTime, instructionMessage.Text),
+			Content: fmt.Sprintf("System message: %s %s\n\nInstruction message: %s", config.SystemMessageMinimal, currentTime, instructionMessage),
 		},
 	}, removeInstructonMessages(messages)...)
 
@@ -259,15 +259,15 @@ func removeInstructonMessages(messages []openai.ChatCompletionMessage) []openai.
 		text := messageToString(message)
 		tempMessage := createMessage(message.Role, "", config.RequestContent{Text: text})
 		instruction := instructionSwitch(tempMessage)
-		if instruction.Text == "" {
+		if instruction == "" {
 			continue
 		}
-		if !strings.Contains(text, instruction.Text) {
+		if !strings.Contains(text, instruction) {
 			continue
 		}
 		for j, content := range message.MultiContent {
 			if content.Type == openai.ChatMessagePartTypeText {
-				replacedText := strings.ReplaceAll(content.Text, instruction.Text, "")
+				replacedText := strings.ReplaceAll(content.Text, instruction, "")
 				messages[i].MultiContent[j].Text = replacedText
 			}
 		}
@@ -275,7 +275,7 @@ func removeInstructonMessages(messages []openai.ChatCompletionMessage) []openai.
 	return messages
 }
 
-func instructionSwitch(m []openai.ChatCompletionMessage) config.RequestContent {
+func instructionSwitch(m []openai.ChatCompletionMessage) string {
 	var text string
 
 	firstMessageText := messageToString(m[0])
@@ -292,9 +292,9 @@ func instructionSwitch(m []openai.ChatCompletionMessage) config.RequestContent {
 	}
 
 	if sysMsg := utility.ExtractPairText(text, "⚙️"); sysMsg != "" {
-		return config.RequestContent{Text: strings.TrimSpace(sysMsg)}
+		return strings.TrimSpace(sysMsg)
 	} else if sysMsg := utility.ExtractPairText(text, "⚙"); sysMsg != "" {
-		return config.RequestContent{Text: strings.TrimSpace(sysMsg)}
+		return strings.TrimSpace(sysMsg)
 	}
 
 	return config.InstructionMessageDefault
