@@ -3,13 +3,11 @@ package openai
 
 import (
 	"context"
-	"encoding/base64"
 	"errors"
 	"fmt"
 	"io"
 	"log"
 	"os"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -17,7 +15,6 @@ import (
 	"github.com/bwmarrin/discordgo"
 	"github.com/sashabaranov/go-openai"
 
-	"voltgpt/internal/apis/bfl"
 	"voltgpt/internal/config"
 	"voltgpt/internal/discord"
 	"voltgpt/internal/transcription"
@@ -25,11 +22,13 @@ import (
 )
 
 func StreamMessageResponse(s *discordgo.Session, m *discordgo.Message, messages []openai.ChatCompletionMessage, refMsg *discordgo.Message) {
-	token := os.Getenv("OPENAI_TOKEN")
+	token := os.Getenv("OPENROUTER_TOKEN")
 	if token == "" {
-		log.Fatal("OPENAI_TOKEN is not set")
+		log.Fatal("OPENROUTER_TOKEN is not set")
 	}
-	c := openai.NewClient(token)
+	cfg := openai.DefaultConfig(token)
+	cfg.BaseURL = config.OpenRouterBaseURL
+	c := openai.NewClientWithConfig(cfg)
 	ctx := context.Background()
 
 	var currentBuffer, fullBuffer string
@@ -54,18 +53,17 @@ func StreamMessageResponse(s *discordgo.Session, m *discordgo.Message, messages 
 	newMessages := append([]openai.ChatCompletionMessage{
 		{
 			Role:    openai.ChatMessageRoleSystem,
-			Content: fmt.Sprintf("System message: %s %s\n\nInstruction message: %s", config.SystemMessageDefault.Text, currentTime, instructionMessage.Text),
+			Content: fmt.Sprintf("System message: %s %s\n\nInstruction message: %s", config.SystemMessageMinimal.Text, currentTime, instructionMessage.Text),
 		},
 	}, removeInstructonMessages(messages)...)
 
 	stream, err := c.CreateChatCompletionStream(ctx, openai.ChatCompletionRequest{
-		// Model: searchModelSwitch(messages),
-		Model:               config.OpenAIModel,
+		Model:               "moonshotai/kimi-k2",
 		Messages:            newMessages,
 		MaxCompletionTokens: 16384,
-		ReasoningEffort:     "high",
-		// Temperature:         float32(temperatureSwitch(messages)),
-		Stream: true,
+		// ReasoningEffort:     "high",
+		Stream:      true,
+		Temperature: 0.6,
 	})
 	if err != nil {
 		discord.LogSendErrorMessage(s, m, fmt.Sprintf("Stream error on start: %v", err))
@@ -148,66 +146,6 @@ func StreamMessageResponse(s *discordgo.Session, m *discordgo.Message, messages 
 			return
 		}
 	}
-
-	go func() {
-		request := messageToString(messages[len(messages)-1])
-		request = request[strings.Index(request, ":")+1:]
-		request = strings.TrimSpace(request)
-		prompt := utility.ExtractPairText(fullBuffer, "§")
-		if prompt == "" {
-			return
-		}
-		type intentResult struct {
-			value string
-			name  string
-		}
-		intentChan := make(chan intentResult, 3)
-		intents := []string{"ratio", "raw", "redraw"}
-		for _, intent := range intents {
-			go func() {
-				intentChan <- intentResult{getIntents(request, intent), intent}
-			}()
-		}
-
-		var ratio, raw, redraw string
-		for i := 0; i < 3; i++ {
-			result := <-intentChan
-			switch result.name {
-			case "ratio":
-				ratio = result.value
-			case "raw":
-				raw = result.value
-			case "redraw":
-				redraw = result.value
-			}
-		}
-		var base64Image string
-		if redraw != "" {
-			messageImages, _, _ := utility.GetMessageMediaURL(m)
-			var replyImages []string
-			if m.Type == discordgo.MessageTypeReply {
-				replyImages, _, _ = utility.GetMessageMediaURL(m.ReferencedMessage)
-			}
-			replyImages = append(replyImages, messageImages...)
-			if len(replyImages) > 0 {
-				imageData, err := utility.DownloadURL(replyImages[len(replyImages)-1])
-				if err != nil {
-					log.Printf("Error downloading image: %v", err)
-				}
-				base64Image = base64.StdEncoding.EncodeToString(imageData)
-			}
-		}
-		log.Printf("Drawing image - Prompt: %s, Ratio: %s, Raw: %s, redraw: %s", prompt, ratio, raw, redraw)
-		files, err := bfl.DrawImage(prompt, ratio, raw, base64Image)
-		if err != nil {
-			discord.LogSendErrorMessage(s, m, err.Error())
-		}
-		msg, err = discord.EditMessageFile(s, msg, currentBuffer, files)
-		if err != nil {
-			discord.LogSendErrorMessage(s, m, err.Error())
-			return
-		}
-	}()
 }
 
 func AppendMessage(role string, name string, content config.RequestContent, messages *[]openai.ChatCompletionMessage) {
@@ -268,30 +206,6 @@ func CreateBatchMessages(s *discordgo.Session, messages []*discordgo.Message) []
 	}
 
 	return batchMessages
-}
-
-func mergeMessages(messages []openai.ChatCompletionMessage) []openai.ChatCompletionMessage {
-	var mergedMessages []openai.ChatCompletionMessage
-
-	if len(messages) == 0 {
-		return mergedMessages
-	}
-
-	current := messages[0]
-
-	for i := 1; i < len(messages); i++ {
-		if messages[i].Role == current.Role {
-			current.Content += "\n" + messages[i].Content
-			current.Name += " | " + messages[i].Name
-		} else {
-			mergedMessages = append(mergedMessages, current)
-			current = messages[i]
-		}
-	}
-
-	mergedMessages = append(mergedMessages, current)
-
-	return mergedMessages
 }
 
 func PrependReplyMessages(s *discordgo.Session, originMember *discordgo.Member, message *discordgo.Message, cache []*discordgo.Message, chatMessages *[]openai.ChatCompletionMessage) {
@@ -378,51 +292,6 @@ func removeInstructonMessages(messages []openai.ChatCompletionMessage) []openai.
 	return messages
 }
 
-func temperatureSwitch(m []openai.ChatCompletionMessage) float64 {
-	var text string
-
-	firstMessageText := messageToString(m[0])
-	lastMessageText := messageToString(m[len(m)-1])
-
-	if firstMessageText == lastMessageText {
-		text = lastMessageText
-	} else {
-		text = fmt.Sprintf("%s\n%s", firstMessageText, lastMessageText)
-	}
-
-	temp := config.DefaultTemp
-
-	if tmpMsg := utility.ExtractPairText(text, "🌡️"); tmpMsg != "" {
-		num, err := strconv.ParseFloat(strings.TrimSpace(tmpMsg), 64)
-		if err != nil {
-			return temp
-		}
-		temp = num
-	} else if tmpMsg := utility.ExtractPairText(text, "�"); tmpMsg != "" {
-		num, err := strconv.ParseFloat(strings.TrimSpace(tmpMsg), 64)
-		if err != nil {
-			return temp
-		}
-		temp = num
-	}
-
-	if temp < 0 || temp > 2.0 { // clamp temp
-		temp = config.DefaultTemp
-	}
-
-	return temp
-}
-
-func searchModelSwitch(m []openai.ChatCompletionMessage) string {
-	text := messageToString(m[len(m)-1])
-
-	search := strings.Contains(text, "🌐") || strings.Contains(text, "�")
-	if search {
-		return fmt.Sprintf("%s:online", config.DefaultModel)
-	}
-	return config.DefaultModel
-}
-
 func instructionSwitch(m []openai.ChatCompletionMessage) config.RequestContent {
 	var text string
 
@@ -446,67 +315,4 @@ func instructionSwitch(m []openai.ChatCompletionMessage) config.RequestContent {
 	}
 
 	return config.InstructionMessageDefault
-}
-
-func getIntents(message string, questionType string) string {
-	token := os.Getenv("OPENAI_TOKEN")
-	if token == "" {
-		log.Fatal("OPENAI_TOKEN is not set")
-	}
-	c := openai.NewClient(token)
-	ctx := context.Background()
-	var messages []openai.ChatCompletionMessage
-
-	intentPrompt := config.RequestContent{Text: "What's the intent in this message? Intents can be 'draw' or 'none'.\n " +
-		"The 'draw' intent is for when the message asks to draw, generate, or change some kind of image. " +
-		"The request has to be very specific, don't just say 'draw' if they mention the words draw, generate or change.\n " +
-		"'none' intent is for when nothing image generation related is asked.\n " +
-		"Don't include anything except the intent in the generated text under any cirmustances, and without quote marks or <message></message>: " + message}
-
-	ratioPrompt := config.RequestContent{Text: "What's the ratio requested in this message? Rations can be '16:9', '1:1', '21:9', '2:3', '3:2', '4:5', '5:4', '9:16', '9:21'.\n " +
-		"The 'none' aspect ratio is the default one, if the message doesn't ask for any other aspect ratio.\n " +
-		"The '16:9', '21:9', '2:3', '3:2', '4:5', '5:4', '9:16', '9:21' ratios are for when the message asks for a specific aspect ratio.\n " +
-		"If they ask for something like 'portrait' or 'landscape' or 'square' use the closest aspect ratio to that. \n " +
-		"They can also ask for a phone, tablet or desktop aspect ratio, do your best to closely match that. \n " +
-		"Don't include anything except the aspect ratio in the generated text under any cirmustances, and without quote marks or <message></message>: " + message}
-
-	rawPrompt := config.RequestContent{Text: "What's the realism requested in this message? Realism can be 'true' or 'false'.\n " +
-		"The 'true' realism is for when the message asks to draw, generate, or change some kind of realistic image. " +
-		"The request has to be very specific, don't just say 'true' if they mention the word realistic.\n " +
-		"'false' realism is for when no specific realism level is requested.\n " +
-		"Don't include anything except the realism level in the generated text under any circumstances, and without quote marks or <message></message>: " + message}
-
-	redrawPrompt := config.RequestContent{Text: "What's the redraw requested in this message? Redraw can be 'true' or 'false'.\n " +
-		"The 'true' redraw is for when the user asks to modify/edit a previous image with some new features.\n " +
-		"The 'false' redraw is for when the user asks to draw, generate, but not change it.\n " +
-		"Don't include anything except the redraw level in the generated text under any circumstances, and without quote marks or <message></message>: " + message}
-
-	switch questionType {
-	case "intent":
-		messages = createMessage(openai.ChatMessageRoleUser, "", intentPrompt)
-	case "ratio":
-		messages = createMessage(openai.ChatMessageRoleUser, "", ratioPrompt)
-	case "raw":
-		messages = createMessage(openai.ChatMessageRoleUser, "", rawPrompt)
-	case "redraw":
-		messages = createMessage(openai.ChatMessageRoleUser, "", redrawPrompt)
-	default:
-		return "none"
-	}
-
-	resp, err := c.CreateChatCompletion(ctx, openai.ChatCompletionRequest{
-		Model:     "gpt-4.1-mini",
-		Messages:  messages,
-		MaxTokens: 8,
-	})
-	if err != nil {
-		var e *openai.APIError
-		if errors.As(err, &e) {
-			fmt.Printf("ChatCompletion error, type: %s, message: %s", e.Type, e.Message)
-		} else {
-			fmt.Printf("ChatCompletion error: %v\n", err)
-		}
-		return "none"
-	}
-	return resp.Choices[0].Message.Content
 }
