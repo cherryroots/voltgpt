@@ -21,7 +21,7 @@ import (
 	"voltgpt/internal/utility"
 )
 
-func StreamMessageResponse(s *discordgo.Session, m *discordgo.Message, messages []openai.ChatCompletionMessage, refMsg *discordgo.Message) {
+func StreamMessageResponse(s *discordgo.Session, m *discordgo.Message, messages []openai.ChatCompletionMessage, refMsg *discordgo.Message) error {
 	token := os.Getenv("OPENROUTER_TOKEN")
 	if token == "" {
 		log.Fatal("OPENROUTER_TOKEN is not set")
@@ -39,8 +39,7 @@ func StreamMessageResponse(s *discordgo.Session, m *discordgo.Message, messages 
 	if refMsg == nil {
 		msg, err = discord.SendMessageFile(s, m, "Thinking...", nil)
 		if err != nil {
-			discord.LogSendErrorMessage(s, m, err.Error())
-			return
+			return fmt.Errorf("failed to send message: %v", err)
 		}
 	} else {
 		currentBuffer = messageToString(messages[len(messages)-1])
@@ -66,33 +65,23 @@ func StreamMessageResponse(s *discordgo.Session, m *discordgo.Message, messages 
 		Temperature: 0.6,
 	})
 	if err != nil {
-		discord.LogSendErrorMessage(s, m, fmt.Sprintf("Stream error on start: %v", err))
-		return
+		return fmt.Errorf("stream error on start: %v", err)
 	}
 	defer stream.Close()
 
-	ticker := time.NewTicker(time.Second)
-	done := make(chan bool)
-
 	go func() {
-		for {
-			select {
-			case <-ticker.C:
-				bufferMutex.Lock()
-				if strings.TrimSpace(currentBuffer) != "" {
-					currentBuffer = utility.ReplaceMultiple(currentBuffer, replacementStrings, "")
-					var err error
-					currentBuffer, msg, err = utility.SplitSend(s, m, msg, currentBuffer)
-					if err != nil {
-						discord.LogSendErrorMessage(s, m, fmt.Sprintf("Stream error on update: %v", err))
-						bufferMutex.Unlock()
-						return
-					}
+		for range time.Tick(time.Second) {
+			bufferMutex.Lock()
+			if strings.TrimSpace(currentBuffer) != "" {
+				currentBuffer = utility.ReplaceMultiple(currentBuffer, replacementStrings, "")
+				var err error
+				currentBuffer, msg, err = utility.SplitSend(s, m, msg, currentBuffer)
+				if err != nil {
+					bufferMutex.Unlock()
+					return
 				}
-				bufferMutex.Unlock()
-			case <-done:
-				return
 			}
+			bufferMutex.Unlock()
 		}
 	}()
 
@@ -102,10 +91,7 @@ func StreamMessageResponse(s *discordgo.Session, m *discordgo.Message, messages 
 			break
 		}
 		if err != nil {
-			discord.LogSendErrorMessage(s, m, fmt.Sprintf("Stream error during response: %v", err))
-			ticker.Stop()
-			close(done)
-			return
+			return fmt.Errorf("stream error during response: %v", err)
 		}
 
 		bufferMutex.Lock()
@@ -125,27 +111,24 @@ func StreamMessageResponse(s *discordgo.Session, m *discordgo.Message, messages 
 		}
 	}
 
-	ticker.Stop()
-	close(done)
-
 	// Final update
 	bufferMutex.Lock()
 	currentBuffer = utility.ReplaceMultiple(currentBuffer, replacementStrings, "")
 	currentBuffer, msg, err = utility.SplitSend(s, m, msg, currentBuffer)
 	bufferMutex.Unlock()
 	if err != nil {
-		discord.LogSendErrorMessage(s, m, fmt.Sprintf("Stream error on final update: %v", err))
-		return
+		return fmt.Errorf("stream error on final update: %v", err)
 	}
 
-	if strings.HasPrefix(currentBuffer, "...") {
-		currentBuffer = strings.TrimPrefix(currentBuffer, "...")
+	if after, ok := strings.CutPrefix(currentBuffer, "..."); ok {
+		currentBuffer = after
 		_, err = discord.EditMessage(s, msg, currentBuffer)
 		if err != nil {
-			discord.LogSendErrorMessage(s, m, err.Error())
-			return
+			return fmt.Errorf("stream error on final update: %v", err)
 		}
 	}
+
+	return nil
 }
 
 func AppendMessage(role string, name string, content config.RequestContent, messages *[]openai.ChatCompletionMessage) {

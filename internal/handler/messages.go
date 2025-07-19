@@ -7,6 +7,7 @@ import (
 
 	oai "voltgpt/internal/apis/openai"
 	"voltgpt/internal/config"
+	"voltgpt/internal/discord"
 	"voltgpt/internal/hasher"
 	"voltgpt/internal/transcription"
 	"voltgpt/internal/utility"
@@ -77,5 +78,8 @@ func HandleMessage(s *discordgo.Session, m *discordgo.MessageCreate) {
 		oai.PrependReplyMessages(s, m.Message.Member, m.Message, cache, &chatMessages)
 	}
 
-	oai.StreamMessageResponse(s, m.Message, chatMessages, nil)
+	err := oai.StreamMessageResponse(s, m.Message, chatMessages, nil)
+	if err != nil {
+		discord.LogSendErrorMessage(s, m.Message, err.Error())
+	}
 }
