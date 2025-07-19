@@ -16,7 +16,6 @@ import (
 	"voltgpt/internal/utility"
 
 	"github.com/bwmarrin/discordgo"
-	"github.com/sashabaranov/go-openai"
 )
 
 // Commands is a map of command names and their corresponding functions.
@@ -334,54 +333,6 @@ var Commands = map[string]func(s *discordgo.Session, i *discordgo.InteractionCre
 		if err != nil {
 			log.Println(err)
 		}
-	},
-	"Continue": func(s *discordgo.Session, i *discordgo.InteractionCreate) {
-		log.Printf("Received interaction: %s by %s", i.ApplicationCommandData().Name, i.Interaction.Member.User.Username)
-		discord.DeferEphemeralResponse(s, i)
-
-		m := i.ApplicationCommandData().Resolved.Messages[i.ApplicationCommandData().TargetID]
-
-		if m.Author.ID != s.State.User.ID {
-			_, err := discord.SendFollowup(s, i, "Not a voltbot message")
-			if err != nil {
-				log.Println(err)
-			}
-			return
-		} else if m.Type != discordgo.MessageTypeReply {
-			_, err := discord.SendFollowup(s, i, "Not a reply message")
-			if err != nil {
-				log.Println(err)
-			}
-			return
-		}
-
-		log.Printf("%s continue: %s", i.Interaction.Member.User.Username, utility.LinkFromIMessage(i.GuildID, m))
-		_, err := discord.SendFollowup(s, i, "Continuing...")
-		if err != nil {
-			log.Println(err)
-		}
-		err = discord.SleepDeleteInteraction(s, i, 3)
-		if err != nil {
-			log.Println(err)
-		}
-
-		var chatMessages []openai.ChatCompletionMessage
-		var cache []*discordgo.Message
-
-		m = utility.CleanMessage(s, m)
-		images, _, pdfs := utility.GetMessageMediaURL(m)
-		content := config.RequestContent{
-			Text:   fmt.Sprintf("%s", m.Content),
-			Images: images,
-			PDFs:   pdfs,
-		}
-
-		oai.AppendMessage(openai.ChatMessageRoleAssistant, "", content, &chatMessages)
-
-		cache, _ = utility.GetMessagesBefore(s, m.ChannelID, 100, m.ID)
-		oai.PrependReplyMessages(s, i.Interaction.Member, m, cache, &chatMessages)
-
-		oai.StreamMessageResponse(s, m, chatMessages, m)
 	},
 	"wheel_status": func(s *discordgo.Session, i *discordgo.InteractionCreate) {
 		log.Printf("Received interaction: %s by %s", i.ApplicationCommandData().Name, i.Interaction.Member.User.Username)

@@ -78,7 +78,7 @@ func HandleMessage(s *discordgo.Session, m *discordgo.MessageCreate) {
 		oai.PrependReplyMessages(s, m.Message.Member, m.Message, cache, &chatMessages)
 	}
 
-	err := oai.StreamMessageResponse(s, m.Message, chatMessages, nil)
+	err := oai.StreamMessageResponse(s, m.Message, chatMessages)
 	if err != nil {
 		discord.LogSendErrorMessage(s, m.Message, err.Error())
 	}

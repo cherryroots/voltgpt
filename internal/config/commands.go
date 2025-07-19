@@ -183,9 +183,5 @@ var (
 			Name: "Hash",
 			Type: discordgo.MessageApplicationCommand,
 		},
-		{
-			Name: "Continue",
-			Type: discordgo.MessageApplicationCommand,
-		},
 	}
 )

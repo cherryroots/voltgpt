@@ -21,7 +21,7 @@ import (
 	"voltgpt/internal/utility"
 )
 
-func StreamMessageResponse(s *discordgo.Session, m *discordgo.Message, messages []openai.ChatCompletionMessage, refMsg *discordgo.Message) error {
+func StreamMessageResponse(s *discordgo.Session, m *discordgo.Message, messages []openai.ChatCompletionMessage) error {
 	token := os.Getenv("OPENROUTER_TOKEN")
 	if token == "" {
 		log.Fatal("OPENROUTER_TOKEN is not set")
@@ -36,29 +36,20 @@ func StreamMessageResponse(s *discordgo.Session, m *discordgo.Message, messages 
 	var msg *discordgo.Message
 	var err error
 
-	if refMsg == nil {
-		msg, err = discord.SendMessageFile(s, m, "Thinking...", nil)
-		if err != nil {
-			return fmt.Errorf("failed to send message: %v", err)
-		}
-	} else {
-		currentBuffer = messageToString(messages[len(messages)-1])
-		msg = refMsg
+	msg, err = discord.SendMessageFile(s, m, "Thinking...", nil)
+	if err != nil {
+		return fmt.Errorf("failed to send message: %v", err)
 	}
+	replacementStrings := []string{"<message>", "</message>", "<reply>", "</reply>", "<username>", "</username>", "<attachments>", "</attachments>", "..."}
 
 	instructionMessage := instructionSwitch(messages)
 	currentTime := fmt.Sprintf("Current date and time in CET right now: %s", time.Now().Format("2006-01-02 15:04:05"))
-	replacementStrings := []string{"<message>", "</message>", "<reply>", "</reply>", "<username>", "</username>", "<attachments>", "</attachments>", "..."}
-	newMessages := append([]openai.ChatCompletionMessage{
-		{
-			Role:    openai.ChatMessageRoleSystem,
-			Content: fmt.Sprintf("System message: %s %s\n\nInstruction message: %s", config.SystemMessageMinimal, currentTime, instructionMessage),
-		},
-	}, removeInstructonMessages(messages)...)
+	systemMessage := fmt.Sprintf("System message: %s %s\n\nInstruction message: %s", config.SystemMessageMinimal, currentTime, instructionMessage)
+	PrependMessage(openai.ChatMessageRoleSystem, "", config.RequestContent{Text: systemMessage}, &messages)
 
 	stream, err := c.CreateChatCompletionStream(ctx, openai.ChatCompletionRequest{
 		Model:               "moonshotai/kimi-k2",
-		Messages:            newMessages,
+		Messages:            messages,
 		MaxCompletionTokens: 16384,
 		// ReasoningEffort:     "high",
 		Stream:      true,
@@ -69,8 +60,8 @@ func StreamMessageResponse(s *discordgo.Session, m *discordgo.Message, messages 
 	}
 	defer stream.Close()
 
-	var tickerDone bool
-	defer func() { tickerDone = true }()
+	var stopTicker bool
+	defer func() { stopTicker = true }()
 
 	go func() {
 		for range time.Tick(time.Second) {
@@ -85,7 +76,7 @@ func StreamMessageResponse(s *discordgo.Session, m *discordgo.Message, messages 
 				return
 			}
 			bufferMutex.Unlock()
-			if tickerDone {
+			if stopTicker {
 				return
 			}
 		}
@@ -241,27 +232,6 @@ func messageToString(message openai.ChatCompletionMessage) string {
 		}
 	}
 	return sb.String()
-}
-
-func removeInstructonMessages(messages []openai.ChatCompletionMessage) []openai.ChatCompletionMessage {
-	for i, message := range messages {
-		text := messageToString(message)
-		tempMessage := createMessage(message.Role, "", config.RequestContent{Text: text})
-		instruction := instructionSwitch(tempMessage)
-		if instruction == "" {
-			continue
-		}
-		if !strings.Contains(text, instruction) {
-			continue
-		}
-		for j, content := range message.MultiContent {
-			if content.Type == openai.ChatMessagePartTypeText {
-				replacedText := strings.ReplaceAll(content.Text, instruction, "")
-				messages[i].MultiContent[j].Text = replacedText
-			}
-		}
-	}
-	return messages
 }
 
 func instructionSwitch(m []openai.ChatCompletionMessage) string {
