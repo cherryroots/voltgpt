@@ -3,6 +3,7 @@ package openai
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -21,6 +22,14 @@ import (
 	"voltgpt/internal/utility"
 )
 
+type response struct {
+	sync.RWMutex
+	message      string
+	sliceIndex   int
+	toolCalls    []openai.ToolCall
+	finishReason openai.FinishReason
+}
+
 func StreamMessageResponse(s *discordgo.Session, m *discordgo.Message, messages []openai.ChatCompletionMessage) error {
 	token := os.Getenv("OPENROUTER_TOKEN")
 	if token == "" {
@@ -31,81 +40,171 @@ func StreamMessageResponse(s *discordgo.Session, m *discordgo.Message, messages 
 	c := openai.NewClientWithConfig(cfg)
 	ctx := context.Background()
 
-	var currentBuffer, fullBuffer string
-	var bufferMutex sync.Mutex
-	var msg *discordgo.Message
-	var err error
-
-	msg, err = discord.SendMessageFile(s, m, "Thinking...", nil)
-	if err != nil {
-		return fmt.Errorf("failed to send message: %v", err)
-	}
 	replacementStrings := []string{"<message>", "</message>", "<reply>", "</reply>", "<username>", "</username>", "<attachments>", "</attachments>", "..."}
 
 	instructionMessage := instructionSwitch(messages)
-	currentTime := fmt.Sprintf("Current date and time in CET right now: %s", time.Now().Format("2006-01-02 15:04:05"))
-	systemMessage := fmt.Sprintf("System message: %s %s\n\nInstruction message: %s", config.SystemMessageMinimal, currentTime, instructionMessage)
+	systemMessage := fmt.Sprintf("System message: %s\n\nInstruction message: %s", config.SystemMessageMinimal, instructionMessage)
 	PrependMessage(openai.ChatMessageRoleSystem, "", config.RequestContent{Text: systemMessage}, &messages)
 
-	stream, err := c.CreateChatCompletionStream(ctx, openai.ChatCompletionRequest{
-		Model:               "moonshotai/kimi-k2",
-		Messages:            messages,
-		MaxCompletionTokens: 16384,
-		// ReasoningEffort:     "high",
-		Stream:      true,
-		Temperature: 0.6,
-	})
+	var finishReason openai.FinishReason
+	var accumulatedMessage string // Accumulate messages across iterations
+
+	msg, err := discord.SendMessage(s, m, "Thinking...")
 	if err != nil {
-		return fmt.Errorf("stream error on start: %v", err)
+		return fmt.Errorf("failed to send message: %v", err)
 	}
-	defer stream.Close()
 
-	var stopTicker bool
-	defer func() { stopTicker = true }()
-
-	go func() {
-		for range time.Tick(time.Second) {
-			if strings.TrimSpace(currentBuffer) == "" {
-				continue
-			}
-			bufferMutex.Lock()
-			currentBuffer = utility.ReplaceMultiple(currentBuffer, replacementStrings, "")
-			currentBuffer, msg, err = utility.SplitSend(s, m, msg, currentBuffer)
-			if err != nil {
-				bufferMutex.Unlock()
-				return
-			}
-			bufferMutex.Unlock()
-			if stopTicker {
-				return
-			}
+	for finishReason == "" || finishReason == openai.FinishReasonToolCalls {
+		// Use the response struct to manage state
+		resp := &response{
+			message:      "",
+			sliceIndex:   0,
+			toolCalls:    []openai.ToolCall{},
+			finishReason: "",
 		}
-	}()
+		var messageSlices []string
 
-	for {
-		response, err := stream.Recv()
-		if errors.Is(err, io.EOF) {
-			break
-		}
+		stream, err := c.CreateChatCompletionStream(ctx, openai.ChatCompletionRequest{
+			Model:               "google/gemini-2.5-pro",
+			Messages:            messages,
+			MaxCompletionTokens: 16384,
+			// ReasoningEffort:     "high",
+			Stream: true,
+			// Temperature: 0.3,
+			Tools: GetTools(),
+		})
 		if err != nil {
-			return fmt.Errorf("stream error during response: %v", err)
+			return fmt.Errorf("stream error on start: %v", err)
 		}
 
-		bufferMutex.Lock()
-		currentBuffer += response.Choices[0].Delta.Content
-		fullBuffer += response.Choices[0].Delta.Content
-		bufferMutex.Unlock()
+		// Channels for communication between goroutines
+		streamDone := make(chan error, 1)
+		updateTicker := time.NewTicker(time.Second)
+		defer updateTicker.Stop()
 
-		if response.Choices[0].FinishReason != "" {
-			bufferMutex.Lock()
-			switch response.Choices[0].FinishReason {
-			case openai.FinishReasonLength:
-				currentBuffer += "**Length limit reached.**"
-			case openai.FinishReasonContentFilter:
-				currentBuffer += "**Content filter triggered.**"
+		// Run the stream processing in the background
+		go func() {
+			defer stream.Close()
+			for {
+				streamResp, err := stream.Recv()
+				if errors.Is(err, io.EOF) {
+					resp.Lock()
+					resp.finishReason = openai.FinishReasonStop
+					resp.Unlock()
+					streamDone <- nil
+					return
+				}
+				if err != nil {
+					streamDone <- fmt.Errorf("stream error during response: %v", err)
+					return
+				}
+
+				resp.Lock()
+				resp.message += streamResp.Choices[0].Delta.Content
+				resp.finishReason = streamResp.Choices[0].FinishReason
+				resp.Unlock()
+
+				if streamResp.Choices[0].Delta.ToolCalls != nil {
+					resp.Lock()
+					resp.toolCalls = append(resp.toolCalls, streamResp.Choices[0].Delta.ToolCalls...)
+					resp.Unlock()
+				}
+
+				if streamResp.Choices[0].FinishReason == openai.FinishReasonStop || streamResp.Choices[0].FinishReason == openai.FinishReasonToolCalls {
+					streamDone <- nil
+					return
+				}
 			}
-			bufferMutex.Unlock()
+		}()
+
+		// Main loop handles updates and waits for stream completion
+		for {
+			select {
+			case err := <-streamDone:
+				if err != nil {
+					return err
+				}
+				// Stream is done, get final state
+				resp.Lock()
+				finishReason = resp.finishReason
+				finalMessage := resp.message
+				finalToolCalls := resp.toolCalls
+				resp.Unlock()
+
+				// Accumulate the message from this iteration
+				if strings.TrimSpace(finalMessage) != "" {
+					if accumulatedMessage != "" {
+						accumulatedMessage += "\n\n" + finalMessage
+					} else {
+						accumulatedMessage = finalMessage
+					}
+				}
+
+				// Send the accumulated message
+				if strings.TrimSpace(accumulatedMessage) != "" {
+					cleanedMessage := utility.ReplaceMultiple(accumulatedMessage, replacementStrings, "")
+					messageSlices = utility.SplitMessageSlices(cleanedMessage)
+					if len(messageSlices) > 0 {
+						newMsg, err := utility.SliceSend(s, msg, messageSlices, 0)
+						if err != nil {
+							log.Printf("Error sending final message slices: %v", err)
+						} else {
+							msg = newMsg
+						}
+					}
+				}
+
+				// Handle tool calls if needed
+				if finishReason == openai.FinishReasonToolCalls {
+					AppendMessage(openai.ChatMessageRoleAssistant, "", config.RequestContent{Text: finalMessage}, &messages)
+					for _, toolCall := range finalToolCalls {
+						functionReturn, ok := functionMap[toolCall.Function.Name]
+						if ok {
+							args := []any{}
+							json.Unmarshal([]byte(toolCall.Function.Arguments), &args)
+							AppendToolMessage(toolCall.ID, toolCall.Function.Name, functionReturn(args), &messages)
+							log.Printf("Tool call: %s\nArguments: %v\nReturn: %s", toolCall.Function.Name, args, functionReturn(args))
+						}
+					}
+				}
+				goto streamComplete
+
+			case <-updateTicker.C:
+				// Periodic update
+				resp.Lock()
+				if strings.TrimSpace(resp.message) == "" {
+					resp.Unlock()
+					continue
+				}
+
+				// Build current display message (accumulated + current iteration)
+				currentDisplayMessage := accumulatedMessage
+				if currentDisplayMessage != "" && strings.TrimSpace(resp.message) != "" {
+					currentDisplayMessage += "\n\n" + resp.message
+				} else if strings.TrimSpace(resp.message) != "" {
+					currentDisplayMessage = resp.message
+				}
+
+				// Clean the message and split into slices
+				cleanedMessage := utility.ReplaceMultiple(currentDisplayMessage, replacementStrings, "")
+				messageSlices = utility.SplitMessageSlices(cleanedMessage)
+
+				// Send slices starting from current slice index
+				if len(messageSlices) > 0 {
+					newMsg, err := utility.SliceSend(s, msg, messageSlices, resp.sliceIndex)
+					if err != nil {
+						log.Printf("Error sending message slices: %v", err)
+						resp.Unlock()
+						continue
+					}
+					msg = newMsg
+					// Update slice index to the last slice we've sent
+					resp.sliceIndex = len(messageSlices) - 1
+				}
+				resp.Unlock()
+			}
 		}
+	streamComplete:
 	}
 
 	return nil
@@ -113,6 +212,11 @@ func StreamMessageResponse(s *discordgo.Session, m *discordgo.Message, messages 
 
 func AppendMessage(role string, name string, content config.RequestContent, messages *[]openai.ChatCompletionMessage) {
 	newMessages := append(*messages, createMessage(role, name, content)...)
+	*messages = newMessages
+}
+
+func AppendToolMessage(toolCallID string, toolName string, content string, messages *[]openai.ChatCompletionMessage) {
+	newMessages := append(*messages, CreateToolMessage(toolCallID, toolName, content))
 	*messages = newMessages
 }
 
@@ -151,6 +255,15 @@ func createMessage(role string, name string, content config.RequestContent) []op
 	}
 
 	return message
+}
+
+func CreateToolMessage(toolCallID string, toolName string, content string) openai.ChatCompletionMessage {
+	return openai.ChatCompletionMessage{
+		Role:       openai.ChatMessageRoleTool,
+		Content:    content,
+		ToolCallID: toolCallID,
+		Name:       toolName,
+	}
 }
 
 func CreateBatchMessages(s *discordgo.Session, messages []*discordgo.Message) []openai.ChatCompletionMessage {
