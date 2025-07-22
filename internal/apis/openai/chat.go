@@ -25,7 +25,7 @@ import (
 type response struct {
 	sync.RWMutex
 	message      string
-	sliceIndex   int
+	buffer       string
 	toolCalls    []openai.ToolCall
 	finishReason openai.FinishReason
 }
@@ -46,23 +46,19 @@ func StreamMessageResponse(s *discordgo.Session, m *discordgo.Message, messages 
 	systemMessage := fmt.Sprintf("System message: %s\n\nInstruction message: %s", config.SystemMessageMinimal, instructionMessage)
 	PrependMessage(openai.ChatMessageRoleSystem, "", config.RequestContent{Text: systemMessage}, &messages)
 
-	var finishReason openai.FinishReason
-	var accumulatedMessage string // Accumulate messages across iterations
+	response := response{
+		message:      "",
+		buffer:       "",
+		toolCalls:    []openai.ToolCall{},
+		finishReason: "",
+	}
 
 	msg, err := discord.SendMessage(s, m, "Thinking...")
 	if err != nil {
 		return fmt.Errorf("failed to send message: %v", err)
 	}
 
-	for finishReason == "" || finishReason == openai.FinishReasonToolCalls {
-		// Use the response struct to manage state
-		resp := &response{
-			message:      "",
-			sliceIndex:   0,
-			toolCalls:    []openai.ToolCall{},
-			finishReason: "",
-		}
-		var messageSlices []string
+	for response.finishReason == "" || response.finishReason == openai.FinishReasonToolCalls {
 
 		stream, err := c.CreateChatCompletionStream(ctx, openai.ChatCompletionRequest{
 			Model:               "google/gemini-2.5-pro",
@@ -88,9 +84,9 @@ func StreamMessageResponse(s *discordgo.Session, m *discordgo.Message, messages 
 			for {
 				streamResp, err := stream.Recv()
 				if errors.Is(err, io.EOF) {
-					resp.Lock()
-					resp.finishReason = openai.FinishReasonStop
-					resp.Unlock()
+					response.Lock()
+					response.finishReason = openai.FinishReasonStop
+					response.Unlock()
 					streamDone <- nil
 					return
 				}
@@ -99,15 +95,16 @@ func StreamMessageResponse(s *discordgo.Session, m *discordgo.Message, messages 
 					return
 				}
 
-				resp.Lock()
-				resp.message += streamResp.Choices[0].Delta.Content
-				resp.finishReason = streamResp.Choices[0].FinishReason
-				resp.Unlock()
+				response.Lock()
+				response.message += streamResp.Choices[0].Delta.Content
+				response.buffer += streamResp.Choices[0].Delta.Content
+				response.finishReason = streamResp.Choices[0].FinishReason
+				response.Unlock()
 
 				if streamResp.Choices[0].Delta.ToolCalls != nil {
-					resp.Lock()
-					resp.toolCalls = append(resp.toolCalls, streamResp.Choices[0].Delta.ToolCalls...)
-					resp.Unlock()
+					response.Lock()
+					response.toolCalls = append(response.toolCalls, streamResp.Choices[0].Delta.ToolCalls...)
+					response.Unlock()
 				}
 
 				if streamResp.Choices[0].FinishReason == openai.FinishReasonStop || streamResp.Choices[0].FinishReason == openai.FinishReasonToolCalls {
@@ -124,40 +121,23 @@ func StreamMessageResponse(s *discordgo.Session, m *discordgo.Message, messages 
 				if err != nil {
 					return err
 				}
-				// Stream is done, get final state
-				resp.Lock()
-				finishReason = resp.finishReason
-				finalMessage := resp.message
-				finalToolCalls := resp.toolCalls
-				resp.Unlock()
+				response.Lock()
 
-				// Accumulate the message from this iteration
-				if strings.TrimSpace(finalMessage) != "" {
-					if accumulatedMessage != "" {
-						accumulatedMessage += "\n\n" + finalMessage
+				if strings.TrimSpace(response.buffer) != "" {
+					cleanedMessage := utility.ReplaceMultiple(response.buffer, replacementStrings, "")
+					newBuffer, newMsg, err := utility.SplitSend(s, msg, cleanedMessage)
+					if err != nil {
+						log.Printf("Error sending final message: %v", err)
 					} else {
-						accumulatedMessage = finalMessage
-					}
-				}
-
-				// Send the accumulated message
-				if strings.TrimSpace(accumulatedMessage) != "" {
-					cleanedMessage := utility.ReplaceMultiple(accumulatedMessage, replacementStrings, "")
-					messageSlices = utility.SplitMessageSlices(cleanedMessage)
-					if len(messageSlices) > 0 {
-						newMsg, err := utility.SliceSend(s, msg, messageSlices, 0)
-						if err != nil {
-							log.Printf("Error sending final message slices: %v", err)
-						} else {
-							msg = newMsg
-						}
+						msg = newMsg
+						response.buffer = newBuffer
 					}
 				}
 
 				// Handle tool calls if needed
-				if finishReason == openai.FinishReasonToolCalls {
-					AppendMessage(openai.ChatMessageRoleAssistant, "", config.RequestContent{Text: finalMessage}, &messages)
-					for _, toolCall := range finalToolCalls {
+				if response.finishReason == openai.FinishReasonToolCalls {
+					AppendMessage(openai.ChatMessageRoleAssistant, "", config.RequestContent{Text: response.message}, &messages)
+					for _, toolCall := range response.toolCalls {
 						functionReturn, ok := functionMap[toolCall.Function.Name]
 						if ok {
 							args := []any{}
@@ -167,41 +147,27 @@ func StreamMessageResponse(s *discordgo.Session, m *discordgo.Message, messages 
 						}
 					}
 				}
+				response.Unlock()
 				goto streamComplete
 
 			case <-updateTicker.C:
 				// Periodic update
-				resp.Lock()
-				if strings.TrimSpace(resp.message) == "" {
-					resp.Unlock()
+				response.Lock()
+				if strings.TrimSpace(response.buffer) == "" {
+					response.Unlock()
 					continue
 				}
 
-				// Build current display message (accumulated + current iteration)
-				currentDisplayMessage := accumulatedMessage
-				if currentDisplayMessage != "" && strings.TrimSpace(resp.message) != "" {
-					currentDisplayMessage += "\n\n" + resp.message
-				} else if strings.TrimSpace(resp.message) != "" {
-					currentDisplayMessage = resp.message
+				cleanedMessage := utility.ReplaceMultiple(response.buffer, replacementStrings, "")
+				newBuffer, newMsg, err := utility.SplitSend(s, msg, cleanedMessage)
+				if err != nil {
+					log.Printf("Error sending message: %v", err)
+					response.Unlock()
+					continue
 				}
-
-				// Clean the message and split into slices
-				cleanedMessage := utility.ReplaceMultiple(currentDisplayMessage, replacementStrings, "")
-				messageSlices = utility.SplitMessageSlices(cleanedMessage)
-
-				// Send slices starting from current slice index
-				if len(messageSlices) > 0 {
-					newMsg, err := utility.SliceSend(s, msg, messageSlices, resp.sliceIndex)
-					if err != nil {
-						log.Printf("Error sending message slices: %v", err)
-						resp.Unlock()
-						continue
-					}
-					msg = newMsg
-					// Update slice index to the last slice we've sent
-					resp.sliceIndex = len(messageSlices) - 1
-				}
-				resp.Unlock()
+				msg = newMsg
+				response.buffer = newBuffer
+				response.Unlock()
 			}
 		}
 	streamComplete:
@@ -248,8 +214,8 @@ func createMessage(role string, name string, content config.RequestContent) []op
 		message[0].MultiContent = append(message[0].MultiContent, openai.ChatMessagePart{
 			Type: openai.ChatMessagePartTypeImageURL,
 			ImageURL: &openai.ChatMessageImageURL{
-				// URL: u,
-				URL: fmt.Sprintf("data:%s;base64,%s", utility.MediaType(u), utility.Base64Image(u)),
+				URL: u,
+				//URL: fmt.Sprintf("data:%s;base64,%s", utility.MediaType(u), utility.Base64Image(u)),
 			},
 		})
 	}
