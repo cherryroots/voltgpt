@@ -142,19 +142,41 @@ var Commands = map[string]func(s *discordgo.Session, i *discordgo.InteractionCre
 		var resp *wave.WaveSpeedResponse
 		var err error
 		if imgFilled {
+			base64Image, err := utility.Base64ImageDownload(img)
+			if err != nil {
+				_, err := discord.SendFollowup(s, i, err.Error())
+				if err != nil {
+					log.Println(err)
+				}
+				return
+			}
 			req := wave.SeedDanceI2VSubmissionRequest{
 				Prompt:   &prompt.Text,
-				Image:    utility.Base64Image(img),
+				Image:    base64Image,
 				Duration: &duration,
 				Seed:     &seed,
 			}
 			resp, err = wave.SendSeedDanceI2VRequest(req, version, wave.SeedDanceI2V, resolution)
+			if err != nil {
+				_, err := discord.SendFollowup(s, i, err.Error())
+				if err != nil {
+					log.Println(err)
+				}
+				return
+			}
 		} else {
 			req := wave.SeedDanceT2VSubmissionRequest{
 				Prompt:   prompt.Text,
 				Duration: &duration,
 			}
 			resp, err = wave.SendSeedDanceT2VRequest(req, version, wave.SeedDanceT2V, resolution)
+			if err != nil {
+				_, err := discord.SendFollowup(s, i, err.Error())
+				if err != nil {
+					log.Println(err)
+				}
+				return
+			}
 		}
 		if err != nil {
 			log.Println(err)

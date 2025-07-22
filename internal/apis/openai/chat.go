@@ -211,11 +211,16 @@ func createMessage(role string, name string, content config.RequestContent) []op
 	}
 
 	for _, u := range content.Images {
+		base64, err := utility.Base64ImageDownload(u)
+		if err != nil {
+			log.Printf("Error downloading image: %v", err)
+			continue
+		}
 		message[0].MultiContent = append(message[0].MultiContent, openai.ChatMessagePart{
 			Type: openai.ChatMessagePartTypeImageURL,
 			ImageURL: &openai.ChatMessageImageURL{
-				URL: u,
-				//URL: fmt.Sprintf("data:%s;base64,%s", utility.MediaType(u), utility.Base64Image(u)),
+				//URL: u,
+				URL: base64,
 			},
 		})
 	}

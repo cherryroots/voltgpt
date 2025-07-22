@@ -2,10 +2,16 @@
 package utility
 
 import (
+	"bytes"
 	"encoding/base64"
 	"fmt"
+	"image"
+	"image/color"
+	"image/gif"
+	"image/png"
 	"io"
 	"log"
+	"math"
 	"net/http"
 	"net/url"
 	"path/filepath"
@@ -648,12 +654,73 @@ func DownloadURL(url string) ([]byte, error) {
 	return data, nil
 }
 
-func Base64Image(url string) string {
+func Base64Image(url string) (string, error) {
 	data, err := DownloadURL(url)
 	if err != nil {
-		return ""
+		return "", err
 	}
-	return base64.StdEncoding.EncodeToString(data)
+	return base64.StdEncoding.EncodeToString(data), nil
+}
+
+func GifToBase64Image(url string) (string, error) {
+	data, err := DownloadURL(url)
+	if err != nil {
+		return "", err
+	}
+
+	g, err := gif.DecodeAll(bytes.NewReader(data))
+	if err != nil {
+		return "", err
+	}
+
+	b := []*bytes.Buffer{}
+	for _, frame := range g.Image {
+		b = append(b, &bytes.Buffer{})
+		png.Encode(b[len(b)-1], frame)
+	}
+
+	gridBuffer, err := CombinePNGsToGridSimple(b)
+	if err != nil {
+		return "", err
+	}
+
+	return base64.StdEncoding.EncodeToString(gridBuffer.Bytes()), nil
+}
+
+func Base64ImageDownload(urlStr string) (string, error) {
+	fileExt, err := UrlToExt(urlStr)
+	if err != nil {
+		return "", err
+	}
+
+	switch fileExt {
+	case ".jpg", ".jpeg":
+		base64, err := Base64Image(urlStr)
+		if err != nil {
+			return "", err
+		}
+		return fmt.Sprintf("data:%s;base64,%s", "image/jpeg", base64), nil
+	case ".png":
+		base64, err := Base64Image(urlStr)
+		if err != nil {
+			return "", err
+		}
+		return fmt.Sprintf("data:%s;base64,%s", "image/png", base64), nil
+	case ".gif":
+		base64, err := GifToBase64Image(urlStr)
+		if err != nil {
+			return "", err
+		}
+		return fmt.Sprintf("data:%s;base64,%s", "image/png", base64), nil
+	case ".webp":
+		base64, err := Base64Image(urlStr)
+		if err != nil {
+			return "", err
+		}
+		return fmt.Sprintf("data:%s;base64,%s", "image/webp", base64), nil
+	default:
+		return "", fmt.Errorf("unknown file extension: %s", fileExt)
+	}
 }
 
 func MatchVideoWebsites(urlStr string) bool {
@@ -716,4 +783,140 @@ func ExtractPairText(text string, lookup string) string {
 
 func containsPair(text string, lookup string) bool {
 	return strings.Contains(text, lookup) && strings.Count(text, lookup)%2 == 0
+}
+
+func CombinePNGsToGrid(pngBuffers []*bytes.Buffer, cellSize int) (*bytes.Buffer, error) {
+	if len(pngBuffers) == 0 {
+		return nil, fmt.Errorf("no images provided")
+	}
+
+	// Calculate grid dimensions (square grid)
+	gridSize := int(math.Ceil(math.Sqrt(float64(len(pngBuffers)))))
+
+	// Decode all PNG images
+	images := make([]image.Image, len(pngBuffers))
+	for i, buf := range pngBuffers {
+		img, err := png.Decode(bytes.NewReader(buf.Bytes()))
+		if err != nil {
+			return nil, fmt.Errorf("failed to decode PNG %d: %w", i, err)
+		}
+		images[i] = img
+	}
+
+	// Create output image
+	outputWidth := gridSize * cellSize
+	outputHeight := gridSize * cellSize
+	outputImg := image.NewRGBA(image.Rect(0, 0, outputWidth, outputHeight))
+
+	// Fill with white background
+	for y := 0; y < outputHeight; y++ {
+		for x := 0; x < outputWidth; x++ {
+			outputImg.Set(x, y, color.RGBA{255, 255, 255, 255})
+		}
+	}
+
+	// Draw images into grid
+	for i, img := range images {
+		row := i / gridSize
+		col := i % gridSize
+
+		// Calculate position in grid
+		startX := col * cellSize
+		startY := row * cellSize
+
+		// Get source image bounds
+		srcBounds := img.Bounds()
+		srcWidth := srcBounds.Dx()
+		srcHeight := srcBounds.Dy()
+
+		// Calculate scaling to fit in cell while maintaining aspect ratio
+		scaleX := float64(cellSize) / float64(srcWidth)
+		scaleY := float64(cellSize) / float64(srcHeight)
+		scale := math.Min(scaleX, scaleY)
+
+		newWidth := int(float64(srcWidth) * scale)
+		newHeight := int(float64(srcHeight) * scale)
+
+		// Center the image in the cell
+		offsetX := (cellSize - newWidth) / 2
+		offsetY := (cellSize - newHeight) / 2
+
+		// Draw the scaled image
+		for y := 0; y < newHeight; y++ {
+			for x := 0; x < newWidth; x++ {
+				// Calculate source pixel
+				srcX := int(float64(x) / scale)
+				srcY := int(float64(y) / scale)
+
+				if srcX < srcWidth && srcY < srcHeight {
+					srcColor := img.At(srcBounds.Min.X+srcX, srcBounds.Min.Y+srcY)
+					outputImg.Set(startX+offsetX+x, startY+offsetY+y, srcColor)
+				}
+			}
+		}
+	}
+
+	// Encode to PNG
+	var outputBuffer bytes.Buffer
+	err := png.Encode(&outputBuffer, outputImg)
+	if err != nil {
+		return nil, fmt.Errorf("failed to encode output PNG: %w", err)
+	}
+
+	return &outputBuffer, nil
+}
+
+func CombinePNGsToGridSimple(pngBuffers []*bytes.Buffer) (*bytes.Buffer, error) {
+	if len(pngBuffers) == 0 {
+		return nil, fmt.Errorf("no images provided")
+	}
+
+	// Decode first image to get dimensions
+	firstImg, err := png.Decode(bytes.NewReader(pngBuffers[0].Bytes()))
+	if err != nil {
+		return nil, fmt.Errorf("failed to decode first PNG: %w", err)
+	}
+
+	imgBounds := firstImg.Bounds()
+	imgWidth := imgBounds.Dx()
+	imgHeight := imgBounds.Dy()
+
+	// Calculate grid dimensions
+	gridSize := int(math.Ceil(math.Sqrt(float64(len(pngBuffers)))))
+
+	// Create output image
+	outputWidth := gridSize * imgWidth
+	outputHeight := gridSize * imgHeight
+	outputImg := image.NewRGBA(image.Rect(0, 0, outputWidth, outputHeight))
+
+	// Process all images
+	for i, buf := range pngBuffers {
+		img, err := png.Decode(bytes.NewReader(buf.Bytes()))
+		if err != nil {
+			return nil, fmt.Errorf("failed to decode PNG %d: %w", i, err)
+		}
+
+		row := i / gridSize
+		col := i % gridSize
+
+		startX := col * imgWidth
+		startY := row * imgHeight
+
+		// Copy image pixels
+		bounds := img.Bounds()
+		for y := bounds.Min.Y; y < bounds.Max.Y; y++ {
+			for x := bounds.Min.X; x < bounds.Max.X; x++ {
+				outputImg.Set(startX+x-bounds.Min.X, startY+y-bounds.Min.Y, img.At(x, y))
+			}
+		}
+	}
+
+	// Encode to PNG
+	var outputBuffer bytes.Buffer
+	err = png.Encode(&outputBuffer, outputImg)
+	if err != nil {
+		return nil, fmt.Errorf("failed to encode output PNG: %w", err)
+	}
+
+	return &outputBuffer, nil
 }
