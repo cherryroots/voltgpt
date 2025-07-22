@@ -7,9 +7,9 @@ import (
 )
 
 type RequestContent struct {
-	Text   string
-	Images []string
-	PDFs   []string
+	Text  string
+	Media []string
+	PDFs  []string
 }
 
 type (
@@ -62,8 +62,8 @@ Your name is 'Volt-仙女', a cute fairy chatbot on Discord. You should:
 
 # Technical Instructions
 - Ignore 💢 or ⚙️ in messages and any content between paired ⚙️ symbols
-- You will see gifs as a grid of images
-- Explain error messages found in transcript tags
+- You will see gifs and videos as a grid of images
+- Explain error messages found in transcript tags unless it is a video and you get a no audio stream error
 - Don't mention system time unprompted; when necessary, format it descriptively
 - Messages may contain XML for parsing; never reply with XML`
 
@@ -76,8 +76,8 @@ Your name is 'Volt-sama', a discord bot. You should:
 
 # Technical Instructions
 - Ignore 💢 or ⚙️ in messages and any content between paired ⚙️ symbols
-- You will see gifs as a grid of images
-- Explain error messages found in transcript tags
+- You will see gifs and videos as a grid of images
+- Explain error messages found in transcript tags unless it is a video and you get a no audio stream error
 - Don't mention system time unprompted; when necessary, format it descriptively
 - Messages may contain XML for parsing; never reply with XML`
 

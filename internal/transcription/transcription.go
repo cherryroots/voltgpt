@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"regexp"
+	"strings"
 	"sync"
 
 	"voltgpt/internal/discord"
@@ -207,12 +208,18 @@ func GetTranscriptFromVideo(videoURL string, downloadType string) (Transcript, e
 	if downloadType == "ytdlp" {
 		cmd := exec.Command("/home/bot/.pyenv/versions/3.12.2/bin/yt-dlp", "--username", "oauth2", "--password", "''", "-f", "bestaudio[ext=m4a]", "-x", "-o", fmt.Sprintf("%s/audio.%%(ext)s", dir), videoURL)
 		if out, err := cmd.CombinedOutput(); err != nil {
+			if strings.Contains(err.Error(), "Output file #0 does not contain any stream") {
+				return Transcript{}, nil
+			}
 			errMsg := fmt.Errorf("Out: %s\nErr: %s", out, err)
 			return Transcript{}, errMsg
 		}
 	} else {
 		cmd := exec.Command("ffmpeg", "-i", videoURL, "-vn", "-acodec", "aac", "-b:a", "128k", fmt.Sprintf("%s/audio.m4a", dir))
 		if out, err := cmd.CombinedOutput(); err != nil {
+			if strings.Contains(err.Error(), "Output file #0 does not contain any stream") {
+				return Transcript{}, nil
+			}
 			errMsg := fmt.Errorf("Out: %s\nErr: %s", out, err)
 			return Transcript{}, errMsg
 		}

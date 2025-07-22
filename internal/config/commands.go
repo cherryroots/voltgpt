@@ -8,7 +8,6 @@ var (
 	writePermission int64 = discordgo.PermissionSendMessages
 	// adminPermission int64   = discordgo.PermissionAdministrator
 	dmPermission         = false
-	tempMin              = 0.01
 	integerMin   float64 = 1
 	guidanceMin  float64
 

@@ -68,8 +68,8 @@ func HandleMessage(s *discordgo.Session, m *discordgo.MessageCreate) {
 			utility.EmbedText(m.Message),
 			fmt.Sprintf("<message>%s</message>", m.Content),
 		)),
-		Images: images,
-		PDFs:   pdfs,
+		Media: images,
+		PDFs:  pdfs,
 	}
 
 	oai.AppendMessage(openai.ChatMessageRoleUser, m.Message.Author.Username, content, &chatMessages)

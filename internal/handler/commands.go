@@ -152,7 +152,7 @@ var Commands = map[string]func(s *discordgo.Session, i *discordgo.InteractionCre
 			}
 			req := wave.SeedDanceI2VSubmissionRequest{
 				Prompt:   &prompt.Text,
-				Image:    base64Image,
+				Image:    base64Image[0],
 				Duration: &duration,
 				Seed:     &seed,
 			}
