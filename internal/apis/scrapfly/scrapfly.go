@@ -27,9 +27,9 @@ func Browse(u string, renderJS bool) string {
 	var reqURL string
 	format := url.QueryEscape("markdown:only_content")
 	if renderJS {
-		reqURL = fmt.Sprintf("%s?format=%s&cache=true&lang=en&asp=true&proxy_pool=public_residential_pool&render_js=true&auto_scroll=true&key=%s&url=%s", baseURL, format, token, encoded_url)
+		reqURL = fmt.Sprintf("%s?format=%s&cache=true&lang=en&asp=true&render_js=true&auto_scroll=true&key=%s&url=%s", baseURL, format, token, encoded_url)
 	} else {
-		reqURL = fmt.Sprintf("%s?format=%s&cache=true&lang=en&asp=true&proxy_pool=public_residential_pool&key=%s&url=%s", baseURL, format, token, encoded_url)
+		reqURL = fmt.Sprintf("%s?format=%s&cache=true&lang=en&asp=true&key=%s&url=%s", baseURL, format, token, encoded_url)
 	}
 	method := "GET"
 	client := &http.Client{}
