@@ -805,7 +805,7 @@ func VideoToBase64Images(urlStr string) ([]string, error) {
 	}
 
 	// Calculate dynamic frame count based on 3fps
-	endPercentage := 0.9
+	endPercentage := 0.98
 	usableDuration := duration * endPercentage
 	totalFrames := int(usableDuration * 3.0) // 3 frames per second
 

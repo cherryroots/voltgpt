@@ -140,10 +140,12 @@ func StreamMessageResponse(s *discordgo.Session, m *discordgo.Message, messages 
 					for _, toolCall := range response.toolCalls {
 						functionReturn, ok := functionMap[toolCall.Function.Name]
 						if ok {
-							args := []any{}
+							args := map[string]any{}
 							json.Unmarshal([]byte(toolCall.Function.Arguments), &args)
-							AppendToolMessage(toolCall.ID, toolCall.Function.Name, functionReturn(args), &messages)
-							log.Printf("Tool call: %s\nArguments: %v\nReturn: %s", toolCall.Function.Name, args, functionReturn(args))
+							log.Printf("Tool call: %s\nArguments: %v", toolCall.Function.Name, args)
+							result := functionReturn(args)
+							AppendToolMessage(toolCall.ID, toolCall.Function.Name, result, &messages)
+							log.Println("Result len: ", len(result))
 						}
 					}
 				}
