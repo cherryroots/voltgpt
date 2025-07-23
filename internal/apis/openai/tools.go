@@ -32,7 +32,7 @@ var functionDefinitions = map[string]openai.FunctionDefinition{
 	},
 	"browse": {
 		Name:        "browse",
-		Description: "Browse the web and return the content as markdown",
+		Description: "Browse the web and return the content as markdown with links to pages.",
 		Parameters: jsonschema.Definition{
 			Type: jsonschema.Object,
 			Properties: map[string]jsonschema.Definition{

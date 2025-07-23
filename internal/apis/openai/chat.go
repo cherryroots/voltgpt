@@ -58,7 +58,14 @@ func StreamMessageResponse(s *discordgo.Session, m *discordgo.Message, messages 
 		return fmt.Errorf("failed to send message: %v", err)
 	}
 
+	maxIterations := 10
+	iteration := 0
+
 	for response.finishReason == "" || response.finishReason == openai.FinishReasonToolCalls {
+		iteration++
+		if iteration > maxIterations {
+			return fmt.Errorf("max iterations reached")
+		}
 
 		stream, err := c.CreateChatCompletionStream(ctx, openai.ChatCompletionRequest{
 			Model:               "google/gemini-2.5-pro",
@@ -84,9 +91,6 @@ func StreamMessageResponse(s *discordgo.Session, m *discordgo.Message, messages 
 			for {
 				streamResp, err := stream.Recv()
 				if errors.Is(err, io.EOF) {
-					response.Lock()
-					response.finishReason = openai.FinishReasonStop
-					response.Unlock()
 					streamDone <- nil
 					return
 				}
@@ -98,18 +102,15 @@ func StreamMessageResponse(s *discordgo.Session, m *discordgo.Message, messages 
 				response.Lock()
 				response.message += streamResp.Choices[0].Delta.Content
 				response.buffer += streamResp.Choices[0].Delta.Content
-				response.finishReason = streamResp.Choices[0].FinishReason
+				if streamResp.Choices[0].FinishReason != "" {
+					response.finishReason = streamResp.Choices[0].FinishReason
+				}
 				response.Unlock()
 
 				if streamResp.Choices[0].Delta.ToolCalls != nil {
 					response.Lock()
 					response.toolCalls = append(response.toolCalls, streamResp.Choices[0].Delta.ToolCalls...)
 					response.Unlock()
-				}
-
-				if streamResp.Choices[0].FinishReason == openai.FinishReasonStop || streamResp.Choices[0].FinishReason == openai.FinishReasonToolCalls {
-					streamDone <- nil
-					return
 				}
 			}
 		}()
@@ -122,7 +123,6 @@ func StreamMessageResponse(s *discordgo.Session, m *discordgo.Message, messages 
 					return err
 				}
 				response.Lock()
-
 				if strings.TrimSpace(response.buffer) != "" {
 					cleanedMessage := utility.ReplaceMultiple(response.buffer, replacementStrings, "")
 					newBuffer, newMsg, err := utility.SplitSend(s, msg, cleanedMessage)
@@ -134,19 +134,19 @@ func StreamMessageResponse(s *discordgo.Session, m *discordgo.Message, messages 
 					}
 				}
 
-				// Handle tool calls if needed
-				if response.finishReason == openai.FinishReasonToolCalls {
-					AppendMessage(openai.ChatMessageRoleAssistant, "", config.RequestContent{Text: response.message}, &messages)
-					for _, toolCall := range response.toolCalls {
+				if response.finishReason == openai.FinishReasonToolCalls || len(response.toolCalls) > 0 {
+					AppendToolRequestMessage(s.State.User.Username, response.message, response.toolCalls, &messages)
+					for i, toolCall := range response.toolCalls {
 						functionReturn, ok := functionMap[toolCall.Function.Name]
 						if ok {
 							args := map[string]any{}
 							json.Unmarshal([]byte(toolCall.Function.Arguments), &args)
 							log.Printf("Tool call: %s\nArguments: %v", toolCall.Function.Name, args)
 							result := functionReturn(args)
-							AppendToolMessage(toolCall.ID, toolCall.Function.Name, result, &messages)
+							AppendToolResultMessage(toolCall.ID, toolCall.Function.Name, result, &messages)
 							log.Println("Result len: ", len(result))
 						}
+						response.toolCalls = append(response.toolCalls[:i], response.toolCalls[i+1:]...)
 					}
 				}
 				response.Unlock()
@@ -175,6 +175,8 @@ func StreamMessageResponse(s *discordgo.Session, m *discordgo.Message, messages 
 	streamComplete:
 	}
 
+	log.Println("Finished stream")
+
 	return nil
 }
 
@@ -183,8 +185,13 @@ func AppendMessage(role string, name string, content config.RequestContent, mess
 	*messages = newMessages
 }
 
-func AppendToolMessage(toolCallID string, toolName string, content string, messages *[]openai.ChatCompletionMessage) {
-	newMessages := append(*messages, CreateToolMessage(toolCallID, toolName, content))
+func AppendToolRequestMessage(name string, content string, toolCalls []openai.ToolCall, messages *[]openai.ChatCompletionMessage) {
+	newMessages := append(*messages, CreateToolRequestmessage(name, content, toolCalls))
+	*messages = newMessages
+}
+
+func AppendToolResultMessage(toolCallID string, toolName string, content string, messages *[]openai.ChatCompletionMessage) {
+	newMessages := append(*messages, CreateToolResultMessage(toolCallID, toolName, content))
 	*messages = newMessages
 }
 
@@ -231,7 +238,16 @@ func createMessage(role string, name string, content config.RequestContent) []op
 	return message
 }
 
-func CreateToolMessage(toolCallID string, toolName string, content string) openai.ChatCompletionMessage {
+func CreateToolRequestmessage(name string, content string, toolCalls []openai.ToolCall) openai.ChatCompletionMessage {
+	return openai.ChatCompletionMessage{
+		Role:      openai.ChatMessageRoleAssistant,
+		Content:   content,
+		Name:      name,
+		ToolCalls: toolCalls,
+	}
+}
+
+func CreateToolResultMessage(toolCallID string, toolName string, content string) openai.ChatCompletionMessage {
 	return openai.ChatCompletionMessage{
 		Role:       openai.ChatMessageRoleTool,
 		Content:    content,
