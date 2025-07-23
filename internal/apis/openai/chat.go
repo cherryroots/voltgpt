@@ -130,7 +130,7 @@ func StreamMessageResponse(s *discordgo.Session, m *discordgo.Message, messages 
 						log.Printf("Error sending final message: %v", err)
 					} else {
 						msg = newMsg
-						response.buffer = newBuffer
+						response.buffer = newBuffer + "\n"
 					}
 				}
 

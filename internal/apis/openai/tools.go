@@ -1,7 +1,9 @@
 package openai
 
 import (
+	"strings"
 	"time"
+	"voltgpt/internal/apis/codapi"
 	"voltgpt/internal/apis/scrapfly"
 
 	"github.com/sashabaranov/go-openai"
@@ -17,6 +19,22 @@ var functionMap = map[string]func(map[string]any) string{
 			return scrapfly.Browse(args["url"].(string), false)
 		}
 		return scrapfly.Browse(args["url"].(string), args["render_js"].(bool))
+	},
+	"code_execution": func(args map[string]any) string {
+		response, err := codapi.ExecuteRequest(&codapi.Request{
+			Sandbox: args["sandbox"].(string),
+			Command: "run",
+			Files:   map[string]string{"": strings.TrimSpace(args["code"].(string))},
+		})
+		if err != nil {
+			return ""
+		}
+
+		if response.OK {
+			return response.Stdout
+		}
+
+		return response.Stderr
 	},
 }
 
@@ -46,6 +64,26 @@ var functionDefinitions = map[string]openai.FunctionDefinition{
 				},
 			},
 			Required: []string{"url"},
+		},
+		Strict: true,
+	},
+	"code_execution": {
+		Name:        "code_execution",
+		Description: "Execute code and return the output, prefer python for general tasks",
+		Parameters: jsonschema.Definition{
+			Type: jsonschema.Object,
+			Properties: map[string]jsonschema.Definition{
+				"code": {
+					Type:        jsonschema.String,
+					Description: "The code to execute, don't add newlines to the start or end",
+				},
+				"sandbox": {
+					Type:        jsonschema.String,
+					Description: "The sandbox to use, select for the language you want to execute",
+					Enum:        []string{"python", "javascript", "typescript", "shell", "rust", "odin"},
+				},
+			},
+			Required: []string{"code", "sandbox"},
 		},
 		Strict: true,
 	},
