@@ -74,7 +74,8 @@ func StreamMessageResponse(s *discordgo.Session, m *discordgo.Message, messages 
 			// ReasoningEffort:     "high",
 			Stream: true,
 			// Temperature: 0.3,
-			Tools: GetTools(),
+			Tools:             GetTools(),
+			ParallelToolCalls: true,
 		})
 		if err != nil {
 			return fmt.Errorf("stream error on start: %v", err)
@@ -163,7 +164,7 @@ func StreamMessageResponse(s *discordgo.Session, m *discordgo.Message, messages 
 				cleanedMessage := utility.ReplaceMultiple(response.buffer, replacementStrings, "")
 				newBuffer, newMsg, err := utility.SplitSend(s, msg, cleanedMessage)
 				if err != nil {
-					log.Printf("Error sending message: %v", err)
+					log.Printf("Error sending message in update.Ticker: %v", err)
 					response.Unlock()
 					continue
 				}

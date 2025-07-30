@@ -20,6 +20,17 @@ var functionMap = map[string]func(map[string]any) string{
 		}
 		return scrapfly.Browse(args["url"].(string), args["render_js"].(bool))
 	},
+	"browse_multiple": func(args map[string]any) string {
+		urls := args["urls"].([]any)
+		urlsString := make([]string, len(urls))
+		for i, url := range urls {
+			urlsString[i] = url.(string)
+		}
+		if args["render_js"] == nil {
+			return scrapfly.BrowseMultiple(urlsString, false)
+		}
+		return scrapfly.BrowseMultiple(urlsString, args["render_js"].(bool))
+	},
 	"code_execution": func(args map[string]any) string {
 		response, err := codapi.ExecuteRequest(&codapi.Request{
 			Sandbox: args["sandbox"].(string),
@@ -64,6 +75,25 @@ var functionDefinitions = map[string]openai.FunctionDefinition{
 				},
 			},
 			Required: []string{"url"},
+		},
+		Strict: true,
+	},
+	"browse_multiple": {
+		Name:        "browse_multiple",
+		Description: "Browse multiple URLs and return the content as markdown with links to pages.",
+		Parameters: jsonschema.Definition{
+			Type: jsonschema.Object,
+			Properties: map[string]jsonschema.Definition{
+				"urls": {
+					Type:        jsonschema.Array,
+					Description: "The URLs to browse, should be an array of strings",
+				},
+				"render_js": {
+					Type:        jsonschema.Boolean,
+					Description: "Render JavaScript, useful for sites serving dynamic content. Use if you expect the page to be dynamic.",
+				},
+			},
+			Required: []string{"urls"},
 		},
 		Strict: true,
 	},

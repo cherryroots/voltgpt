@@ -168,6 +168,10 @@ func SplitMessageSlices(message string) []string {
 }
 
 func SplitSend(s *discordgo.Session, msg *discordgo.Message, currentMessage string) (string, *discordgo.Message, error) {
+	if currentMessage == "" {
+		return "", msg, fmt.Errorf("empty message")
+	}
+
 	if len(currentMessage) > 1800 {
 		firstPart, lastPart := SplitParagraph(currentMessage)
 		if lastPart == "" {
@@ -767,7 +771,6 @@ func extractVideoFrameAtTime(videoPath string, timestamp float64) (io.Reader, er
 		WithOutput(outBuf).
 		Silent(true).
 		Run()
-
 	if err != nil {
 		return nil, err
 	}

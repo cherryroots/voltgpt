@@ -194,7 +194,7 @@ func DownloadResult(resp *WaveSpeedResponse) ([]*discordgo.File, error) {
 		if err != nil {
 			return nil, err
 		}
-		filename := fmt.Sprintf("file_%d.%s", i, ext)
+		filename := fmt.Sprintf("file_%d%s", i, ext)
 		files[i] = &discordgo.File{
 			Name:   filename,
 			Reader: bytes.NewReader(data),

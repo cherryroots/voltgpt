@@ -8,6 +8,8 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"sync"
+	"voltgpt/internal/utility"
 )
 
 const (
@@ -23,7 +25,15 @@ type ScrapflyResponse struct {
 
 func Browse(u string, renderJS bool) string {
 	token := os.Getenv("SCRAPFLY_TOKEN")
-	encoded_url := url.QueryEscape(u)
+	replacementStrings := []string{"https://", "http://", "www.", "http", "https", "www."}
+	cleanURL := utility.ReplaceMultiple(u, replacementStrings, "")
+	if cleanURL == "" {
+		return ""
+	}
+	cleanURL = "https://" + cleanURL
+	log.Printf("Cleaned URL: %s to %s", u, cleanURL)
+
+	encoded_url := url.QueryEscape(cleanURL)
 	var reqURL string
 	format := url.QueryEscape("markdown:only_content")
 	if renderJS {
@@ -65,4 +75,18 @@ func Browse(u string, renderJS bool) string {
 		return ""
 	}
 	return response.Result.Content
+}
+
+func BrowseMultiple(urls []string, renderJS bool) string {
+	var content string
+	var wg sync.WaitGroup
+	wg.Add(len(urls))
+	for i, url := range urls {
+		go func(url string, i int) {
+			defer wg.Done()
+			content += fmt.Sprintf("%d. %s\n\n", i+1, Browse(url, renderJS))
+		}(url, i)
+	}
+	wg.Wait()
+	return content
 }

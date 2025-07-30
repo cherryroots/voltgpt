@@ -98,13 +98,11 @@ func main() {
 
 	for _, guild := range dg.State.Guilds {
 		log.Printf("Loading commands for %s", guild.ID)
-		registerCommands := make([]*discordgo.ApplicationCommand, len(config.Commands))
-		for i, command := range config.Commands {
-			cmd, err := dg.ApplicationCommandCreate(dg.State.User.ID, guild.ID, command)
+		for _, command := range config.Commands {
+			_, err := dg.ApplicationCommandCreate(dg.State.User.ID, guild.ID, command)
 			if err != nil {
 				log.Printf("could not create '%s' command: %v", command.Name, err)
 			}
-			registerCommands[i] = cmd
 		}
 
 		commands, err := dg.ApplicationCommands(dg.State.User.ID, guild.ID)
@@ -119,7 +117,7 @@ func main() {
 				}
 			}
 		}
-		log.Printf("Loaded %d commands for %s", len(registerCommands), guild.ID)
+		log.Printf("Loaded %d commands for %s", len(config.Commands), guild.ID)
 	}
 
 	log.Println("Bot is now running. Press CTRL-C to exit.")
