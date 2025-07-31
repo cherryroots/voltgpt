@@ -53,7 +53,7 @@ func HandleMessage(s *discordgo.Session, m *discordgo.MessageCreate) {
 		}
 	}
 
-	if !isMentioned && !isReply {
+	if !isMentioned {
 		return
 	}
 

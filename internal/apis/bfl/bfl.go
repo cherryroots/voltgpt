@@ -72,7 +72,7 @@ func getResult(id string) (string, error) {
 	}
 
 	if result.Status != statusReady {
-		return "", fmt.Errorf("Unexpected image status: %s", result.Status)
+		return "", fmt.Errorf("unexpected image status: %s", result.Status)
 	}
 
 	return result.Result.(map[string]interface{})["sample"].(string), nil

@@ -393,15 +393,15 @@ func GetMessageMediaURL(m *discordgo.Message) (images []string, videos []string,
 	regex := regexp.MustCompile(`(?m)<?(https?://[^\s<>]+)>?\b`)
 	result := regex.FindAllStringSubmatch(m.Content, -1)
 	for _, match := range result {
-		url := match[1]
-		if IsImageURL(url) {
-			addIfNotSeen(url, &images)
+		u := match[1]
+		if IsImageURL(u) {
+			addIfNotSeen(u, &images)
 		}
-		if IsVideoURL(url) {
-			addIfNotSeen(url, &videos)
+		if IsVideoURL(u) {
+			addIfNotSeen(u, &videos)
 		}
-		if IsPDFURL(url) {
-			addIfNotSeen(url, &pdfs)
+		if IsPDFURL(u) {
+			addIfNotSeen(u, &pdfs)
 		}
 	}
 
@@ -462,7 +462,7 @@ func AttachmentText(m *discordgo.Message) (text string) {
 		}
 	}
 	for i, u := range urls {
-		bytes, err := DownloadURL(u)
+		byteData, err := DownloadURL(u)
 		if err != nil {
 			log.Printf("Error downloading attachment: %v", err)
 			continue
@@ -475,7 +475,7 @@ func AttachmentText(m *discordgo.Message) (text string) {
 		}
 		idText := fmt.Sprintf("<attachmentID>%d</attachmentID>", i+1)
 		typeText := fmt.Sprintf("<attachmentType>%s</attachmentType>", ext)
-		textText := fmt.Sprintf("<attachmentText>\n%s\n</attachmentText>", string(bytes))
+		textText := fmt.Sprintf("<attachmentText>\n%s\n</attachmentText>", string(byteData))
 		text += fmt.Sprintf("<attachment>\n%s\n%s\n%s\n</attachment>", idText, typeText, textText)
 	}
 	return fmt.Sprintf("<attachments>\n%s\n</attachments>\n", text)
@@ -940,44 +940,44 @@ func Base64ImageDownload(urlStr string) ([]string, error) {
 
 	switch fileExt {
 	case ".jpg", ".jpeg":
-		base64, err := Base64Image(urlStr)
+		base64data, err := Base64Image(urlStr)
 		if err != nil {
 			return nil, err
 		}
-		for _, b := range base64 {
-			base64s = append(base64s, fmt.Sprintf("data:%s;base64,%s", "image/jpeg", b))
+		for _, b := range base64data {
+			base64s = append(base64s, fmt.Sprintf("data:%s;base64data,%s", "image/jpeg", b))
 		}
 	case ".png":
-		base64, err := Base64Image(urlStr)
+		base64data, err := Base64Image(urlStr)
 		if err != nil {
 			return nil, err
 		}
-		for _, b := range base64 {
-			base64s = append(base64s, fmt.Sprintf("data:%s;base64,%s", "image/png", b))
+		for _, b := range base64data {
+			base64s = append(base64s, fmt.Sprintf("data:%s;base64data,%s", "image/png", b))
 		}
 	case ".gif":
-		base64, err := GifToBase64Images(urlStr)
+		base64data, err := GifToBase64Images(urlStr)
 		if err != nil {
 			return nil, err
 		}
-		for _, b := range base64 {
-			base64s = append(base64s, fmt.Sprintf("data:%s;base64,%s", "image/png", b))
+		for _, b := range base64data {
+			base64s = append(base64s, fmt.Sprintf("data:%s;base64data,%s", "image/png", b))
 		}
 	case ".webp":
-		base64, err := Base64Image(urlStr)
+		base64data, err := Base64Image(urlStr)
 		if err != nil {
 			return nil, err
 		}
-		for _, b := range base64 {
-			base64s = append(base64s, fmt.Sprintf("data:%s;base64,%s", "image/webp", b))
+		for _, b := range base64data {
+			base64s = append(base64s, fmt.Sprintf("data:%s;base64data,%s", "image/webp", b))
 		}
 	case ".mp4", ".webm", ".mov":
-		base64, err := VideoToBase64Images(urlStr)
+		base64data, err := VideoToBase64Images(urlStr)
 		if err != nil {
 			return nil, err
 		}
-		for _, b := range base64 {
-			base64s = append(base64s, fmt.Sprintf("data:%s;base64,%s", "image/png", b))
+		for _, b := range base64data {
+			base64s = append(base64s, fmt.Sprintf("data:%s;base64data,%s", "image/png", b))
 		}
 	default:
 		return nil, fmt.Errorf("unknown file extension: %s", fileExt)

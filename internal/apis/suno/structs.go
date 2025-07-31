@@ -55,7 +55,7 @@ type (
 	TaskStatus    string
 )
 
-type SunoData struct {
+type Data struct {
 	ID             string `json:"id"`
 	AudioURL       string `json:"audioUrl"`
 	StreamAudioURL string `json:"streamAudioUrl"`
@@ -95,8 +95,8 @@ type MusicGenerationDetailsResponse struct {
 	ParentMusicID string `json:"parentMusicId"`
 	Param         string `json:"param"`
 	Response      struct {
-		TaskID   string     `json:"taskId"`
-		SunoData []SunoData `json:"sunoData,omitempty"`
+		TaskID   string `json:"taskId"`
+		SunoData []Data `json:"sunoData,omitempty"`
 	} `json:"response"`
 	Status        TaskStatus    `json:"status"`
 	Type          TaskType      `json:"type"`

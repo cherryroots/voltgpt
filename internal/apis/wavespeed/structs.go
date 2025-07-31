@@ -66,7 +66,7 @@ type WaveSpeedResponse struct {
 	Code    int    `json:"code"`    // HTTP status code (e.g., 200 for success)
 	Message string `json:"message"` // Status message (e.g., “success”)
 	Data    struct {
-		ID      string   `json:"id"`      // Unique identifier for the prediction, Task Id
+		ID      string   `json:"id"`      // Unique identifier for the prediction, Task ID
 		Model   string   `json:"model"`   // Model ID used for the prediction
 		Outputs []string `json:"outputs"` // Array of URLs to the generated content (empty when status is not completed)
 		URLs    struct {

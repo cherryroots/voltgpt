@@ -187,7 +187,7 @@ func AppendMessage(role string, name string, content config.RequestContent, mess
 }
 
 func AppendToolRequestMessage(name string, content string, toolCalls []openai.ToolCall, messages *[]openai.ChatCompletionMessage) {
-	newMessages := append(*messages, CreateToolRequestmessage(name, content, toolCalls))
+	newMessages := append(*messages, CreateToolRequestMessage(name, content, toolCalls))
 	*messages = newMessages
 }
 
@@ -239,7 +239,7 @@ func createMessage(role string, name string, content config.RequestContent) []op
 	return message
 }
 
-func CreateToolRequestmessage(name string, content string, toolCalls []openai.ToolCall) openai.ChatCompletionMessage {
+func CreateToolRequestMessage(name string, content string, toolCalls []openai.ToolCall) openai.ChatCompletionMessage {
 	return openai.ChatCompletionMessage{
 		Role:      openai.ChatMessageRoleAssistant,
 		Content:   content,

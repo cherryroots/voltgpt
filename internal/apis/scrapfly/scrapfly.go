@@ -33,13 +33,13 @@ func Browse(u string, renderJS bool) string {
 	cleanURL = "https://" + cleanURL
 	log.Printf("Cleaned URL: %s to %s", u, cleanURL)
 
-	encoded_url := url.QueryEscape(cleanURL)
+	encodedUrl := url.QueryEscape(cleanURL)
 	var reqURL string
 	format := url.QueryEscape("markdown:only_content")
 	if renderJS {
-		reqURL = fmt.Sprintf("%s?format=%s&cache=true&lang=en&asp=true&render_js=true&auto_scroll=true&key=%s&url=%s", baseURL, format, token, encoded_url)
+		reqURL = fmt.Sprintf("%s?format=%s&cache=true&lang=en&asp=true&render_js=true&auto_scroll=true&key=%s&url=%s", baseURL, format, token, encodedUrl)
 	} else {
-		reqURL = fmt.Sprintf("%s?format=%s&cache=true&lang=en&asp=true&key=%s&url=%s", baseURL, format, token, encoded_url)
+		reqURL = fmt.Sprintf("%s?format=%s&cache=true&lang=en&asp=true&key=%s&url=%s", baseURL, format, token, encodedUrl)
 	}
 	method := "GET"
 	client := &http.Client{}
@@ -81,11 +81,11 @@ func BrowseMultiple(urls []string, renderJS bool) string {
 	var content string
 	var wg sync.WaitGroup
 	wg.Add(len(urls))
-	for i, url := range urls {
-		go func(url string, i int) {
+	for i, u := range urls {
+		go func(u string, i int) {
 			defer wg.Done()
-			content += fmt.Sprintf("%d. %s\n\n", i+1, Browse(url, renderJS))
-		}(url, i)
+			content += fmt.Sprintf("%d. %s\n\n", i+1, Browse(u, renderJS))
+		}(u, i)
 	}
 	wg.Wait()
 	return content
