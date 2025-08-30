@@ -137,7 +137,7 @@ func GetTranscript(s *discordgo.Session, message *discordgo.Message) (text strin
 	var transcripts []Transcript
 
 	for _, match := range result {
-		if utility.MatchVideoWebsites(match[1]) {
+		if utility.MatchYTDLPWebsites(match[1]) {
 			videoURLs = append(videoURLs, videoType{contentURL: match[1], downloadMethod: "ytdlp"})
 		}
 	}

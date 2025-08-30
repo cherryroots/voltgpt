@@ -8,8 +8,10 @@ import (
 	"net/http"
 	"net/url"
 	"os"
-	"sync"
+
 	"voltgpt/internal/utility"
+
+	"jaytaylor.com/html2text"
 )
 
 const (
@@ -25,21 +27,20 @@ type ScrapflyResponse struct {
 
 func Browse(u string, renderJS bool) string {
 	token := os.Getenv("SCRAPFLY_TOKEN")
-	replacementStrings := []string{"https://", "http://", "www.", "http", "https", "www."}
+	replacementStrings := []string{"https://", "http://", "www.", "https.", "http.", "https", "http", "www"}
 	cleanURL := utility.ReplaceMultiple(u, replacementStrings, "")
 	if cleanURL == "" {
 		return ""
 	}
 	cleanURL = "https://" + cleanURL
-	log.Printf("Cleaned URL: %s to %s", u, cleanURL)
 
-	encodedUrl := url.QueryEscape(cleanURL)
+	encodedURL := url.QueryEscape(cleanURL)
 	var reqURL string
-	format := url.QueryEscape("markdown:only_content")
+	format := url.QueryEscape("clean_html")
 	if renderJS {
-		reqURL = fmt.Sprintf("%s?format=%s&cache=true&lang=en&asp=true&render_js=true&auto_scroll=true&key=%s&url=%s", baseURL, format, token, encodedUrl)
+		reqURL = fmt.Sprintf("%s?format=%s&cache=true&lang=en&asp=true&render_js=true&auto_scroll=true&key=%s&url=%s", baseURL, format, token, encodedURL)
 	} else {
-		reqURL = fmt.Sprintf("%s?format=%s&cache=true&lang=en&asp=true&key=%s&url=%s", baseURL, format, token, encodedUrl)
+		reqURL = fmt.Sprintf("%s?format=%s&cache=true&lang=en&asp=true&key=%s&url=%s", baseURL, format, token, encodedURL)
 	}
 	method := "GET"
 	client := &http.Client{}
@@ -54,39 +55,28 @@ func Browse(u string, renderJS bool) string {
 		return ""
 	}
 	defer res.Body.Close()
-	if res.StatusCode != 200 {
-		log.Println(res.StatusCode)
-		return ""
-	}
 	body, err := io.ReadAll(res.Body)
 	if err != nil {
 		log.Println(err)
-		return ""
+		return err.Error()
 	}
 
 	var response ScrapflyResponse
 	err = json.Unmarshal(body, &response)
 	if err != nil {
 		log.Println(err)
-		return ""
+		return err.Error()
 	}
 	if response.Result.StatusCode != 200 {
 		log.Println(response.Result.StatusCode)
-		return ""
+		return fmt.Sprintf("Scrapfly returned status code %d", response.Result.StatusCode)
 	}
-	return response.Result.Content
-}
 
-func BrowseMultiple(urls []string, renderJS bool) string {
-	var content string
-	var wg sync.WaitGroup
-	wg.Add(len(urls))
-	for i, u := range urls {
-		go func(u string, i int) {
-			defer wg.Done()
-			content += fmt.Sprintf("%d. %s\n\n", i+1, Browse(u, renderJS))
-		}(u, i)
+	text, err := html2text.FromString(response.Result.Content, html2text.Options{PrettyTables: true})
+	if err != nil {
+		log.Println(err)
+		return err.Error()
 	}
-	wg.Wait()
-	return content
+
+	return text
 }

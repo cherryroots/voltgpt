@@ -936,59 +936,63 @@ func Base64ImageDownload(urlStr string) ([]string, error) {
 		return nil, err
 	}
 
-	var base64s []string
+	var imageStrings []string
 
 	switch fileExt {
 	case ".jpg", ".jpeg":
-		base64data, err := Base64Image(urlStr)
+		b64, err := Base64Image(urlStr)
 		if err != nil {
 			return nil, err
 		}
-		for _, b := range base64data {
-			base64s = append(base64s, fmt.Sprintf("data:%s;base64data,%s", "image/jpeg", b))
+		for _, b := range b64 {
+			imageStrings = append(imageStrings, fmt.Sprintf("data:%s;base64,%s", "image/jpeg", b))
 		}
 	case ".png":
-		base64data, err := Base64Image(urlStr)
+		b64, err := Base64Image(urlStr)
 		if err != nil {
 			return nil, err
 		}
-		for _, b := range base64data {
-			base64s = append(base64s, fmt.Sprintf("data:%s;base64data,%s", "image/png", b))
+		for _, b := range b64 {
+			imageStrings = append(imageStrings, fmt.Sprintf("data:%s;base64,%s", "image/png", b))
 		}
 	case ".gif":
-		base64data, err := GifToBase64Images(urlStr)
+		b64, err := GifToBase64Images(urlStr)
 		if err != nil {
 			return nil, err
 		}
-		for _, b := range base64data {
-			base64s = append(base64s, fmt.Sprintf("data:%s;base64data,%s", "image/png", b))
+		for _, b := range b64 {
+			imageStrings = append(imageStrings, fmt.Sprintf("data:%s;base64,%s", "image/png", b))
 		}
 	case ".webp":
-		base64data, err := Base64Image(urlStr)
+		b64, err := Base64Image(urlStr)
 		if err != nil {
 			return nil, err
 		}
-		for _, b := range base64data {
-			base64s = append(base64s, fmt.Sprintf("data:%s;base64data,%s", "image/webp", b))
+		for _, b := range b64 {
+			imageStrings = append(imageStrings, fmt.Sprintf("data:%s;base64,%s", "image/webp", b))
 		}
 	case ".mp4", ".webm", ".mov":
-		base64data, err := VideoToBase64Images(urlStr)
+		b64, err := VideoToBase64Images(urlStr)
 		if err != nil {
 			return nil, err
 		}
-		for _, b := range base64data {
-			base64s = append(base64s, fmt.Sprintf("data:%s;base64data,%s", "image/png", b))
+		for _, b := range b64 {
+			imageStrings = append(imageStrings, fmt.Sprintf("data:%s;base64,%s", "image/png", b))
 		}
 	default:
 		return nil, fmt.Errorf("unknown file extension: %s", fileExt)
 	}
 
-	return base64s, nil
+	return imageStrings, nil
 }
 
-func MatchVideoWebsites(urlStr string) bool {
+func MatchYTDLPWebsites(urlStr string) bool {
+	if urlStr == "" {
+		return false
+	}
+	// vimeo
 	urlRegexes := []*regexp.Regexp{
-		regexp.MustCompile(`^((?:https?:)?\/\/)?((?:www|m)\.)?((?:youtube\.com|youtu.be))(\/(?:[\w\-]+\?v=|embed\/|v\/)?)([\w\-]+)(\S+)?$`),
+		regexp.MustCompile(`^((?:https?:)?\/\/)?((?:www|m)\.)?((?:vimeo\.com))(\/)([\w\-]+)(\S+)?$`),
 	}
 
 	for _, r := range urlRegexes {

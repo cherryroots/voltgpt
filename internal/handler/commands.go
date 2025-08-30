@@ -112,7 +112,7 @@ var Commands = map[string]func(s *discordgo.Session, i *discordgo.InteractionCre
 		// if imgFilled check if it's an actual image
 		if imgFilled {
 			if !wave.IsImageURL(img) {
-				_, err := discord.SendFollowup(s, i, "Please provide a valid image URL")
+				_, err := discord.SendFollowup(s, i, "Please provide a valid image URL [jpg, jpeg, png]")
 				if err != nil {
 					log.Println(err)
 				}

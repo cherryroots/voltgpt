@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"math"
 	"os"
 	"strings"
 	"sync"
@@ -37,6 +38,7 @@ func StreamMessageResponse(s *discordgo.Session, m *discordgo.Message, messages 
 	}
 	cfg := openai.DefaultConfig(token)
 	cfg.BaseURL = config.OpenRouterBaseURL
+	cfg.EmptyMessagesLimit = 500
 	c := openai.NewClientWithConfig(cfg)
 	ctx := context.Background()
 
@@ -61,21 +63,21 @@ func StreamMessageResponse(s *discordgo.Session, m *discordgo.Message, messages 
 	maxIterations := 10
 	iteration := 0
 
-	for response.finishReason == "" || response.finishReason == openai.FinishReasonToolCalls {
+toolloop:
+	for {
 		iteration++
 		if iteration > maxIterations {
-			return fmt.Errorf("max iterations reached")
+			return fmt.Errorf("max toolcall iterations reached")
 		}
 
 		stream, err := c.CreateChatCompletionStream(ctx, openai.ChatCompletionRequest{
 			Model:               "google/gemini-2.5-pro",
 			Messages:            messages,
 			MaxCompletionTokens: 16384,
-			// ReasoningEffort:     "high",
-			Stream: true,
-			// Temperature: 0.3,
-			Tools:             GetTools(),
-			ParallelToolCalls: true,
+			ReasoningEffort:     "medium",
+			Stream:              true,
+			Tools:               GetTools(),
+			ParallelToolCalls:   true,
 		})
 		if err != nil {
 			return fmt.Errorf("stream error on start: %v", err)
@@ -95,6 +97,10 @@ func StreamMessageResponse(s *discordgo.Session, m *discordgo.Message, messages 
 					streamDone <- nil
 					return
 				}
+				if errors.Is(err, openai.ErrTooManyEmptyStreamMessages) {
+					streamDone <- nil
+					return
+				}
 				if err != nil {
 					streamDone <- fmt.Errorf("stream error during response: %v", err)
 					return
@@ -110,7 +116,13 @@ func StreamMessageResponse(s *discordgo.Session, m *discordgo.Message, messages 
 
 				if streamResp.Choices[0].Delta.ToolCalls != nil {
 					response.Lock()
-					response.toolCalls = append(response.toolCalls, streamResp.Choices[0].Delta.ToolCalls...)
+					call := streamResp.Choices[0].Delta.ToolCalls[0]
+					if call.Function.Name != "" {
+						response.toolCalls = append(response.toolCalls, call)
+					}
+					if call.Function.Name == "" {
+						response.toolCalls[len(response.toolCalls)-1].Function.Arguments += call.Function.Arguments
+					}
 					response.Unlock()
 				}
 			}
@@ -135,23 +147,34 @@ func StreamMessageResponse(s *discordgo.Session, m *discordgo.Message, messages 
 					}
 				}
 
-				if response.finishReason == openai.FinishReasonToolCalls || len(response.toolCalls) > 0 {
+				if len(response.toolCalls) > 0 {
 					AppendToolRequestMessage(s.State.User.Username, response.message, response.toolCalls, &messages)
-					for i, toolCall := range response.toolCalls {
+					var wg sync.WaitGroup
+					for _, toolCall := range response.toolCalls {
 						functionReturn, ok := functionMap[toolCall.Function.Name]
 						if ok {
-							args := map[string]any{}
-							json.Unmarshal([]byte(toolCall.Function.Arguments), &args)
-							log.Printf("Tool call: %s\nArguments: %v", toolCall.Function.Name, args)
-							result := functionReturn(args)
-							AppendToolResultMessage(toolCall.ID, toolCall.Function.Name, result, &messages)
-							log.Println("Result len: ", len(result))
+							wg.Add(1)
+							go func() {
+								defer wg.Done()
+								args := map[string]any{}
+								json.Unmarshal([]byte(toolCall.Function.Arguments), &args)
+								log.Printf("Tool call: %s\nArguments: %v", toolCall.Function.Name, args)
+								result := functionReturn(args)
+								if result == "" {
+									result = "Command failed"
+								}
+								AppendToolResultMessage(toolCall.ID, toolCall.Function.Name, result, &messages)
+							}()
 						}
-						response.toolCalls = append(response.toolCalls[:i], response.toolCalls[i+1:]...)
 					}
+					wg.Wait()
+					log.Println("Tool calls completed")
+					response.toolCalls = []openai.ToolCall{}
+					response.Unlock()
+					continue toolloop
 				}
 				response.Unlock()
-				goto streamComplete
+				break toolloop
 
 			case <-updateTicker.C:
 				// Periodic update
@@ -173,12 +196,54 @@ func StreamMessageResponse(s *discordgo.Session, m *discordgo.Message, messages 
 				response.Unlock()
 			}
 		}
-	streamComplete:
 	}
 
 	log.Println("Finished stream")
 
 	return nil
+}
+
+func SummarizeCleanText(text string) string {
+	token := os.Getenv("OPENROUTER_TOKEN")
+	if token == "" {
+		log.Fatal("OPENROUTER_TOKEN is not set")
+	}
+	cfg := openai.DefaultConfig(token)
+	cfg.BaseURL = config.OpenRouterBaseURL
+	c := openai.NewClientWithConfig(cfg)
+	ctx := context.Background()
+
+	instructions := `
+	You are a helpful assistant. 
+	You are given text from websites in a markdown format.
+	Cut down on the amount of text but keep it filling.
+	Keep links in the text for further browsing and reference.`
+
+	messages := []openai.ChatCompletionMessage{
+		{
+			Role:    openai.ChatMessageRoleSystem,
+			Content: instructions,
+		},
+		{
+			Role:    openai.ChatMessageRoleUser,
+			Content: text,
+		},
+	}
+
+	req := openai.ChatCompletionRequest{
+		Model:       "google/gemini-2.5-flash-lite",
+		Messages:    messages,
+		MaxTokens:   16384,
+		Temperature: math.SmallestNonzeroFloat32,
+	}
+
+	resp, err := c.CreateChatCompletion(ctx, req)
+	if err != nil {
+		log.Printf("CreateCompletion error: %v\n", err)
+		return ""
+	}
+
+	return resp.Choices[0].Message.Content
 }
 
 func AppendMessage(role string, name string, content config.RequestContent, messages *[]openai.ChatCompletionMessage) {

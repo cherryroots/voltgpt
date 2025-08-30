@@ -3,6 +3,7 @@ package openai
 import (
 	"strings"
 	"time"
+
 	"voltgpt/internal/apis/codapi"
 	"voltgpt/internal/apis/scrapfly"
 
@@ -12,24 +13,19 @@ import (
 
 var functionMap = map[string]func(map[string]any) string{
 	"date-time": func(args map[string]any) string {
-		return time.Now().Format("2006-01-02 15:04:05")
+		if args["only_time"] == false {
+			return time.Now().Format("2006-01-02 15:04:05")
+		}
+		return time.Now().Format("15:04:05")
 	},
 	"browse": func(args map[string]any) string {
 		if args["render_js"] == nil {
-			return scrapfly.Browse(args["url"].(string), false)
+			args["render_js"] = false
 		}
-		return scrapfly.Browse(args["url"].(string), args["render_js"].(bool))
-	},
-	"browse_multiple": func(args map[string]any) string {
-		urls := args["urls"].([]any)
-		urlsString := make([]string, len(urls))
-		for i, url := range urls {
-			urlsString[i] = url.(string)
+		if args["url"] == nil {
+			return "Please provide a URL"
 		}
-		if args["render_js"] == nil {
-			return scrapfly.BrowseMultiple(urlsString, false)
-		}
-		return scrapfly.BrowseMultiple(urlsString, args["render_js"].(bool))
+		return SummarizeCleanText(scrapfly.Browse(args["url"].(string), args["render_js"].(bool)))
 	},
 	"code_execution": func(args map[string]any) string {
 		response, err := codapi.ExecuteRequest(&codapi.Request{
@@ -38,7 +34,7 @@ var functionMap = map[string]func(map[string]any) string{
 			Files:   map[string]string{"": strings.TrimSpace(args["code"].(string))},
 		})
 		if err != nil {
-			return ""
+			return "Error executing code: " + err.Error()
 		}
 
 		if response.OK {
@@ -54,14 +50,21 @@ var functionDefinitions = map[string]openai.FunctionDefinition{
 		Name:        "date-time",
 		Description: "Get the current date and time",
 		Parameters: jsonschema.Definition{
-			Type:       jsonschema.Object,
-			Properties: map[string]jsonschema.Definition{},
+			Type: jsonschema.Object,
+			Properties: map[string]jsonschema.Definition{
+				"only_time": {
+					Type:        jsonschema.Boolean,
+					Description: "Only return the time",
+				},
+			},
+			Required:             []string{"only_time"},
+			AdditionalProperties: false,
 		},
 		Strict: true,
 	},
 	"browse": {
 		Name:        "browse",
-		Description: "Browse the web and return the content as markdown with links to pages.",
+		Description: "Browse the web and return the content",
 		Parameters: jsonschema.Definition{
 			Type: jsonschema.Object,
 			Properties: map[string]jsonschema.Definition{
@@ -74,26 +77,8 @@ var functionDefinitions = map[string]openai.FunctionDefinition{
 					Description: "Render JavaScript, useful for sites serving dynamic content. Use if you expect the page to be dynamic.",
 				},
 			},
-			Required: []string{"url"},
-		},
-		Strict: true,
-	},
-	"browse_multiple": {
-		Name:        "browse_multiple",
-		Description: "Browse multiple URLs and return the content as markdown with links to pages.",
-		Parameters: jsonschema.Definition{
-			Type: jsonschema.Object,
-			Properties: map[string]jsonschema.Definition{
-				"urls": {
-					Type:        jsonschema.Array,
-					Description: "The URLs to browse, should be an array of strings",
-				},
-				"render_js": {
-					Type:        jsonschema.Boolean,
-					Description: "Render JavaScript, useful for sites serving dynamic content. Use if you expect the page to be dynamic.",
-				},
-			},
-			Required: []string{"urls"},
+			Required:             []string{"url", "render_js"},
+			AdditionalProperties: false,
 		},
 		Strict: true,
 	},
@@ -113,7 +98,8 @@ var functionDefinitions = map[string]openai.FunctionDefinition{
 					Enum:        []string{"python", "javascript", "typescript", "shell", "rust", "odin"},
 				},
 			},
-			Required: []string{"code", "sandbox"},
+			Required:             []string{"code", "sandbox"},
+			AdditionalProperties: false,
 		},
 		Strict: true,
 	},
