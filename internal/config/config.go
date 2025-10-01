@@ -37,9 +37,9 @@ var (
 	DefaultTemp    = 0.8
 
 	ResolutionChoices = []*discordgo.ApplicationCommandOptionChoice{
-		{Name: "1024x1024", Value: ResSquare},
-		{Name: "1536x1024", Value: ResPortrait},
-		{Name: "1024x1536", Value: ResLandscape},
+		{Name: "2048x2048", Value: ResSquare},
+		{Name: "3076x2048", Value: ResPortrait},
+		{Name: "2048x3076", Value: ResLandscape},
 	}
 
 	DurationChoices = []*discordgo.ApplicationCommandOptionChoice{

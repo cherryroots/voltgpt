@@ -5,9 +5,12 @@ const (
 )
 
 const (
-	BytedanceModels   ModelFamily   = "bytedance"
-	SeedDreamModel    ModelType     = "seedream-v3"
-	SeedDanceTemplate ModelTemplate = "seedance-v1-%1-%2-%3"
+	BytedanceModels    ModelFamily   = "bytedance"
+	WaveSpeedModels    ModelFamily   = "wavespeed-ai"
+	SeedDreamModel     ModelType     = "seedream-v4"
+	SeedDreamEditModel ModelType     = "seedream-v4/edit"
+	SeedDanceTemplate  ModelTemplate = "seedance-v1-%1-%2-%3"
+	HunyuanVideoFoley  ModelType     = "hunyuan-video-foley"
 )
 
 const (
@@ -36,12 +39,20 @@ type (
 )
 
 type SeedDreamSubmissionRequest struct {
-	Prompt        string   `json:"prompt"`
-	Size          *string  `json:"size,omitempty"`
-	GuidanceScale *float64 `json:"guidance_scale,omitempty"`
-	Seed          *int     `json:"seed,omitempty"`
-	Base64Output  *bool    `json:"enable_base64_output,omitempty"`
-	SyncMode      *bool    `json:"enable_sync_mode,omitempty"`
+	Prompt       string  `json:"prompt"`
+	Size         *string `json:"size,omitempty"`
+	Seed         *int    `json:"seed,omitempty"`
+	Base64Output *bool   `json:"enable_base64_output,omitempty"`
+	SyncMode     *bool   `json:"enable_sync_mode,omitempty"`
+}
+
+type SeedDreamEditSubmissionRequest struct {
+	Prompt       string    `json:"prompt"`
+	Size         *string   `json:"size,omitempty"`
+	Images       []*string `json:"images,omitempty"`
+	Seed         *int      `json:"seed,omitempty"`
+	Base64Output *bool     `json:"enable_base64_output,omitempty"`
+	SyncMode     *bool     `json:"enable_sync_mode,omitempty"`
 }
 
 type SeedDanceT2VSubmissionRequest struct {
@@ -56,6 +67,12 @@ type SeedDanceI2VSubmissionRequest struct {
 	Image    string  `json:"image"`              // Input image for video generation; Supported image formats include .jpg/.jpeg/.png; The image file size cannot exceed 10MB, and the image resolution should not be less than 300*300px
 	Duration *int    `json:"duration,omitempty"` // Generate video duration length seconds. 5-10 seconds
 	Seed     *int    `json:"seed,omitempty"`     // The seed for random number generation.
+}
+
+type HunyuanVideoFoleySubmissionRequest struct {
+	Prompt *string `json:"prompt,omitempty"` // Text prompt for video generation; Positive text prompt; Cannot exceed 2000 characters
+	Video  string  `json:"video"`            // Input image for video generation; Supported image formats include .jpg/.jpeg/.png; The image file size cannot exceed 10MB, and the image resolution should not be less than 300*300px
+	Seed   *int    `json:"seed,omitempty"`   // The seed for random number generation.
 }
 
 type WaveSpeedQueryResult struct {

@@ -120,6 +120,12 @@ func (g *game) RemoveWheelOption(option Player) {
 	}
 }
 
+func (g *game) ResetWheel() {
+	g.Rounds = []round{}
+	g.BetOptions = []Player{}
+	g.Players = []Player{}
+}
+
 func (g *game) AddPlayer(player Player) {
 	for _, p := range g.Players {
 		if p.ID() == player.ID() {

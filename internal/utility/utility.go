@@ -663,6 +663,18 @@ func DownloadURL(url string) ([]byte, error) {
 	return data, nil
 }
 
+func GetAspectRatio(url string) (float64, error) {
+	data, err := DownloadURL(url)
+	if err != nil {
+		return 0, err
+	}
+	img, _, err := image.Decode(bytes.NewReader(data))
+	if err != nil {
+		return 0, err
+	}
+	return float64(img.Bounds().Dx()) / float64(img.Bounds().Dy()), nil
+}
+
 func Base64Image(url string) ([]string, error) {
 	data, err := DownloadURL(url)
 	if err != nil {

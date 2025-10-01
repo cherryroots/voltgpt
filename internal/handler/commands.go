@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log"
 	"math/rand"
+	"strings"
 	"sync"
 	"time"
 
@@ -26,53 +27,152 @@ var Commands = map[string]func(s *discordgo.Session, i *discordgo.InteractionCre
 
 		var prompt config.RequestContent
 		var resolution string
-		var guidance float64
+		var imgs []*string
+		var amount int
+		syncMode := true
 		for _, option := range i.ApplicationCommandData().Options {
 			if option.Name == "prompt" {
 				prompt.Text = option.StringValue()
 			}
+			if option.Name == "amount" {
+				amount = int(option.IntValue())
+			}
 			if option.Name == "resolution" {
 				resolution = option.StringValue()
 			}
-			if option.Name == "guidance" {
-				guidance = option.FloatValue()
+			if strings.HasPrefix(option.Name, "image") {
+				imgs = append(imgs, &i.ApplicationCommandData().Resolved.Attachments[option.Value.(string)].URL)
+			}
+			if option.Name == "urls" {
+				urls := option.StringValue()
+				for _, url := range strings.Split(urls, " ") {
+					if !wave.IsImageURL(url) {
+						_, err := discord.SendFollowup(s, i, "Please provide a valid image URL [jpg, jpeg, png]")
+						if err != nil {
+							log.Println(err)
+						}
+						return
+					}
+					imgs = append(imgs, &url)
+				}
 			}
 		}
+		imgFilled := len(imgs) > 0
+
+		if amount < 1 {
+			amount = 2
+		}
+
 		if resolution == "" {
-			resolution = "1024x1024"
+			resolution = "2048x2048"
 		}
-		if guidance == 0 {
-			guidance = 2.5
-		}
-		syncMode := true
+		var images []*discordgo.File
 
-		req := wave.SeedDreamSubmissionRequest{
-			Prompt:        prompt.Text,
-			Size:          &resolution,
-			GuidanceScale: &guidance,
-			SyncMode:      &syncMode,
-		}
+		var wg sync.WaitGroup
+		for range amount {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				var resp *wave.WaveSpeedResponse
+				var err error
+				if imgFilled {
+					for _, img := range imgs {
+						if !wave.IsImageURL(*img) {
+							_, err := discord.SendFollowup(s, i, "Please provide a valid image URL [jpg, jpeg, png]")
+							if err != nil {
+								log.Println(err)
+							}
+							return
+						}
+					}
+					aspectRatio, err := utility.GetAspectRatio(*imgs[0])
+					if err != nil {
+						_, err := discord.SendFollowup(s, i, err.Error())
+						if err != nil {
+							log.Println(err)
+						}
+						return
+					}
+					var base64Images []*string
+					for _, img := range imgs {
+						base64Image, err := utility.Base64ImageDownload(*img)
+						if err != nil {
+							_, err := discord.SendFollowup(s, i, err.Error())
+							if err != nil {
+								log.Println(err)
+							}
+							return
+						}
+						base64Images = append(base64Images, &base64Image[0])
+					}
+					if aspectRatio >= 1 {
+						H := 2048
+						W := int(float64(H) * aspectRatio)
+						if W > 4096 {
+							W = 4096
+							H = max(int(float64(W)/aspectRatio), 1024)
+						}
+						resolution = fmt.Sprintf("%dx%d", W, H)
+					} else {
+						W := 2048
+						H := int(float64(W) / aspectRatio)
+						if H > 4096 {
+							H = 4096
+							W = max(int(float64(H)*aspectRatio), 1024)
+						}
+						resolution = fmt.Sprintf("%dx%d", W, H)
+					}
+					req := wave.SeedDreamEditSubmissionRequest{
+						Prompt:   prompt.Text,
+						Size:     &resolution,
+						Images:   base64Images,
+						SyncMode: &syncMode,
+					}
+					resp, err = wave.SendSeedDreamEditRequest(req)
+					if err != nil {
+						log.Println(err)
+						_, err = discord.SendFollowup(s, i, err.Error())
+						if err != nil {
+							log.Println(err)
+						}
+						return
+					}
+				} else {
+					req := wave.SeedDreamSubmissionRequest{
+						Prompt:   prompt.Text,
+						Size:     &resolution,
+						SyncMode: &syncMode,
+					}
 
-		resp, err := wave.SendSeedDreamRequest(req)
-		if err != nil {
-			log.Println(err)
-			_, err = discord.SendFollowup(s, i, err.Error())
-			if err != nil {
-				log.Println(err)
-			}
-			return
+					resp, err = wave.SendSeedDreamRequest(req)
+					if err != nil {
+						log.Println(err)
+						_, err = discord.SendFollowup(s, i, err.Error())
+						if err != nil {
+							log.Println(err)
+						}
+						return
+					}
+				}
+				image, err := wave.DownloadResult(resp)
+				if err != nil {
+					log.Println(err)
+					_, err = discord.SendFollowup(s, i, err.Error())
+					if err != nil {
+						log.Println(err)
+					}
+					return
+				}
+				images = append(images, image...)
+			}()
 		}
-		image, err := wave.DownloadResult(resp)
-		if err != nil {
-			log.Println(err)
-			_, err = discord.SendFollowup(s, i, err.Error())
-			if err != nil {
-				log.Println(err)
-			}
-			return
+		wg.Wait()
+		mode := "drawing"
+		if imgFilled {
+			mode = "editing"
 		}
-		message := fmt.Sprintf("Prompt: %s\nResolution: %s\nGuidance: %.1f", prompt.Text, resolution, guidance)
-		_, err = discord.SendFollowupFile(s, i, message, image)
+		message := fmt.Sprintf("Prompt: %s\nResolution: %s\nMode: %s", prompt.Text, resolution, mode)
+		_, err := discord.SendFollowupFile(s, i, message, images)
 		if err != nil {
 			log.Println(err)
 		}
@@ -85,6 +185,8 @@ var Commands = map[string]func(s *discordgo.Session, i *discordgo.InteractionCre
 		var img string
 		var duration int
 		var seed int
+		var audio bool
+		var audioPrompt string
 		for _, option := range i.ApplicationCommandData().Options {
 			if option.Name == "prompt" {
 				prompt.Text = option.StringValue()
@@ -98,6 +200,12 @@ var Commands = map[string]func(s *discordgo.Session, i *discordgo.InteractionCre
 			if option.Name == "seed" {
 				seed = int(option.IntValue())
 			}
+			if option.Name == "audio" {
+				audio = option.BoolValue()
+			}
+			if option.Name == "audioprompt" {
+				audioPrompt = option.StringValue()
+			}
 		}
 
 		if prompt.Text == "" && img == "" {
@@ -106,18 +214,6 @@ var Commands = map[string]func(s *discordgo.Session, i *discordgo.InteractionCre
 				log.Println(err)
 			}
 			return
-		}
-
-		imgFilled := img != ""
-		// if imgFilled check if it's an actual image
-		if imgFilled {
-			if !wave.IsImageURL(img) {
-				_, err := discord.SendFollowup(s, i, "Please provide a valid image URL [jpg, jpeg, png]")
-				if err != nil {
-					log.Println(err)
-				}
-				return
-			}
 		}
 
 		if duration == 0 {
@@ -139,9 +235,18 @@ var Commands = map[string]func(s *discordgo.Session, i *discordgo.InteractionCre
 		version := wave.SeedDancePro
 		resolution := wave.SeedDance480p
 
+		imgFilled := img != ""
+
 		var resp *wave.WaveSpeedResponse
 		var err error
 		if imgFilled {
+			if !wave.IsImageURL(img) {
+				_, err := discord.SendFollowup(s, i, "Please provide a valid image URL [jpg, jpeg, png]")
+				if err != nil {
+					log.Println(err)
+				}
+				return
+			}
 			base64Image, err := utility.Base64ImageDownload(img)
 			if err != nil {
 				_, err := discord.SendFollowup(s, i, err.Error())
@@ -202,8 +307,33 @@ var Commands = map[string]func(s *discordgo.Session, i *discordgo.InteractionCre
 			}
 			return
 		}
-
-		image, err := wave.DownloadResult(resp)
+		var video []*discordgo.File
+		if audio {
+			req := wave.HunyuanVideoFoleySubmissionRequest{
+				Prompt: &audioPrompt,
+				Video:  resp.Data.Outputs[0],
+				Seed:   &seed,
+			}
+			resp, err = wave.SendHunyuanVideoFoleyRequest(req)
+			if err != nil {
+				log.Println(err)
+				_, err = discord.SendFollowup(s, i, err.Error())
+				if err != nil {
+					log.Println(err)
+				}
+				return
+			}
+			resp, err = wave.WaitForComplete(resp.Data.ID)
+			if err != nil {
+				log.Println(err)
+				_, err = discord.SendFollowup(s, i, err.Error())
+				if err != nil {
+					log.Println(err)
+				}
+				return
+			}
+		}
+		video, err = wave.DownloadResult(resp)
 		if err != nil {
 			log.Println(err)
 			_, err = discord.SendFollowup(s, i, err.Error())
@@ -212,8 +342,9 @@ var Commands = map[string]func(s *discordgo.Session, i *discordgo.InteractionCre
 			}
 			return
 		}
-		message := fmt.Sprintf("Gen time: %ds\nSeed: %d\n%s", resp.Data.Timings.Inference/1000, seed, prompt.Text)
-		_, err = discord.EditFollowupFile(s, i, msg.ID, message, image)
+
+		message := fmt.Sprintf("Gen time: %ds\nPrompt: %s\nAudio: %t | AudioPrompt: %s", resp.Data.Timings.Inference/1000, prompt.Text, audio, audioPrompt)
+		_, err = discord.EditFollowupFile(s, i, msg.ID, message, video)
 		if err != nil {
 			log.Println(err)
 		}
@@ -481,6 +612,24 @@ var Commands = map[string]func(s *discordgo.Session, i *discordgo.InteractionCre
 		}
 
 		_, err := discord.SendFollowup(s, i, message)
+		if err != nil {
+			log.Println(err)
+		}
+	},
+	"reset_wheel": func(s *discordgo.Session, i *discordgo.InteractionCreate) {
+		log.Printf("Recieved interaction: %s by %s", i.ApplicationCommandData().Name, i.Interaction.Member.User.Username)
+		discord.DeferEphemeralResponse(s, i)
+
+		if !utility.IsAdmin(i.Interaction.Member.User.ID) {
+			_, err := discord.SendFollowup(s, i, "Only admins can use this command!")
+			if err != nil {
+				log.Println(err)
+			}
+			return
+		}
+
+		gamble.Wheel.ResetWheel()
+		_, err := discord.SendFollowup(s, i, "Wheel reset!")
 		if err != nil {
 			log.Println(err)
 		}

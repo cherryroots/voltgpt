@@ -83,6 +83,9 @@ func sendWaveSpeedRequest(family ModelFamily, modelType ModelType, payload inter
 	if err := json.Unmarshal(body, &waveSpeedResp); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal response: %w", err)
 	}
+	if waveSpeedResp.Data.Error != "" {
+		return nil, fmt.Errorf("HTTP request failed with error: %s", waveSpeedResp.Data.Error)
+	}
 
 	return &waveSpeedResp, nil
 }
@@ -90,6 +93,11 @@ func sendWaveSpeedRequest(family ModelFamily, modelType ModelType, payload inter
 // SendSeedDreamRequest sends a request for SeedDream image generation
 func SendSeedDreamRequest(request SeedDreamSubmissionRequest) (*WaveSpeedResponse, error) {
 	return sendWaveSpeedRequest(BytedanceModels, SeedDreamModel, request)
+}
+
+// SendSeedDreamEditRequest sends a request for SeedDream image editing
+func SendSeedDreamEditRequest(request SeedDreamEditSubmissionRequest) (*WaveSpeedResponse, error) {
+	return sendWaveSpeedRequest(BytedanceModels, SeedDreamEditModel, request)
 }
 
 // SendSeedDanceT2VRequest sends a request for SeedDance Text-to-Video generation
@@ -103,6 +111,10 @@ func SendSeedDanceT2VRequest(request SeedDanceT2VSubmissionRequest, version Seed
 func SendSeedDanceI2VRequest(request SeedDanceI2VSubmissionRequest, version SeedDanceVersion, dreamType SeedDanceType, resolution SeedDanceResolution) (*WaveSpeedResponse, error) {
 	modelType := generateSeedDanceModelType(version, dreamType, resolution)
 	return sendWaveSpeedRequest(BytedanceModels, modelType, request)
+}
+
+func SendHunyuanVideoFoleyRequest(request HunyuanVideoFoleySubmissionRequest) (*WaveSpeedResponse, error) {
+	return sendWaveSpeedRequest(WaveSpeedModels, HunyuanVideoFoley, request)
 }
 
 // QueryWaveSpeedResult queries the result of a wavespeed request by ID
