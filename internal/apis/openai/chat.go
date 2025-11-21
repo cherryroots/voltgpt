@@ -140,7 +140,7 @@ func CreateBatchMessages(s *discordgo.Session, messages []*discordgo.Message) []
 	var batchMessages []openai.ChatCompletionMessage
 
 	for _, message := range messages {
-		images, _, _ := utility.GetMessageMediaURL(message)
+		images, _, _, _ := utility.GetMessageMediaURL(message)
 		content := config.RequestContent{
 			Text:  message.Content,
 			Media: images,
@@ -161,7 +161,7 @@ func PrependReplyMessages(s *discordgo.Session, originMember *discordgo.Member, 
 	}
 
 	reply := utility.CleanMessage(s, reference)
-	images, videos, _ := utility.GetMessageMediaURL(reply)
+	images, videos, _, _ := utility.GetMessageMediaURL(reply)
 	replyContent := config.RequestContent{
 		Text: strings.TrimSpace(fmt.Sprintf("%s%s%s%s",
 			transcription.GetTranscript(s, reply),

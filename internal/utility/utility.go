@@ -335,7 +335,7 @@ func GetAllServerMessages(s *discordgo.Session, statusMessage *discordgo.Message
 	log.Println("getAllChannelThreadMessages: done")
 }
 
-func GetMessageMediaURL(m *discordgo.Message) (images []string, videos []string, pdfs []string) {
+func GetMessageMediaURL(m *discordgo.Message) (images []string, videos []string, pdfs []string, ytURLs []string) {
 	seen := make(map[string]bool)
 	providerBlacklist := []string{"tenor"}
 
@@ -406,9 +406,12 @@ func GetMessageMediaURL(m *discordgo.Message) (images []string, videos []string,
 		if IsPDFURL(u) {
 			addIfNotSeen(u, &pdfs)
 		}
+		if IsYTURL(u) {
+			addIfNotSeen(u, &ytURLs)
+		}
 	}
 
-	return images, videos, pdfs
+	return images, videos, pdfs, ytURLs
 }
 
 func checkCache(cache []*discordgo.Message, messageID string) *discordgo.Message {
@@ -619,6 +622,10 @@ func IsPDFURL(urlStr string) bool {
 	}
 }
 
+func IsYTURL(urlStr string) bool {
+	return strings.Contains(urlStr, "youtube.com") || strings.Contains(urlStr, "youtu.be")
+}
+
 func MediaType(urlStr string) string {
 	fileExt, err := UrlToExt(urlStr)
 	if err != nil {
@@ -634,6 +641,14 @@ func MediaType(urlStr string) string {
 		return "image/gif"
 	case ".webp":
 		return "image/webp"
+	case ".mp4":
+		return "video/mp4"
+	case ".webm":
+		return "video/webm"
+	case ".mov":
+		return "video/quicktime"
+	case ".pdf":
+		return "application/pdf"
 	default:
 		return ""
 	}

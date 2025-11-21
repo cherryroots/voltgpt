@@ -1,7 +1,9 @@
 package handler
 
 import (
+	"context"
 	"fmt"
+	"os"
 	"strings"
 	"time"
 
@@ -9,7 +11,6 @@ import (
 	"voltgpt/internal/config"
 	"voltgpt/internal/discord"
 	"voltgpt/internal/hasher"
-	"voltgpt/internal/transcription"
 	"voltgpt/internal/utility"
 
 	"github.com/bwmarrin/discordgo"
@@ -32,6 +33,22 @@ func HandleMessage(s *discordgo.Session, m *discordgo.MessageCreate) {
 	}()
 
 	if m.Author.ID == s.State.User.ID || m.Author.Bot {
+		return
+	}
+
+	apiKey := os.Getenv("GEMINI_TOKEN")
+	if apiKey == "" {
+		discord.LogSendErrorMessage(s, m.Message, "GEMINI_TOKEN is not set")
+		return
+	}
+
+	ctx := context.Background()
+	// Initialize the Gemini client
+	c, err := genai.NewClient(ctx, &genai.ClientConfig{
+		APIKey:  apiKey,
+		Backend: genai.BackendGeminiAPI,
+	})
+	if err != nil {
 		return
 	}
 
@@ -58,27 +75,26 @@ func HandleMessage(s *discordgo.Session, m *discordgo.MessageCreate) {
 	}
 
 	m.Message = utility.CleanMessage(s, m.Message)
-	images, _, pdfs := utility.GetMessageMediaURL(m.Message)
+	images, videos, pdfs, ytURLs := utility.GetMessageMediaURL(m.Message)
 
 	content := config.RequestContent{
-		Text: strings.TrimSpace(fmt.Sprintf("<username>%s</username>: %s%s%s%s",
+		Text: strings.TrimSpace(fmt.Sprintf("<username>%s</username>: %s%s%s",
 			m.Message.Author.Username,
-			transcription.GetTranscript(s, m.Message),
 			utility.AttachmentText(m.Message),
 			utility.EmbedText(m.Message),
 			fmt.Sprintf("<message>%s</message>", m.Content),
 		)),
-		Media: images,
-		PDFs:  pdfs,
+		Media:  append(append(images, videos...), pdfs...),
+		YTURLs: ytURLs,
 	}
 
 	gemini.AppendMessage("user", m.Message.Author.Username, content, &chatMessages)
 
 	if isReply {
-		gemini.PrependReplyMessages(s, m.Message.Member, m.Message, cache, &chatMessages)
+		gemini.PrependReplyMessages(s, c, m.Message.Member, m.Message, cache, &chatMessages)
 	}
 
-	err := gemini.StreamMessageResponse(s, m.Message, chatMessages)
+	err = gemini.StreamMessageResponse(s, c, m.Message, chatMessages)
 	if err != nil {
 		discord.LogSendErrorMessage(s, m.Message, err.Error())
 	}

@@ -7,9 +7,9 @@ import (
 )
 
 type RequestContent struct {
-	Text  string
-	Media []string
-	PDFs  []string
+	Text   string
+	Media  []string
+	YTURLs []string
 }
 
 type (

@@ -107,7 +107,7 @@ func TotalHashes() int {
 }
 
 func HashAttachments(m *discordgo.Message, options HashOptions) ([]string, int) {
-	images, videos, _ := utility.GetMessageMediaURL(m)
+	images, videos, _, _ := utility.GetMessageMediaURL(m)
 	allAttachments := append(images, videos...)
 	var hashes []string
 	var count int

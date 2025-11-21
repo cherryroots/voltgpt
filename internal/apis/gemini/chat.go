@@ -16,7 +16,6 @@ import (
 
 	"voltgpt/internal/config"
 	"voltgpt/internal/discord"
-	"voltgpt/internal/transcription"
 	"voltgpt/internal/utility"
 )
 
@@ -125,21 +124,8 @@ func (s *Streamer) Flush() {
 }
 
 // StreamMessageResponse streams the response from Gemini to Discord.
-func StreamMessageResponse(s *discordgo.Session, m *discordgo.Message, history []*genai.Content) error {
-	apiKey := os.Getenv("GEMINI_TOKEN")
-	if apiKey == "" {
-		return fmt.Errorf("GEMINI_TOKEN is not set")
-	}
-
+func StreamMessageResponse(s *discordgo.Session, c *genai.Client, m *discordgo.Message, history []*genai.Content) error {
 	ctx := context.Background()
-	// Initialize the Gemini client
-	client, err := genai.NewClient(ctx, &genai.ClientConfig{
-		APIKey:  apiKey,
-		Backend: genai.BackendGeminiAPI,
-	})
-	if err != nil {
-		return fmt.Errorf("failed to create gemini client: %v", err)
-	}
 
 	// Configure the model
 	modelName := "gemini-3-pro-preview"
@@ -190,15 +176,15 @@ func StreamMessageResponse(s *discordgo.Session, m *discordgo.Message, history [
 		Temperature:       &t,
 		Tools: []*genai.Tool{
 			{
-				GoogleSearch:  &genai.GoogleSearch{},
-				URLContext:    &genai.URLContext{},
-				CodeExecution: &genai.ToolCodeExecution{},
+				GoogleSearch: &genai.GoogleSearch{},
+				URLContext:   &genai.URLContext{},
+				// CodeExecution: &genai.ToolCodeExecution{},
 			},
 		},
 	}
 
 	// Call the API
-	stream := client.Models.GenerateContentStream(ctx, modelName, allContents, config)
+	stream := c.Models.GenerateContentStream(ctx, modelName, allContents, config)
 
 	// Consume stream
 	for resp, err := range stream {
@@ -334,23 +320,23 @@ func AppendMessage(role string, name string, content config.RequestContent, mess
 	})
 }
 
-func PrependReplyMessages(s *discordgo.Session, originMember *discordgo.Member, message *discordgo.Message, cache []*discordgo.Message, chatMessages *[]*genai.Content) {
+func PrependReplyMessages(s *discordgo.Session, c *genai.Client, originMember *discordgo.Member, message *discordgo.Message, cache []*discordgo.Message, chatMessages *[]*genai.Content) {
 	reference := utility.GetReferencedMessage(s, message, cache)
 	if reference == nil {
 		return
 	}
 
 	reply := utility.CleanMessage(s, reference)
-	images, videos, _ := utility.GetMessageMediaURL(reply)
+	images, videos, pdfs, ytURLs := utility.GetMessageMediaURL(reply)
 
 	replyContent := config.RequestContent{
-		Text: strings.TrimSpace(fmt.Sprintf("%s%s%s%s",
-			transcription.GetTranscript(s, reply),
+		Text: strings.TrimSpace(fmt.Sprintf("%s%s%s",
 			utility.AttachmentText(reply),
 			utility.EmbedText(reply),
 			fmt.Sprintf("<message>%s</message>", reply.Content),
 		)),
-		Media: append(images, videos...),
+		Media:  append(append(images, videos...), pdfs...),
+		YTURLs: ytURLs,
 	}
 
 	role := "user"
@@ -362,15 +348,15 @@ func PrependReplyMessages(s *discordgo.Session, originMember *discordgo.Member, 
 		replyContent.Text = fmt.Sprintf("<username>%s</username>: %s", reply.Author.Username, replyContent.Text)
 	}
 
-	newMsg := createContentStruct(role, replyContent)
+	newMsg := createContentStruct(c, role, replyContent)
 	*chatMessages = append([]*genai.Content{newMsg}, *chatMessages...)
 
 	if reply.Type == discordgo.MessageTypeReply {
-		PrependReplyMessages(s, originMember, reference, cache, chatMessages)
+		PrependReplyMessages(s, c, originMember, reference, cache, chatMessages)
 	}
 }
 
-func createContentStruct(role string, content config.RequestContent) *genai.Content {
+func createContentStruct(c *genai.Client, role string, content config.RequestContent) *genai.Content {
 	parts := []*genai.Part{}
 	if content.Text != "" {
 		parts = append(parts, &genai.Part{Text: content.Text})
@@ -391,20 +377,17 @@ func createContentStruct(role string, content config.RequestContent) *genai.Cont
 			})
 			continue
 		}
-		mimeType := utility.MediaType(mediaURL)
-		if mimeType == "" {
-			continue
-		}
-		data, err := utility.DownloadURL(mediaURL)
+		mediaURL, err := c.Files.UploadFromPath(context.Background(), mediaURL, nil)
 		if err != nil {
 			continue
 		}
-		parts = append(parts, &genai.Part{
-			InlineData: &genai.Blob{
-				MIMEType: mimeType,
-				Data:     data,
-			},
-		})
+		part := genai.NewPartFromURI(mediaURL.URI, mediaURL.MIMEType)
+		parts = append(parts, part)
+	}
+
+	for _, ytURL := range content.YTURLs {
+		part := genai.NewPartFromURI(ytURL, "video/mp4")
+		parts = append(parts, part)
 	}
 
 	return &genai.Content{

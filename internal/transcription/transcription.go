@@ -131,7 +131,7 @@ func TotalTranscripts() int {
 func GetTranscript(s *discordgo.Session, message *discordgo.Message) (text string) {
 	regex := regexp.MustCompile(`(?m)<?(https?://[^\s<>]+)>?\b`)
 	result := regex.FindAllStringSubmatch(message.Content, -1)
-	_, videos, _ := utility.GetMessageMediaURL(message)
+	_, videos, _, _ := utility.GetMessageMediaURL(message)
 
 	var videoURLs []videoType
 	var transcripts []Transcript
