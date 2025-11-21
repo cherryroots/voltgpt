@@ -65,7 +65,8 @@ func (s *Streamer) Update(content string) {
 	s.Buffer += content
 }
 
-func (s *Streamer) UpdateThoughtSignature(signature []byte) {
+// SetThoughtSignature sets the thought signature.
+func (s *Streamer) SetThoughtSignature(signature []byte) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.ThoughtSignature = signature
@@ -75,10 +76,11 @@ func (s *Streamer) UpdateThoughtSignature(signature []byte) {
 func (s *Streamer) Stop() {
 	s.done <- true
 	s.Flush()
+	s.EmbedThoughtSignature()
 }
 
-// Flush sends the current buffer content to Discord.
-func (s *Streamer) Flush() {
+// EmbedThoughtSignature embeds the thought signature into the message.
+func (s *Streamer) EmbedThoughtSignature() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -96,6 +98,12 @@ func (s *Streamer) Flush() {
 			},
 		})
 	}
+}
+
+// Flush sends the current buffer content to Discord.
+func (s *Streamer) Flush() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 
 	if s.Buffer == "" {
 		return
@@ -206,7 +214,7 @@ func StreamMessageResponse(s *discordgo.Session, m *discordgo.Message, history [
 						streamer.Update(part.Text)
 					}
 					if part.ThoughtSignature != nil {
-						streamer.UpdateThoughtSignature(part.ThoughtSignature)
+						streamer.SetThoughtSignature(part.ThoughtSignature)
 					}
 				}
 			}

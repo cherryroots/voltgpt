@@ -188,7 +188,8 @@ func SplitSend(s *discordgo.Session, msg *discordgo.Message, currentMessage stri
 		}
 		currentMessage = lastPart
 	} else {
-		_, err := discord.EditMessage(s, msg, currentMessage)
+		var err error
+		msg, err = discord.EditMessage(s, msg, currentMessage)
 		if err != nil {
 			return "", msg, err
 		}
@@ -204,7 +205,8 @@ func SliceSend(s *discordgo.Session, msg *discordgo.Message, messageSlices []str
 
 	// Edit the first message with the current slice
 	if currentSliceIndex < len(messageSlices) {
-		_, err := discord.EditMessage(s, msg, messageSlices[currentSliceIndex])
+		var err error
+		msg, err = discord.EditMessage(s, msg, messageSlices[currentSliceIndex])
 		if err != nil {
 			return msg, err
 		}
