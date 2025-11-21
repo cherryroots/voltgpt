@@ -291,35 +291,6 @@ func SummarizeCleanText(text string) string {
 	return ""
 }
 
-func AppendMessage(role string, name string, content config.RequestContent, messages *[]*genai.Content) {
-	finalText := content.Text
-
-	parts := []*genai.Part{}
-	if finalText != "" {
-		parts = append(parts, &genai.Part{Text: finalText})
-	}
-
-	for _, mediaURL := range content.Media {
-		mimeType := utility.MediaType(mediaURL)
-		data, err := utility.DownloadURL(mediaURL)
-		if err != nil {
-			log.Printf("Error downloading media %s: %v", mediaURL, err)
-			continue
-		}
-		parts = append(parts, &genai.Part{
-			InlineData: &genai.Blob{
-				MIMEType: mimeType,
-				Data:     data,
-			},
-		})
-	}
-
-	*messages = append(*messages, &genai.Content{
-		Role:  role,
-		Parts: parts,
-	})
-}
-
 func PrependReplyMessages(s *discordgo.Session, c *genai.Client, originMember *discordgo.Member, message *discordgo.Message, cache []*discordgo.Message, chatMessages *[]*genai.Content) {
 	reference := utility.GetReferencedMessage(s, message, cache)
 	if reference == nil {
@@ -348,7 +319,7 @@ func PrependReplyMessages(s *discordgo.Session, c *genai.Client, originMember *d
 		replyContent.Text = fmt.Sprintf("<username>%s</username>: %s", reply.Author.Username, replyContent.Text)
 	}
 
-	newMsg := createContentStruct(c, role, replyContent)
+	newMsg := CreateContent(c, role, replyContent)
 	*chatMessages = append([]*genai.Content{newMsg}, *chatMessages...)
 
 	if reply.Type == discordgo.MessageTypeReply {
@@ -356,7 +327,7 @@ func PrependReplyMessages(s *discordgo.Session, c *genai.Client, originMember *d
 	}
 }
 
-func createContentStruct(c *genai.Client, role string, content config.RequestContent) *genai.Content {
+func CreateContent(c *genai.Client, role string, content config.RequestContent) *genai.Content {
 	parts := []*genai.Part{}
 	if content.Text != "" {
 		parts = append(parts, &genai.Part{Text: content.Text})

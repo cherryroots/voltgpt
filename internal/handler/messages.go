@@ -88,7 +88,7 @@ func HandleMessage(s *discordgo.Session, m *discordgo.MessageCreate) {
 		YTURLs: ytURLs,
 	}
 
-	gemini.AppendMessage("user", m.Message.Author.Username, content, &chatMessages)
+	chatMessages = append(chatMessages, gemini.CreateContent(c, "user", content))
 
 	if isReply {
 		gemini.PrependReplyMessages(s, c, m.Message.Member, m.Message, cache, &chatMessages)
