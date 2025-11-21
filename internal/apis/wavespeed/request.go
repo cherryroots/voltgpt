@@ -113,6 +113,16 @@ func SendSeedDanceI2VRequest(request SeedDanceI2VSubmissionRequest, version Seed
 	return sendWaveSpeedRequest(BytedanceModels, modelType, request)
 }
 
+// SendWanT2VRequest sends a request for Wan Text-to-Video generation
+func SendWanT2VRequest(request WanT2VSubmissionRequest) (*WaveSpeedResponse, error) {
+	return sendWaveSpeedRequest(AlibabaModels, WanT2V, request)
+}
+
+// SendWanI2VRequest sends a request for Wan Image-to-Video generation
+func SendWanI2VRequest(request WanI2VSubmissionRequest) (*WaveSpeedResponse, error) {
+	return sendWaveSpeedRequest(AlibabaModels, WanI2V, request)
+}
+
 func SendHunyuanVideoFoleyRequest(request HunyuanVideoFoleySubmissionRequest) (*WaveSpeedResponse, error) {
 	return sendWaveSpeedRequest(WaveSpeedModels, HunyuanVideoFoley, request)
 }

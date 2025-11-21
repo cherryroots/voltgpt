@@ -79,6 +79,12 @@ var (
 					Required:    false,
 				},
 				{
+					Type:        discordgo.ApplicationCommandOptionString,
+					Name:        "negative_prompt",
+					Description: "Negative prompt to use",
+					Required:    false,
+				},
+				{
 					Type:        discordgo.ApplicationCommandOptionAttachment,
 					Name:        "image",
 					Description: "jpg/jpeg/png",
@@ -90,18 +96,6 @@ var (
 					Description: "Duration of the video (default: 5)",
 					Required:    false,
 					Choices:     DurationChoices,
-				},
-				{
-					Type:        discordgo.ApplicationCommandOptionBoolean,
-					Name:        "audio",
-					Description: "Add audio to the video",
-					Required:    false,
-				},
-				{
-					Type:        discordgo.ApplicationCommandOptionString,
-					Name:        "audioprompt",
-					Description: "Audio prompt to use",
-					Required:    false,
 				},
 			},
 		},

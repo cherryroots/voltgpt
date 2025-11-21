@@ -5,7 +5,7 @@ import (
 	"strings"
 	"time"
 
-	oai "voltgpt/internal/apis/openai"
+	gemini "voltgpt/internal/apis/gemini"
 	"voltgpt/internal/config"
 	"voltgpt/internal/discord"
 	"voltgpt/internal/hasher"
@@ -13,7 +13,7 @@ import (
 	"voltgpt/internal/utility"
 
 	"github.com/bwmarrin/discordgo"
-	"github.com/sashabaranov/go-openai"
+	"google.golang.org/genai"
 )
 
 func HandleMessage(s *discordgo.Session, m *discordgo.MessageCreate) {
@@ -35,7 +35,7 @@ func HandleMessage(s *discordgo.Session, m *discordgo.MessageCreate) {
 		return
 	}
 
-	var chatMessages []openai.ChatCompletionMessage
+	var chatMessages []*genai.Content
 	var cache []*discordgo.Message
 	var isMentioned, isReply bool
 
@@ -72,13 +72,13 @@ func HandleMessage(s *discordgo.Session, m *discordgo.MessageCreate) {
 		PDFs:  pdfs,
 	}
 
-	oai.AppendMessage(openai.ChatMessageRoleUser, m.Message.Author.Username, content, &chatMessages)
+	gemini.AppendMessage("user", m.Message.Author.Username, content, &chatMessages)
 
 	if isReply {
-		oai.PrependReplyMessages(s, m.Message.Member, m.Message, cache, &chatMessages)
+		gemini.PrependReplyMessages(s, m.Message.Member, m.Message, cache, &chatMessages)
 	}
 
-	err := oai.StreamMessageResponse(s, m.Message, chatMessages)
+	err := gemini.StreamMessageResponse(s, m.Message, chatMessages)
 	if err != nil {
 		discord.LogSendErrorMessage(s, m.Message, err.Error())
 	}

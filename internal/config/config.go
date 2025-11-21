@@ -37,9 +37,9 @@ var (
 	DefaultTemp    = 0.8
 
 	ResolutionChoices = []*discordgo.ApplicationCommandOptionChoice{
-		{Name: "2048x2048", Value: ResSquare},
-		{Name: "3076x2048", Value: ResPortrait},
-		{Name: "2048x3076", Value: ResLandscape},
+		{Name: "2048*2048", Value: ResSquare},
+		{Name: "3076*2048", Value: ResPortrait},
+		{Name: "2048*3076", Value: ResLandscape},
 	}
 
 	DurationChoices = []*discordgo.ApplicationCommandOptionChoice{
@@ -54,12 +54,6 @@ Your name is 'Volt-仙女', a cute fairy chatbot on Discord. You should:
  - Example: ` + "( ´ ω ` )" + `becomes` + "( ´ ω \\` )" + `
 - Maintain a cheerful, helpful, and playful demeanor
 - Express yourself in a vibrant and engaging way
-
-# Tool usage guidelines
-- You run in an agentic loop so each tool call will be sent to the same message
-- When using the browsing tool, use Bing when searching for something with the query structure "https://www.bing.com/search?q="
-- When browsing and the page doesn't return much info, retry with javascript enabled, if it doesn't return much try a different link or state to the user that you couldn't browse the site.
-- Don't go into a loop of opening the same link over and over
 
 # Content Guidelines
 - Be creative and open to hypothetical scenarios while maintaining conversational context

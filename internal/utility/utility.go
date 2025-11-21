@@ -4,6 +4,7 @@ package utility
 import (
 	"bytes"
 	"encoding/base64"
+	"encoding/binary"
 	"fmt"
 	"image"
 	"image/color"
@@ -1198,4 +1199,73 @@ func CombinePNGsToGridSimple(pngBuffers []*bytes.Buffer) (*bytes.Buffer, error) 
 	}
 
 	return &outputBuffer, nil
+}
+
+func BytesToPNG(data []byte) (*bytes.Buffer, error) {
+	// 4 bytes for length header + data
+	totalLen := len(data) + 4
+	numPixels := int(math.Ceil(float64(totalLen) / 4.0))
+
+	// Calculate dimensions for square-ish image
+	width := int(math.Ceil(math.Sqrt(float64(numPixels))))
+	height := int(math.Ceil(float64(numPixels) / float64(width)))
+
+	img := image.NewNRGBA(image.Rect(0, 0, width, height))
+
+	// Write length header
+	binary.BigEndian.PutUint32(img.Pix[0:4], uint32(len(data)))
+
+	// Write data
+	copy(img.Pix[4:], data)
+
+	var buf bytes.Buffer
+	// Use default compression
+	if err := png.Encode(&buf, img); err != nil {
+		return nil, err
+	}
+
+	return &buf, nil
+}
+
+func PNGToBytes(pngData []byte) ([]byte, error) {
+	img, err := png.Decode(bytes.NewReader(pngData))
+	if err != nil {
+		return nil, err
+	}
+
+	var pix []uint8
+	switch i := img.(type) {
+	case *image.NRGBA:
+		pix = i.Pix
+	case *image.RGBA:
+		// Warning: this might have altered data due to premultiplication if it wasn't NRGBA
+		pix = i.Pix
+	default:
+		// Convert to NRGBA
+		bounds := img.Bounds()
+		nrgba := image.NewNRGBA(bounds)
+		for y := bounds.Min.Y; y < bounds.Max.Y; y++ {
+			for x := bounds.Min.X; x < bounds.Max.X; x++ {
+				nrgba.Set(x, y, img.At(x, y))
+			}
+		}
+		pix = nrgba.Pix
+	}
+
+	if len(pix) < 4 {
+		return nil, fmt.Errorf("image too small")
+	}
+
+	// Read length header
+	dataLen := binary.BigEndian.Uint32(pix[0:4])
+
+	if uint64(dataLen) > uint64(len(pix)-4) {
+		return nil, fmt.Errorf("data length %d exceeds available pixel data", dataLen)
+	}
+
+	// Create a copy of the data to return
+	data := make([]byte, dataLen)
+	copy(data, pix[4:4+dataLen])
+
+	return data, nil
 }

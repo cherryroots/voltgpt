@@ -64,7 +64,7 @@ var Commands = map[string]func(s *discordgo.Session, i *discordgo.InteractionCre
 		}
 
 		if resolution == "" {
-			resolution = "2048x2048"
+			resolution = "2048*2048"
 		}
 		var images []*discordgo.File
 
@@ -112,7 +112,7 @@ var Commands = map[string]func(s *discordgo.Session, i *discordgo.InteractionCre
 							W = 4096
 							H = max(int(float64(W)/aspectRatio), 1024)
 						}
-						resolution = fmt.Sprintf("%dx%d", W, H)
+						resolution = fmt.Sprintf("%d*%d", W, H)
 					} else {
 						W := 2048
 						H := int(float64(W) / aspectRatio)
@@ -120,7 +120,7 @@ var Commands = map[string]func(s *discordgo.Session, i *discordgo.InteractionCre
 							H = 4096
 							W = max(int(float64(H)*aspectRatio), 1024)
 						}
-						resolution = fmt.Sprintf("%dx%d", W, H)
+						resolution = fmt.Sprintf("%d*%d", W, H)
 					}
 					req := wave.SeedDreamEditSubmissionRequest{
 						Prompt:   prompt.Text,
@@ -181,15 +181,17 @@ var Commands = map[string]func(s *discordgo.Session, i *discordgo.InteractionCre
 		log.Printf("Received interaction: %s by %s", i.ApplicationCommandData().Name, i.Interaction.Member.User.Username)
 		discord.DeferResponse(s, i)
 
-		var prompt config.RequestContent
+		var prompt string
+		var negativePrompt string
 		var img string
 		var duration int
 		var seed int
-		var audio bool
-		var audioPrompt string
 		for _, option := range i.ApplicationCommandData().Options {
 			if option.Name == "prompt" {
-				prompt.Text = option.StringValue()
+				prompt = option.StringValue()
+			}
+			if option.Name == "negative_prompt" {
+				negativePrompt = option.StringValue()
 			}
 			if option.Name == "image" {
 				img = i.ApplicationCommandData().Resolved.Attachments[option.Value.(string)].URL
@@ -200,15 +202,9 @@ var Commands = map[string]func(s *discordgo.Session, i *discordgo.InteractionCre
 			if option.Name == "seed" {
 				seed = int(option.IntValue())
 			}
-			if option.Name == "audio" {
-				audio = option.BoolValue()
-			}
-			if option.Name == "audioprompt" {
-				audioPrompt = option.StringValue()
-			}
 		}
 
-		if prompt.Text == "" && img == "" {
+		if prompt == "" && img == "" {
 			_, err := discord.SendFollowup(s, i, "Please provide a prompt or an image")
 			if err != nil {
 				log.Println(err)
@@ -223,6 +219,8 @@ var Commands = map[string]func(s *discordgo.Session, i *discordgo.InteractionCre
 		if seed == 0 {
 			seed = rand.Intn(2147483647)
 		}
+		i2vSize := "480p"
+		t2vSize := "832*480"
 
 		if duration != 5 && duration != 10 {
 			_, err := discord.SendFollowup(s, i, "Duration must be 5 or 10")
@@ -231,9 +229,6 @@ var Commands = map[string]func(s *discordgo.Session, i *discordgo.InteractionCre
 			}
 			return
 		}
-
-		version := wave.SeedDancePro
-		resolution := wave.SeedDance480p
 
 		imgFilled := img != ""
 
@@ -255,13 +250,15 @@ var Commands = map[string]func(s *discordgo.Session, i *discordgo.InteractionCre
 				}
 				return
 			}
-			req := wave.SeedDanceI2VSubmissionRequest{
-				Prompt:   &prompt.Text,
-				Image:    base64Image[0],
-				Duration: &duration,
-				Seed:     &seed,
+			req := wave.WanI2VSubmissionRequest{
+				Prompt:         &prompt,
+				NegativePrompt: &negativePrompt,
+				Image:          base64Image[0],
+				Duration:       &duration,
+				Seed:           &seed,
+				Resolution:     &i2vSize,
 			}
-			resp, err = wave.SendSeedDanceI2VRequest(req, version, wave.SeedDanceI2V, resolution)
+			resp, err = wave.SendWanI2VRequest(req)
 			if err != nil {
 				_, err := discord.SendFollowup(s, i, err.Error())
 				if err != nil {
@@ -270,11 +267,14 @@ var Commands = map[string]func(s *discordgo.Session, i *discordgo.InteractionCre
 				return
 			}
 		} else {
-			req := wave.SeedDanceT2VSubmissionRequest{
-				Prompt:   prompt.Text,
-				Duration: &duration,
+			req := wave.WanT2VSubmissionRequest{
+				Prompt:         prompt,
+				NegativePrompt: &negativePrompt,
+				Duration:       &duration,
+				Seed:           &seed,
+				Size:           &t2vSize,
 			}
-			resp, err = wave.SendSeedDanceT2VRequest(req, version, wave.SeedDanceT2V, resolution)
+			resp, err = wave.SendWanT2VRequest(req)
 			if err != nil {
 				_, err := discord.SendFollowup(s, i, err.Error())
 				if err != nil {
@@ -307,33 +307,7 @@ var Commands = map[string]func(s *discordgo.Session, i *discordgo.InteractionCre
 			}
 			return
 		}
-		var video []*discordgo.File
-		if audio {
-			req := wave.HunyuanVideoFoleySubmissionRequest{
-				Prompt: &audioPrompt,
-				Video:  resp.Data.Outputs[0],
-				Seed:   &seed,
-			}
-			resp, err = wave.SendHunyuanVideoFoleyRequest(req)
-			if err != nil {
-				log.Println(err)
-				_, err = discord.SendFollowup(s, i, err.Error())
-				if err != nil {
-					log.Println(err)
-				}
-				return
-			}
-			resp, err = wave.WaitForComplete(resp.Data.ID)
-			if err != nil {
-				log.Println(err)
-				_, err = discord.SendFollowup(s, i, err.Error())
-				if err != nil {
-					log.Println(err)
-				}
-				return
-			}
-		}
-		video, err = wave.DownloadResult(resp)
+		video, err := wave.DownloadResult(resp)
 		if err != nil {
 			log.Println(err)
 			_, err = discord.SendFollowup(s, i, err.Error())
@@ -343,7 +317,7 @@ var Commands = map[string]func(s *discordgo.Session, i *discordgo.InteractionCre
 			return
 		}
 
-		message := fmt.Sprintf("Gen time: %ds\nPrompt: %s\nAudio: %t | AudioPrompt: %s", resp.Data.Timings.Inference/1000, prompt.Text, audio, audioPrompt)
+		message := fmt.Sprintf("Gen time: %ds\nPrompt: %s\nNegative Prompt: %s", resp.Data.Timings.Inference/1000, prompt, negativePrompt)
 		_, err = discord.EditFollowupFile(s, i, msg.ID, message, video)
 		if err != nil {
 			log.Println(err)

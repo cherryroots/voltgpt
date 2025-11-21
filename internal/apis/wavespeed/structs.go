@@ -7,6 +7,9 @@ const (
 const (
 	BytedanceModels    ModelFamily   = "bytedance"
 	WaveSpeedModels    ModelFamily   = "wavespeed-ai"
+	AlibabaModels      ModelFamily   = "alibaba"
+	WanT2V             ModelType     = "wan-2.5/text-to-video"
+	WanI2V             ModelType     = "wan-2.5/image-to-video"
 	SeedDreamModel     ModelType     = "seedream-v4"
 	SeedDreamEditModel ModelType     = "seedream-v4/edit"
 	SeedDanceTemplate  ModelTemplate = "seedance-v1-%1-%2-%3"
@@ -67,6 +70,25 @@ type SeedDanceI2VSubmissionRequest struct {
 	Image    string  `json:"image"`              // Input image for video generation; Supported image formats include .jpg/.jpeg/.png; The image file size cannot exceed 10MB, and the image resolution should not be less than 300*300px
 	Duration *int    `json:"duration,omitempty"` // Generate video duration length seconds. 5-10 seconds
 	Seed     *int    `json:"seed,omitempty"`     // The seed for random number generation.
+}
+
+type WanT2VSubmissionRequest struct {
+	Prompt         string  `json:"prompt"`
+	NegativePrompt *string `json:"negative_prompt,omitempty"`
+	Audio          *string `json:"audio,omitempty"`
+	Size           *string `json:"size,omitempty"`
+	Duration       *int    `json:"duration,omitempty"`
+	Seed           *int    `json:"seed,omitempty"`
+}
+
+type WanI2VSubmissionRequest struct {
+	Image          string  `json:"image"`
+	Audio          *string `json:"audio,omitempty"`
+	Prompt         *string `json:"prompt,omitempty"`
+	NegativePrompt *string `json:"negative_prompt,omitempty"`
+	Resolution     *string `json:"resolution,omitempty"`
+	Duration       *int    `json:"duration,omitempty"`
+	Seed           *int    `json:"seed,omitempty"`
 }
 
 type HunyuanVideoFoleySubmissionRequest struct {
