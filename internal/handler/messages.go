@@ -84,7 +84,9 @@ func HandleMessage(s *discordgo.Session, m *discordgo.MessageCreate) {
 			utility.EmbedText(m.Message),
 			fmt.Sprintf("<message>%s</message>", m.Content),
 		)),
-		Media:  append(append(images, videos...), pdfs...),
+		Images: images,
+		Videos: videos,
+		PDFs:   pdfs,
 		YTURLs: ytURLs,
 	}
 

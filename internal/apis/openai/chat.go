@@ -99,7 +99,7 @@ func createMessage(role string, name string, content config.RequestContent) []op
 		})
 	}
 
-	for _, u := range content.Media {
+	for _, u := range content.Images {
 		base64, err := utility.Base64ImageDownload(u)
 		if err != nil {
 			log.Printf("Error downloading image: %v", err)
@@ -142,8 +142,8 @@ func CreateBatchMessages(s *discordgo.Session, messages []*discordgo.Message) []
 	for _, message := range messages {
 		images, _, _, _ := utility.GetMessageMediaURL(message)
 		content := config.RequestContent{
-			Text:  message.Content,
-			Media: images,
+			Text:   message.Content,
+			Images: images,
 		}
 		if message.Author.ID == s.State.User.ID {
 			PrependMessage(openai.ChatMessageRoleAssistant, message.Author.Username, content, &batchMessages)
@@ -169,7 +169,8 @@ func PrependReplyMessages(s *discordgo.Session, originMember *discordgo.Member, 
 			utility.EmbedText(reply),
 			fmt.Sprintf("<message>%s</message>", reply.Content),
 		)),
-		Media: append(images, videos...),
+		Images: images,
+		Videos: videos,
 	}
 
 	role := determineRole(s, reply)

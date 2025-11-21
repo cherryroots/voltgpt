@@ -306,7 +306,9 @@ func PrependReplyMessages(s *discordgo.Session, c *genai.Client, originMember *d
 			utility.EmbedText(reply),
 			fmt.Sprintf("<message>%s</message>", reply.Content),
 		)),
-		Media:  append(append(images, videos...), pdfs...),
+		Images: images,
+		Videos: videos,
+		PDFs:   pdfs,
 		YTURLs: ytURLs,
 	}
 
@@ -333,9 +335,9 @@ func CreateContent(c *genai.Client, role string, content config.RequestContent) 
 		parts = append(parts, &genai.Part{Text: content.Text})
 	}
 
-	for _, mediaURL := range content.Media {
-		if strings.Contains(mediaURL, "thought_signature.png") {
-			data, err := utility.DownloadURL(mediaURL)
+	for _, imageURL := range content.Images {
+		if strings.Contains(imageURL, "thought_signature.png") {
+			data, err := utility.DownloadURL(imageURL)
 			if err != nil {
 				continue
 			}
@@ -348,12 +350,51 @@ func CreateContent(c *genai.Client, role string, content config.RequestContent) 
 			})
 			continue
 		}
-		mediaURL, err := c.Files.UploadFromPath(context.Background(), mediaURL, nil)
+
+		mime := utility.MediaType(imageURL)
+		if mime == "" {
+			continue
+		}
+		data, err := utility.DownloadURL(imageURL)
 		if err != nil {
 			continue
 		}
-		part := genai.NewPartFromURI(mediaURL.URI, mediaURL.MIMEType)
-		parts = append(parts, part)
+		parts = append(parts, &genai.Part{
+			InlineData: &genai.Blob{
+				Data:     data,
+				MIMEType: mime,
+			},
+		})
+	}
+
+	for _, videoURL := range content.Videos {
+		data, err := utility.DownloadURL(videoURL)
+		if err != nil {
+			continue
+		}
+		mime := utility.MediaType(videoURL)
+		if mime == "" {
+			continue
+		}
+		parts = append(parts, &genai.Part{
+			InlineData: &genai.Blob{
+				Data:     data,
+				MIMEType: mime,
+			},
+		})
+	}
+
+	for _, pdfURL := range content.PDFs {
+		data, err := utility.DownloadURL(pdfURL)
+		if err != nil {
+			continue
+		}
+		parts = append(parts, &genai.Part{
+			InlineData: &genai.Blob{
+				Data:     data,
+				MIMEType: "application/pdf",
+			},
+		})
 	}
 
 	for _, ytURL := range content.YTURLs {
