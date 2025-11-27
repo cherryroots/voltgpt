@@ -484,6 +484,9 @@ func AttachmentText(m *discordgo.Message) (text string) {
 		textText := fmt.Sprintf("<attachmentText>\n%s\n</attachmentText>", string(byteData))
 		text += fmt.Sprintf("<attachment>\n%s\n%s\n%s\n</attachment>", idText, typeText, textText)
 	}
+	if text == "" {
+		return ""
+	}
 	return fmt.Sprintf("<attachments>\n%s\n</attachments>\n", text)
 }
 

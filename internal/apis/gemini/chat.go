@@ -36,7 +36,7 @@ func NewStreamer(s *discordgo.Session, m *discordgo.Message) *Streamer {
 	return &Streamer{
 		Session:        s,
 		Message:        m,
-		replacementMap: []string{"<message>", "</message>", "<reply>", "</reply>", "<username>", "</username>", "<attachments>", "</attachments>", "..."},
+		replacementMap: []string{"<username>", "</username>", "<attachments>", "</attachments>", "..."},
 		done:           make(chan bool),
 	}
 }
@@ -143,7 +143,7 @@ func StreamMessageResponse(s *discordgo.Session, c *genai.Client, m *discordgo.M
 
 	// Inject System Message
 	instructionMessage := instructionSwitch(history)
-	systemMessageText := fmt.Sprintf("System message: %s\n\nInstruction message: %s", config.SystemMessageMinimal, instructionMessage)
+	systemMessageText := fmt.Sprintf("System message: %s\n\nInstruction message: %s", config.SystemMessageDefault, instructionMessage)
 
 	// Create system content
 	systemInstruction := genai.NewContentFromText(systemMessageText, genai.RoleModel)
@@ -304,7 +304,7 @@ func PrependReplyMessages(s *discordgo.Session, c *genai.Client, originMember *d
 		Text: strings.TrimSpace(fmt.Sprintf("%s%s%s",
 			utility.AttachmentText(reply),
 			utility.EmbedText(reply),
-			fmt.Sprintf("<message>%s</message>", reply.Content),
+			reply.Content,
 		)),
 		Images: images,
 		Videos: videos,

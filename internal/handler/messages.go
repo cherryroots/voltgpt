@@ -82,7 +82,7 @@ func HandleMessage(s *discordgo.Session, m *discordgo.MessageCreate) {
 			m.Message.Author.Username,
 			utility.AttachmentText(m.Message),
 			utility.EmbedText(m.Message),
-			fmt.Sprintf("<message>%s</message>", m.Content),
+			m.Content,
 		)),
 		Images: images,
 		Videos: videos,
