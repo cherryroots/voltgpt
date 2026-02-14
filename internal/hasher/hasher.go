@@ -4,7 +4,9 @@ package hasher
 import (
 	"bytes"
 	"crypto/tls"
+	"database/sql"
 	"encoding/gob"
+	"encoding/json"
 	"fmt"
 	"image"
 
@@ -30,6 +32,8 @@ import (
 	"github.com/corona10/goimagehash"
 )
 
+var database *sql.DB
+
 var hashStore = struct {
 	sync.RWMutex
 	m map[string]*discordgo.Message
@@ -48,55 +52,108 @@ type HashOptions struct {
 	IgnoreExtensions []string
 }
 
-func WriteToFile() {
-	hashStore.RLock()
-	defer hashStore.RUnlock()
-
-	if _, err := os.Stat("imagehashes.gob"); os.IsNotExist(err) {
-		file, err := os.Create("imagehashes.gob")
-		if err != nil {
-			log.Fatal(err)
-		}
-		defer file.Close()
-
-		if err := gob.NewEncoder(file).Encode(hashStore.m); err != nil {
-			log.Fatal(err)
-		}
-
-		ReadFromFile()
-
-		return
-	}
-
-	buf := new(bytes.Buffer)
-
-	if err := gob.NewEncoder(buf).Encode(hashStore.m); err != nil {
-		log.Printf("Encode error: %v\n", err)
-		return
-	}
-
-	file, err := os.OpenFile("imagehashes.gob", os.O_WRONLY|os.O_TRUNC, 0o644)
-	if err != nil {
-		log.Printf("OpenFile error: %v\n", err)
-		return
-	}
-	defer file.Close()
-
-	if _, err := buf.WriteTo(file); err != nil {
-		log.Printf("WriteTo error: %v\n", err)
-		return
-	}
+func Init(db *sql.DB) {
+	database = db
+	migrateFromGob()
+	loadFromDB()
 }
 
-func ReadFromFile() {
+func migrateFromGob() {
+	if _, err := os.Stat("imagehashes.gob"); os.IsNotExist(err) {
+		return
+	}
+
+	var count int
+	if err := database.QueryRow("SELECT COUNT(*) FROM image_hashes").Scan(&count); err != nil {
+		log.Fatalf("Failed to count image_hashes: %v", err)
+	}
+	if count > 0 {
+		return
+	}
+
+	gob.Register(&discordgo.ActionsRow{})
+	gob.Register(&discordgo.Button{})
+	gob.Register(&discordgo.SelectMenu{})
+	gob.Register(&discordgo.TextInput{})
+
 	dataFile, err := os.Open("imagehashes.gob")
 	if err != nil {
+		log.Printf("Failed to open imagehashes.gob for migration: %v", err)
 		return
 	}
 	defer dataFile.Close()
 
-	if err := gob.NewDecoder(dataFile).Decode(&hashStore.m); err != nil {
-		log.Fatalf("Decode error imagehashes.gob: %v\n", err)
+	var m map[string]*discordgo.Message
+	if err := gob.NewDecoder(dataFile).Decode(&m); err != nil {
+		log.Fatalf("Failed to decode imagehashes.gob: %v", err)
+	}
+
+	tx, err := database.Begin()
+	if err != nil {
+		log.Fatalf("Failed to begin transaction: %v", err)
+	}
+
+	stmt, err := tx.Prepare("INSERT INTO image_hashes (hash, message_json) VALUES (?, ?)")
+	if err != nil {
+		log.Fatalf("Failed to prepare statement: %v", err)
+	}
+	defer stmt.Close()
+
+	for hash, message := range m {
+		msgJSON, err := json.Marshal(message)
+		if err != nil {
+			log.Printf("Failed to marshal message for hash %s: %v", hash, err)
+			continue
+		}
+		if _, err := stmt.Exec(hash, string(msgJSON)); err != nil {
+			log.Printf("Failed to insert hash %s: %v", hash, err)
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		log.Fatalf("Failed to commit migration: %v", err)
+	}
+
+	log.Printf("Migrated %d image hashes from GOB to SQLite", len(m))
+}
+
+func loadFromDB() {
+	rows, err := database.Query("SELECT hash, message_json FROM image_hashes")
+	if err != nil {
+		log.Fatalf("Failed to load image_hashes: %v", err)
+	}
+	defer rows.Close()
+
+	hashStore.Lock()
+	defer hashStore.Unlock()
+
+	for rows.Next() {
+		var hash, msgJSON string
+		if err := rows.Scan(&hash, &msgJSON); err != nil {
+			log.Printf("Failed to scan row: %v", err)
+			continue
+		}
+		var message discordgo.Message
+		if err := json.Unmarshal([]byte(msgJSON), &message); err != nil {
+			log.Printf("Failed to unmarshal message for hash %s: %v", hash, err)
+			continue
+		}
+		hashStore.m[hash] = &message
+	}
+}
+
+func writeHashToDB(hash string, message *discordgo.Message) {
+	msgJSON, err := json.Marshal(message)
+	if err != nil {
+		log.Printf("Failed to marshal message for DB write: %v", err)
+		return
+	}
+	_, err = database.Exec(
+		"INSERT OR REPLACE INTO image_hashes (hash, message_json) VALUES (?, ?)",
+		hash, string(msgJSON),
+	)
+	if err != nil {
+		log.Printf("Failed to write hash to DB: %v", err)
 	}
 }
 
@@ -191,6 +248,7 @@ func writeHash(hash string, message *discordgo.Message, locking bool) {
 	}
 
 	hashStore.m[hash] = message
+	writeHashToDB(hash, message)
 }
 
 func checkHash(hash string, locking bool) bool {
