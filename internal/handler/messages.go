@@ -20,6 +20,9 @@ import (
 func HandleMessage(s *discordgo.Session, m *discordgo.MessageCreate) {
 	// Delay 3 seconds to allow embeds to load
 	go func() {
+		if m.Message.GuildID != config.HashServer {
+			return
+		}
 		time.Sleep(3 * time.Second)
 		fetchedMessage, _ := s.ChannelMessage(m.Message.ChannelID, m.Message.ID)
 		if fetchedMessage == nil {

@@ -23,7 +23,7 @@ func DrawImage(prompt string, resolution cfg.Resolution, quality cfg.Quality) ([
 	ctx := context.Background()
 
 	req := openai.ImageRequest{
-		Model:      openai.CreateImageModelGptImage1,
+		Model:      "gpt-image-1.5",
 		Moderation: "low",
 		Prompt:     prompt,
 		Size:       string(resolution),

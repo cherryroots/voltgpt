@@ -128,7 +128,7 @@ func StreamMessageResponse(s *discordgo.Session, c *genai.Client, m *discordgo.M
 	ctx := context.Background()
 
 	// Configure the model
-	modelName := "gemini-3-pro-preview"
+	modelName := "gemini-3-flash-preview"
 
 	// Handle "Thinking..." message
 	msg, err := discord.SendMessage(s, m, "Thinking...")
@@ -143,7 +143,7 @@ func StreamMessageResponse(s *discordgo.Session, c *genai.Client, m *discordgo.M
 
 	// Inject System Message
 	instructionMessage := instructionSwitch(history)
-	systemMessageText := fmt.Sprintf("System message: %s\n\nInstruction message: %s", config.SystemMessageDefault, instructionMessage)
+	systemMessageText := fmt.Sprintf("System message: %s\n\nInstruction message: %s", config.SystemMessageMinimal, instructionMessage)
 
 	// Create system content
 	systemInstruction := genai.NewContentFromText(systemMessageText, genai.RoleModel)

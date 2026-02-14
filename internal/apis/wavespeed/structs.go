@@ -12,6 +12,7 @@ const (
 	WanI2V             ModelType     = "wan-2.5/image-to-video"
 	SeedDreamModel     ModelType     = "seedream-v4"
 	SeedDreamEditModel ModelType     = "seedream-v4/edit"
+	SeedDanceV1_5Pro   ModelType     = "seedance-v1.5-pro"
 	SeedDanceTemplate  ModelTemplate = "seedance-v1-%1-%2-%3"
 	HunyuanVideoFoley  ModelType     = "hunyuan-video-foley"
 )
