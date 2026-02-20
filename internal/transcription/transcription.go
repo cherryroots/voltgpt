@@ -1,9 +1,10 @@
 package transcription
 
 import (
-	"bytes"
 	"context"
+	"database/sql"
 	"encoding/gob"
+	"encoding/json"
 	"fmt"
 	"log"
 	"net/url"
@@ -20,6 +21,8 @@ import (
 	"github.com/sashabaranov/go-openai"
 )
 
+var database *sql.DB
+
 var TranscriptCache = struct {
 	sync.RWMutex
 	t map[string]Transcript
@@ -28,8 +31,8 @@ var TranscriptCache = struct {
 }
 
 type Transcript struct {
-	ContentURL *url.URL
-	Response   openai.AudioResponse
+	ContentURL *url.URL             `json:"content_url"`
+	Response   openai.AudioResponse `json:"response"`
 }
 
 type videoType struct {
@@ -45,51 +48,108 @@ func (t Transcript) formatString() string {
 	return fmt.Sprintf("<URL>%s</URL> <response>%s</response>", t.String(), t.Response.Text)
 }
 
-func WriteToFile() {
-	if _, err := os.Stat("transcripts.gob"); os.IsNotExist(err) {
-		file, err := os.Create("transcripts.gob")
-		if err != nil {
-			log.Fatal(err)
-		}
-		defer file.Close()
-
-		if err := gob.NewEncoder(file).Encode(TranscriptCache.t); err != nil {
-			log.Fatal(err)
-		}
-
-		ReadFromFile()
-
-		return
-	}
-
-	buf := new(bytes.Buffer)
-	if err := gob.NewEncoder(buf).Encode(TranscriptCache.t); err != nil {
-		log.Printf("Encode error: %v\n", err)
-		return
-	}
-
-	file, err := os.OpenFile("transcripts.gob", os.O_WRONLY|os.O_TRUNC, 0o644)
-	if err != nil {
-		log.Printf("OpenFile error: %v\n", err)
-		return
-	}
-	defer file.Close()
-
-	if _, err := buf.WriteTo(file); err != nil {
-		log.Printf("WriteTo error: %v\n", err)
-		return
-	}
+func Init(db *sql.DB) {
+	database = db
+	migrateFromGob()
+	loadFromDB()
 }
 
-func ReadFromFile() {
+func migrateFromGob() {
+	if _, err := os.Stat("transcripts.gob"); os.IsNotExist(err) {
+		return
+	}
+
+	var count int
+	if err := database.QueryRow("SELECT COUNT(*) FROM transcriptions").Scan(&count); err != nil {
+		log.Fatalf("Failed to count transcriptions: %v", err)
+	}
+	if count > 0 {
+		return
+	}
+
 	dataFile, err := os.Open("transcripts.gob")
 	if err != nil {
+		log.Printf("Failed to open transcripts.gob for migration: %v", err)
 		return
 	}
 	defer dataFile.Close()
 
-	if err := gob.NewDecoder(dataFile).Decode(&TranscriptCache.t); err != nil {
-		log.Fatalf("Decode error transcripts.gob: %v\n", err)
+	var m map[string]Transcript
+	if err := gob.NewDecoder(dataFile).Decode(&m); err != nil {
+		log.Fatalf("Failed to decode transcripts.gob: %v", err)
+	}
+
+	tx, err := database.Begin()
+	if err != nil {
+		log.Fatalf("Failed to begin transaction: %v", err)
+	}
+
+	stmt, err := tx.Prepare("INSERT INTO transcriptions (content_url, response_json) VALUES (?, ?)")
+	if err != nil {
+		log.Fatalf("Failed to prepare statement: %v", err)
+	}
+	defer stmt.Close()
+
+	for contentURL, transcript := range m {
+		respJSON, err := json.Marshal(transcript.Response)
+		if err != nil {
+			log.Printf("Failed to marshal transcript for %s: %v", contentURL, err)
+			continue
+		}
+		if _, err := stmt.Exec(contentURL, string(respJSON)); err != nil {
+			log.Printf("Failed to insert transcript %s: %v", contentURL, err)
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		log.Fatalf("Failed to commit migration: %v", err)
+	}
+
+	log.Printf("Migrated %d transcripts from GOB to SQLite", len(m))
+}
+
+func loadFromDB() {
+	rows, err := database.Query("SELECT content_url, response_json FROM transcriptions")
+	if err != nil {
+		log.Fatalf("Failed to load transcriptions: %v", err)
+	}
+	defer rows.Close()
+
+	TranscriptCache.Lock()
+	defer TranscriptCache.Unlock()
+
+	for rows.Next() {
+		var contentURL, respJSON string
+		if err := rows.Scan(&contentURL, &respJSON); err != nil {
+			log.Printf("Failed to scan row: %v", err)
+			continue
+		}
+		var resp openai.AudioResponse
+		if err := json.Unmarshal([]byte(respJSON), &resp); err != nil {
+			log.Printf("Failed to unmarshal transcript for %s: %v", contentURL, err)
+			continue
+		}
+		parsedURL, err := url.Parse(contentURL)
+		if err != nil {
+			log.Printf("Failed to parse URL %s: %v", contentURL, err)
+			continue
+		}
+		TranscriptCache.t[contentURL] = Transcript{ContentURL: parsedURL, Response: resp}
+	}
+}
+
+func writeTranscriptToDB(contentURL string, resp openai.AudioResponse) {
+	respJSON, err := json.Marshal(resp)
+	if err != nil {
+		log.Printf("Failed to marshal transcript for DB write: %v", err)
+		return
+	}
+	_, err = database.Exec(
+		"INSERT OR REPLACE INTO transcriptions (content_url, response_json) VALUES (?, ?)",
+		contentURL, string(respJSON),
+	)
+	if err != nil {
+		log.Printf("Failed to write transcript to DB: %v", err)
 	}
 }
 
@@ -109,6 +169,7 @@ func writeTranscriptCache(transcript Transcript, locking bool) {
 	}
 
 	TranscriptCache.t[transcript.String()] = transcript
+	writeTranscriptToDB(transcript.String(), transcript.Response)
 }
 
 func checkTranscriptCache(contentURL string, locking bool) bool {

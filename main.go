@@ -2,18 +2,17 @@
 package main
 
 import (
-	"encoding/gob"
 	"log"
 	"os"
 	"os/signal"
 	"strings"
 	"syscall"
-	"time"
 
 	"github.com/bwmarrin/discordgo"
 	"github.com/joho/godotenv"
 
 	"voltgpt/internal/config"
+	"voltgpt/internal/db"
 	"voltgpt/internal/gamble"
 	"voltgpt/internal/handler"
 	"voltgpt/internal/hasher"
@@ -25,23 +24,11 @@ func init() {
 		log.Print("No .env file found")
 	}
 
-	gob.Register(&discordgo.ActionsRow{})
-	gob.Register(&discordgo.Button{})
-	gob.Register(&discordgo.SelectMenu{})
-	gob.Register(&discordgo.TextInput{})
+	db.Open("voltgpt.db")
 
-	hasher.ReadFromFile()
-	gamble.ReadFromFile()
-	transcription.ReadFromFile()
-
-	go func() {
-		for {
-			hasher.WriteToFile()
-			gamble.WriteToFile()
-			transcription.WriteToFile()
-			time.Sleep(1 * time.Minute)
-		}
-	}()
+	hasher.Init(db.DB)
+	gamble.Init(db.DB)
+	transcription.Init(db.DB)
 }
 
 func main() {
@@ -126,6 +113,7 @@ func main() {
 	signal.Notify(sc, syscall.SIGINT, syscall.SIGTERM, os.Interrupt)
 	<-sc
 
+	defer db.Close()
 	defer dg.Close()
 	defer log.Print("Bot is shutting down.")
 }

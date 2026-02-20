@@ -2,8 +2,9 @@
 package gamble
 
 import (
-	"bytes"
+	"database/sql"
 	"encoding/gob"
+	"encoding/json"
 	"fmt"
 	"log"
 	"os"
@@ -15,77 +16,98 @@ import (
 	"voltgpt/internal/discord"
 )
 
+var database *sql.DB
+
 var Wheel = game{
 	Rounds:     []round{},
 	BetOptions: []Player{},
 	Players:    []Player{},
 }
 
-func WriteToFile() {
-	if _, err := os.Stat("wheel.gob"); os.IsNotExist(err) {
-		file, err := os.Create("wheel.gob")
-		if err != nil {
-			log.Fatal(err)
-		}
-		defer file.Close()
-
-		if err := gob.NewEncoder(file).Encode(Wheel); err != nil {
-			log.Fatal(err)
-		}
-
-		ReadFromFile()
-
-		return
-	}
-
-	buf := new(bytes.Buffer)
-	if err := gob.NewEncoder(buf).Encode(Wheel); err != nil {
-		log.Printf("Encode error: %v\n", err)
-		return
-	}
-
-	file, err := os.OpenFile("wheel.gob", os.O_WRONLY|os.O_TRUNC, 0o644)
-	if err != nil {
-		log.Printf("OpenFile error: %v\n", err)
-		return
-	}
-	defer file.Close()
-
-	if _, err := buf.WriteTo(file); err != nil {
-		log.Printf("WriteTo error: %v\n", err)
-		return
-	}
+func Init(db *sql.DB) {
+	database = db
+	migrateFromGob()
+	loadFromDB()
 }
 
-func ReadFromFile() {
+func migrateFromGob() {
+	if _, err := os.Stat("wheel.gob"); os.IsNotExist(err) {
+		return
+	}
+
+	var count int
+	if err := database.QueryRow("SELECT COUNT(*) FROM game_state").Scan(&count); err != nil {
+		log.Fatalf("Failed to count game_state: %v", err)
+	}
+	if count > 0 {
+		return
+	}
+
 	dataFile, err := os.Open("wheel.gob")
 	if err != nil {
+		log.Printf("Failed to open wheel.gob for migration: %v", err)
 		return
 	}
 	defer dataFile.Close()
 
 	if err := gob.NewDecoder(dataFile).Decode(&Wheel); err != nil {
-		log.Fatalf("Decode error wheel.gob: %v\n", err)
+		log.Fatalf("Failed to decode wheel.gob: %v", err)
+	}
+
+	saveToDB()
+	log.Printf("Migrated game state from GOB to SQLite (%d rounds)", len(Wheel.Rounds))
+}
+
+func loadFromDB() {
+	var data string
+	err := database.QueryRow("SELECT data FROM game_state WHERE id = 1").Scan(&data)
+	if err == sql.ErrNoRows {
+		return
+	}
+	if err != nil {
+		log.Fatalf("Failed to load game_state: %v", err)
+	}
+
+	if err := json.Unmarshal([]byte(data), &Wheel); err != nil {
+		log.Fatalf("Failed to unmarshal game state: %v", err)
+	}
+}
+
+func saveToDB() {
+	if database == nil {
+		return
+	}
+	data, err := json.Marshal(Wheel)
+	if err != nil {
+		log.Printf("Failed to marshal game state: %v", err)
+		return
+	}
+	_, err = database.Exec(
+		"INSERT OR REPLACE INTO game_state (id, data) VALUES (1, ?)",
+		string(data),
+	)
+	if err != nil {
+		log.Printf("Failed to save game state: %v", err)
 	}
 }
 
 type game struct {
-	Rounds     []round
-	BetOptions []Player
-	Players    []Player
+	Rounds     []round  `json:"rounds"`
+	BetOptions []Player `json:"bet_options"`
+	Players    []Player `json:"players"`
 }
 
 type round struct {
-	ID     int // id is 0-indexed
-	Winner Player
-	Claims []Player
-	Bets   []Bet
+	ID     int      `json:"id"` // id is 0-indexed
+	Winner Player   `json:"winner"`
+	Claims []Player `json:"claims"`
+	Bets   []Bet    `json:"bets"`
 }
 
 type Bet struct {
-	Amount int
-	By     Player
-	On     Player
+	Amount int    `json:"amount"`
+	By     Player `json:"by"`
+	On     Player `json:"on"`
 }
 
 type result struct {
@@ -95,7 +117,7 @@ type result struct {
 }
 
 type Player struct {
-	User *discordgo.User
+	User *discordgo.User `json:"user"`
 }
 
 func (p Player) ID() string {
@@ -109,12 +131,14 @@ func (g *game) AddWheelOption(option Player) {
 		}
 	}
 	g.BetOptions = append(g.BetOptions, option)
+	saveToDB()
 }
 
 func (g *game) RemoveWheelOption(option Player) {
 	for i, player := range g.BetOptions {
 		if player.ID() == option.ID() {
 			g.BetOptions = append(g.BetOptions[:i], g.BetOptions[i+1:]...)
+			saveToDB()
 			return
 		}
 	}
@@ -124,6 +148,7 @@ func (g *game) ResetWheel() {
 	g.Rounds = []round{}
 	g.BetOptions = []Player{}
 	g.Players = []Player{}
+	saveToDB()
 }
 
 func (g *game) AddPlayer(player Player) {
@@ -133,11 +158,13 @@ func (g *game) AddPlayer(player Player) {
 		}
 	}
 	g.Players = append(g.Players, player)
+	saveToDB()
 }
 
 func (g *game) AddRound() {
 	ID := len(g.Rounds)
 	g.Rounds = append(g.Rounds, round{ID: ID})
+	saveToDB()
 }
 
 func (g *game) CurrentWheelOptions() []Player {
@@ -301,10 +328,12 @@ func (r *round) AddBet(bet Bet) {
 	for i, b := range r.Bets {
 		if b.By.ID() == bet.By.ID() && b.On.ID() == bet.On.ID() {
 			r.Bets[i] = bet
+			saveToDB()
 			return
 		}
 	}
 	r.Bets = append(r.Bets, bet)
+	saveToDB()
 }
 
 func (r *round) RemoveBet(by Player, on Player) {
@@ -313,6 +342,7 @@ func (r *round) RemoveBet(by Player, on Player) {
 			r.Bets = append(r.Bets[:i], r.Bets[i+1:]...)
 		}
 	}
+	saveToDB()
 }
 
 func (r *round) HasBet(newBet Bet) (Bet, bool) {
@@ -326,6 +356,7 @@ func (r *round) HasBet(newBet Bet) (Bet, bool) {
 
 func (r *round) SetWinner(winner Player) {
 	r.Winner = winner
+	saveToDB()
 }
 
 func (r *round) HasWinner() bool {
@@ -364,6 +395,7 @@ func (r *round) AddClaim(player Player) {
 		}
 	}
 	r.Claims = append(r.Claims, player)
+	saveToDB()
 }
 
 func (g *game) StatusEmbed(r round) discordgo.MessageEmbed {
