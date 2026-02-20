@@ -24,12 +24,17 @@ type messageBuffer struct {
 var (
 	buffers   = make(map[string]*messageBuffer)
 	buffersMu sync.Mutex
+
+	// extractionBlacklist contains channel IDs where fact extraction is disabled.
+	extractionBlacklist = map[string]bool{
+		"850179179281776670": true,
+	}
 )
 
 // Extract buffers a message for fact extraction. Messages from the same user
 // are batched together over a 30-second sliding window for better context.
-func Extract(discordID, username, messageID, text string) {
-	if !enabled {
+func Extract(discordID, username, messageID, channelID, text string) {
+	if !enabled || extractionBlacklist[channelID] {
 		return
 	}
 
