@@ -108,7 +108,7 @@ func formatFactsXML(allFacts []UserFacts) string {
 	for _, uf := range allFacts {
 		sb.WriteString(fmt.Sprintf("<user name=%q>\n", uf.Username))
 		for _, fact := range uf.Facts {
-			date := strings.SplitN(fact.CreatedAt, " ", 2)[0] // "2026-02-20 15:49:47" -> "2026-02-20"
+			date := fact.CreatedAt[:10] // "2026-02-20T15:49:52Z" or "2026-02-20 15:49:47" -> "2026-02-20"
 			sb.WriteString(fmt.Sprintf("- [%s] %s\n", date, fact.Text))
 		}
 		sb.WriteString("</user>\n")
