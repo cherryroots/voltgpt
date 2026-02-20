@@ -261,7 +261,7 @@ func SummarizeCleanText(text string) string {
 	Cut down on the amount of text but keep it filling.
 	Keep links in the text for further browsing and reference.`
 
-	modelName := "gemini-2.0-flash-exp"
+	modelName := "gemini-3-flash-preview"
 
 	resp, err := client.Models.GenerateContent(ctx, modelName,
 		genai.Text(text),
