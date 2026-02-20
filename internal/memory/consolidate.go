@@ -57,24 +57,18 @@ func consolidateAndStore(ctx context.Context, userID int64, messageID, factText 
 
 		switch action.Action {
 		case "INVALIDATE":
-			if err := deactivateFact(sf.ID); err != nil {
-				return fmt.Errorf("deactivation failed: %w", err)
-			}
-			return insertFact(userID, messageID, factText, embedding)
+			return replaceFact(sf.ID, userID, messageID, factText, embedding)
 
 		case "MERGE":
 			if action.MergedText == "" {
 				log.Printf("memory: MERGE action returned empty merged_text, falling back to KEEP")
 				continue
 			}
-			if err := deactivateFact(sf.ID); err != nil {
-				return fmt.Errorf("deactivation failed: %w", err)
-			}
 			mergedEmbedding, err := embed(ctx, action.MergedText)
 			if err != nil {
 				return fmt.Errorf("merge embedding failed: %w", err)
 			}
-			return insertFact(userID, messageID, action.MergedText, mergedEmbedding)
+			return replaceFact(sf.ID, userID, messageID, action.MergedText, mergedEmbedding)
 
 		case "KEEP":
 			continue

@@ -54,6 +54,9 @@ func Retrieve(query string, discordID string) []string {
 		}
 		facts = append(facts, fact)
 	}
+	if err := rows.Err(); err != nil {
+		log.Printf("memory: retrieval rows error: %v", err)
+	}
 
 	return facts
 }

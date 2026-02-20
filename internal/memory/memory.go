@@ -7,6 +7,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/binary"
+	"fmt"
 	"log"
 	"math"
 	"os"
@@ -17,7 +18,6 @@ import (
 const (
 	embeddingModel    = "text-embedding-004"
 	generationModel   = "gemini-2.0-flash"
-	embeddingDim      = 768
 	similarityLimit   = 3
 	retrievalLimit    = 5
 	minMessageLength  = 10
@@ -59,6 +59,9 @@ func embed(ctx context.Context, text string) ([]float32, error) {
 	resp, err := client.Models.EmbedContent(ctx, embeddingModel, genai.Text(text), nil)
 	if err != nil {
 		return nil, err
+	}
+	if len(resp.Embeddings) == 0 {
+		return nil, fmt.Errorf("embedding API returned no embeddings")
 	}
 	return resp.Embeddings[0].Values, nil
 }
@@ -129,10 +132,41 @@ func insertFact(userID int64, messageID, factText string, embedding []float32) e
 	return tx.Commit()
 }
 
-// deactivateFact soft-deletes a fact by setting is_active = 0.
-func deactivateFact(factID int64) error {
-	_, err := database.Exec("UPDATE facts SET is_active = 0 WHERE id = ?", factID)
-	return err
+// replaceFact atomically deactivates an old fact and inserts a new one with its embedding.
+func replaceFact(oldFactID, userID int64, messageID, factText string, embedding []float32) error {
+	tx, err := database.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	_, err = tx.Exec("UPDATE facts SET is_active = 0 WHERE id = ?", oldFactID)
+	if err != nil {
+		return err
+	}
+
+	res, err := tx.Exec(
+		"INSERT INTO facts (user_id, original_message_id, fact_text) VALUES (?, ?, ?)",
+		userID, messageID, factText,
+	)
+	if err != nil {
+		return err
+	}
+
+	factID, err := res.LastInsertId()
+	if err != nil {
+		return err
+	}
+
+	_, err = tx.Exec(
+		"INSERT INTO vec_facts (fact_id, embedding) VALUES (?, ?)",
+		factID, serializeFloat32(embedding),
+	)
+	if err != nil {
+		return err
+	}
+
+	return tx.Commit()
 }
 
 // TotalFacts returns the count of active facts for logging at startup.
