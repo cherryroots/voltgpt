@@ -6,7 +6,7 @@
 
 **Architecture:** Single `internal/memory/` package with 4 files (memory.go, extract.go, consolidate.go, retrieve.go). Integrates into the existing `voltgpt.db` SQLite database by loading `sqlite-vec` extension at startup. Uses a separate `MEMORY_GEMINI_TOKEN` for all memory-related Gemini API calls (extraction, consolidation, embedding).
 
-**Tech Stack:** Go 1.26, sqlite-vec (CGO), google.golang.org/genai (Gemini 3 Flash + text-embedding-004)
+**Tech Stack:** Go 1.26, sqlite-vec (CGO), google.golang.org/genai (Gemini 3 Flash + gemini-embedding-001)
 
 ---
 
@@ -241,7 +241,7 @@ import (
 )
 
 const (
-	embeddingModel    = "text-embedding-004"
+	embeddingModel    = "gemini-embedding-001"
 	generationModel   = "gemini-2.0-flash"
 	embeddingDim      = 768
 	similarityLimit   = 3

@@ -16,7 +16,7 @@ import (
 )
 
 const (
-	embeddingModel    = "text-embedding-004"
+	embeddingModel    = "gemini-embedding-001"
 	generationModel   = "gemini-3-flash-preview"
 	similarityLimit   = 3
 	retrievalLimit    = 5

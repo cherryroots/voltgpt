@@ -76,7 +76,7 @@ Message: {text}
 **Entry point:** `consolidateAndStore(userID int64, messageID, factText string)` called from extraction for each new fact.
 
 **Flow:**
-1. Embed the new fact via `text-embedding-004` (768-dim vector).
+1. Embed the new fact via `gemini-embedding-001` (768-dim vector).
 2. Search `vec_facts` joined with `facts` for similar active facts (same user, distance < 0.35 threshold, limit 3).
 3. For each similar fact, call Gemini 3 Flash with structured JSON output to decide action.
 4. Apply action: KEEP (insert new), INVALIDATE (soft-delete old + insert new), MERGE (soft-delete old + embed merged text + insert merged).
@@ -102,7 +102,7 @@ If you choose MERGE, you must provide the newly combined fact. If you choose KEE
 **Entry point:** `Retrieve(query string, discordID string) []string` called synchronously before generating a chat response.
 
 **Flow:**
-1. Embed the query via `text-embedding-004`.
+1. Embed the query via `gemini-embedding-001`.
 2. Search `vec_facts` for top 5 active facts for the given user.
 3. Return fact texts as `[]string`.
 
