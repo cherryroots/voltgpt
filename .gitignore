@@ -2,6 +2,7 @@
 tmp
 voltgpt
 .uuid
+revive.log
 *.gob
 voltgpt.db*
 *debug_bin*

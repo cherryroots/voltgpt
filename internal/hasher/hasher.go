@@ -5,7 +5,6 @@ import (
 	"bytes"
 	"crypto/tls"
 	"database/sql"
-	"encoding/gob"
 	"encoding/json"
 	"fmt"
 	"image"
@@ -17,7 +16,6 @@ import (
 	"io"
 	"log"
 	"net/http"
-	"os"
 	"sort"
 	"sync"
 
@@ -54,67 +52,7 @@ type HashOptions struct {
 
 func Init(db *sql.DB) {
 	database = db
-	migrateFromGob()
 	loadFromDB()
-}
-
-func migrateFromGob() {
-	if _, err := os.Stat("imagehashes.gob"); os.IsNotExist(err) {
-		return
-	}
-
-	var count int
-	if err := database.QueryRow("SELECT COUNT(*) FROM image_hashes").Scan(&count); err != nil {
-		log.Fatalf("Failed to count image_hashes: %v", err)
-	}
-	if count > 0 {
-		return
-	}
-
-	gob.Register(&discordgo.ActionsRow{})
-	gob.Register(&discordgo.Button{})
-	gob.Register(&discordgo.SelectMenu{})
-	gob.Register(&discordgo.TextInput{})
-
-	dataFile, err := os.Open("imagehashes.gob")
-	if err != nil {
-		log.Printf("Failed to open imagehashes.gob for migration: %v", err)
-		return
-	}
-	defer dataFile.Close()
-
-	var m map[string]*discordgo.Message
-	if err := gob.NewDecoder(dataFile).Decode(&m); err != nil {
-		log.Fatalf("Failed to decode imagehashes.gob: %v", err)
-	}
-
-	tx, err := database.Begin()
-	if err != nil {
-		log.Fatalf("Failed to begin transaction: %v", err)
-	}
-
-	stmt, err := tx.Prepare("INSERT INTO image_hashes (hash, message_json) VALUES (?, ?)")
-	if err != nil {
-		log.Fatalf("Failed to prepare statement: %v", err)
-	}
-	defer stmt.Close()
-
-	for hash, message := range m {
-		msgJSON, err := json.Marshal(message)
-		if err != nil {
-			log.Printf("Failed to marshal message for hash %s: %v", hash, err)
-			continue
-		}
-		if _, err := stmt.Exec(hash, string(msgJSON)); err != nil {
-			log.Printf("Failed to insert hash %s: %v", hash, err)
-		}
-	}
-
-	if err := tx.Commit(); err != nil {
-		log.Fatalf("Failed to commit migration: %v", err)
-	}
-
-	log.Printf("Migrated %d image hashes from GOB to SQLite", len(m))
 }
 
 func loadFromDB() {

@@ -3,11 +3,9 @@ package gamble
 
 import (
 	"database/sql"
-	"encoding/gob"
 	"encoding/json"
 	"fmt"
 	"log"
-	"os"
 	"strconv"
 	"strings"
 
@@ -26,36 +24,7 @@ var Wheel = game{
 
 func Init(db *sql.DB) {
 	database = db
-	migrateFromGob()
 	loadFromDB()
-}
-
-func migrateFromGob() {
-	if _, err := os.Stat("wheel.gob"); os.IsNotExist(err) {
-		return
-	}
-
-	var count int
-	if err := database.QueryRow("SELECT COUNT(*) FROM game_state").Scan(&count); err != nil {
-		log.Fatalf("Failed to count game_state: %v", err)
-	}
-	if count > 0 {
-		return
-	}
-
-	dataFile, err := os.Open("wheel.gob")
-	if err != nil {
-		log.Printf("Failed to open wheel.gob for migration: %v", err)
-		return
-	}
-	defer dataFile.Close()
-
-	if err := gob.NewDecoder(dataFile).Decode(&Wheel); err != nil {
-		log.Fatalf("Failed to decode wheel.gob: %v", err)
-	}
-
-	saveToDB()
-	log.Printf("Migrated game state from GOB to SQLite (%d rounds)", len(Wheel.Rounds))
 }
 
 func loadFromDB() {

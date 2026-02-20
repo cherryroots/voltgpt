@@ -3,7 +3,6 @@ package transcription
 import (
 	"context"
 	"database/sql"
-	"encoding/gob"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -50,62 +49,7 @@ func (t Transcript) formatString() string {
 
 func Init(db *sql.DB) {
 	database = db
-	migrateFromGob()
 	loadFromDB()
-}
-
-func migrateFromGob() {
-	if _, err := os.Stat("transcripts.gob"); os.IsNotExist(err) {
-		return
-	}
-
-	var count int
-	if err := database.QueryRow("SELECT COUNT(*) FROM transcriptions").Scan(&count); err != nil {
-		log.Fatalf("Failed to count transcriptions: %v", err)
-	}
-	if count > 0 {
-		return
-	}
-
-	dataFile, err := os.Open("transcripts.gob")
-	if err != nil {
-		log.Printf("Failed to open transcripts.gob for migration: %v", err)
-		return
-	}
-	defer dataFile.Close()
-
-	var m map[string]Transcript
-	if err := gob.NewDecoder(dataFile).Decode(&m); err != nil {
-		log.Fatalf("Failed to decode transcripts.gob: %v", err)
-	}
-
-	tx, err := database.Begin()
-	if err != nil {
-		log.Fatalf("Failed to begin transaction: %v", err)
-	}
-
-	stmt, err := tx.Prepare("INSERT INTO transcriptions (content_url, response_json) VALUES (?, ?)")
-	if err != nil {
-		log.Fatalf("Failed to prepare statement: %v", err)
-	}
-	defer stmt.Close()
-
-	for contentURL, transcript := range m {
-		respJSON, err := json.Marshal(transcript.Response)
-		if err != nil {
-			log.Printf("Failed to marshal transcript for %s: %v", contentURL, err)
-			continue
-		}
-		if _, err := stmt.Exec(contentURL, string(respJSON)); err != nil {
-			log.Printf("Failed to insert transcript %s: %v", contentURL, err)
-		}
-	}
-
-	if err := tx.Commit(); err != nil {
-		log.Fatalf("Failed to commit migration: %v", err)
-	}
-
-	log.Printf("Migrated %d transcripts from GOB to SQLite", len(m))
 }
 
 func loadFromDB() {
