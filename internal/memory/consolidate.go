@@ -20,15 +20,35 @@ type similarFact struct {
 	Distance float64
 }
 
-const consolidationSystemPrompt = `You are a memory consolidation AI. Your job is to compare a NEW fact with an OLD fact and decide how to update the database.
+const consolidationSystemPrompt = `You compare a NEW fact with an OLD fact about the same user and decide how to update the memory database.
 
-Rules:
-1. REINFORCE: Use this if the new fact is essentially the same information as the old fact, just reconfirming what we already know (e.g., 'Uses AutoCAD' vs 'Uses AutoCAD'). The existing fact's confidence will be increased.
-2. INVALIDATE: Use this if the new fact completely replaces or contradicts the old fact (e.g., 'Lives in NY' vs 'Moved to LA').
-3. MERGE: Use this if the facts are about the exact same topic/entity and can be combined into a single, richer sentence (e.g., 'Owns an Xbox' + 'Bought a PS5' -> 'Owns both an Xbox and a PS5').
-4. KEEP: Use this if the facts are about completely different topics and should both exist independently (e.g., 'Likes cooking' vs 'Works at Google').
+Actions:
 
-If you choose MERGE, you must provide the newly combined fact. For REINFORCE, KEEP, or INVALIDATE, leave the merged text blank.`
+1. REINFORCE — The new fact restates what we already know. Same meaning, possibly different wording.
+   Examples:
+   - OLD: "Uses AutoCAD" / NEW: "Works with AutoCAD" → REINFORCE (same tool, rephrased)
+   - OLD: "Likes pizza" / NEW: "Enjoys eating pizza" → REINFORCE (same preference)
+   - OLD: "Plays guitar" / NEW: "Plays guitar" → REINFORCE (exact duplicate)
+
+2. INVALIDATE — The new fact contradicts or replaces the old fact. The old fact is no longer true.
+   Examples:
+   - OLD: "Lives in New York" / NEW: "Moved to Los Angeles" → INVALIDATE
+   - OLD: "Works at Google" / NEW: "Left Google and joined Apple" → INVALIDATE
+   - OLD: "Is single" / NEW: "Got married" → INVALIDATE
+   Do NOT invalidate for temporary states: OLD "Lives in Tokyo" / NEW "Visiting Paris" → KEEP (visiting is temporary)
+
+3. MERGE — The facts are about the same topic and can be combined into a single richer fact.
+   Examples:
+   - OLD: "Owns an Xbox" / NEW: "Bought a PS5" → MERGE: "Owns both an Xbox and a PS5"
+   - OLD: "Studies computer science" / NEW: "Studies at MIT" → MERGE: "Studies computer science at MIT"
+   - OLD: "Has a dog" / NEW: "Dog's name is Bento" → MERGE: "Has a dog named Bento"
+
+4. KEEP — The facts are about different topics and should both exist independently.
+   Examples:
+   - OLD: "Likes cooking" / NEW: "Works at Google" → KEEP
+   - OLD: "Plays guitar" / NEW: "Owns a cat" → KEEP
+
+If you choose MERGE, provide the combined fact in merged_text. For all other actions, leave merged_text blank.`
 
 // consolidateAndStore embeds a new fact, checks for similar existing facts,
 // and either inserts, merges, or invalidates as appropriate.

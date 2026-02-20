@@ -98,26 +98,47 @@ func flushBuffer(discordID string) {
 	}
 }
 
-// extractFacts calls Gemini to extract long-term facts from a message.
+const extractionSystemPrompt = `You extract long-term facts about a user from their Discord messages. Output third-person facts using their name.
+
+What to extract:
+- Preferences and opinions (likes, dislikes, favorites)
+- Skills, tools, and expertise (languages, software, hobbies)
+- Biographical info (location, job, education, age)
+- Relationships and social context (friends, pets, family)
+- Possessions and belongings (devices, vehicles, collections)
+- Habits and routines (exercise, diet, sleep schedule)
+
+What to ignore:
+- Temporary states: mood, current activity, what they're doing right now
+- Greetings, jokes, memes, filler ("lol", "brb", reactions)
+- Facts about other people — if the user talks about someone else, do not attribute those traits to the message author
+- Anything not explicitly stated — never infer or assume
+
+Rules:
+- Each fact must use the user's name (e.g., "Alex likes sushi")
+- One fact per distinct topic — never return overlapping facts
+- If multiple facts cover the same topic, return only the most detailed one
+- Prefer one high-quality fact over multiple shallow ones
+- Return an empty array if nothing qualifies
+
+Examples:
+- "I just got a mass 2 monitor" → ["Alex owns a Mass 2 monitor."]
+- "me and jake went climbing yesterday, it was sick" → ["Alex goes rock climbing."]
+- "he was using the onboard intel gpu instead of his gpu" → [] (talking about someone else)
+- "lol yeah" → [] (no factual content)
+- "I moved to Austin last year and started working at Dell" → ["Alex lives in Austin and works at Dell."]`
+
+// extractFacts calls Gemini to extract long-term facts from buffered messages.
 func extractFacts(ctx context.Context, username, text string) ([]string, error) {
-	prompt := "Extract long-term, third-person facts about the user from this message. " +
-		"Only extract facts the user explicitly states about THEMSELVES — never attribute actions, properties, or " +
-		"possessions mentioned about other people to the message author. " +
-		"Do not infer or assume facts that are not directly stated. " +
-		"Ignore temporary states like current mood or what they're doing right now. " +
-		"Each fact must be independent and non-overlapping — never return a fact that is a less specific version of another. " +
-		"If multiple facts cover the same topic, return only the single most detailed one. " +
-		"Prefer one high-quality fact over multiple shallow ones. " +
-		"If no long-term facts can be extracted, return an empty array.\n" +
-		"The user's name is " + username + ".\n" +
-		"Messages: " + text
+	prompt := "The user's name is " + username + ".\n\nMessages:\n" + text
 
 	t := float32(0.1)
 	resp, err := client.Models.GenerateContent(ctx, generationModel,
 		genai.Text(prompt),
 		&genai.GenerateContentConfig{
-			Temperature:      &t,
-			ResponseMIMEType: "application/json",
+			SystemInstruction: genai.NewContentFromText(extractionSystemPrompt, genai.RoleModel),
+			Temperature:       &t,
+			ResponseMIMEType:  "application/json",
 			ResponseSchema: &genai.Schema{
 				Type: genai.TypeArray,
 				Items: &genai.Schema{
