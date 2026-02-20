@@ -24,11 +24,6 @@ type messageBuffer struct {
 var (
 	buffers   = make(map[string]*messageBuffer)
 	buffersMu sync.Mutex
-
-	// ExtractionBlacklist contains channel IDs where fact extraction is disabled.
-	ExtractionBlacklist = map[string]bool{
-		"850179179281776670": true,
-	}
 )
 
 // Extract buffers a message for fact extraction. Messages from the same user

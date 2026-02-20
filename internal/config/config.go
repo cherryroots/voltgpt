@@ -32,6 +32,7 @@ const (
 var (
 	Admins            = []string{"102087943627243520", "123116664207179777", "95681688914366464"}
 	HashServer        = "122962330165313536"
+	MemoryBlacklist   = map[string]bool{"850179179281776670": true}
 	OpenRouterBaseURL = "https://openrouter.ai/api/v1"
 	OpenAIModel       = "o3"
 

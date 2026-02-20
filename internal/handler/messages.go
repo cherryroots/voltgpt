@@ -40,7 +40,7 @@ func HandleMessage(s *discordgo.Session, m *discordgo.MessageCreate) {
 	}
 
 	// Background fact extraction for all non-bot messages
-	if !memory.ExtractionBlacklist[m.ChannelID] {
+	if !config.MemoryBlacklist[m.ChannelID] {
 		go memory.Extract(m.Author.ID, m.Author.Username, m.ID, m.Content)
 	}
 
