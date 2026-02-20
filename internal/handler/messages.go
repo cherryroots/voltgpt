@@ -41,7 +41,12 @@ func HandleMessage(s *discordgo.Session, m *discordgo.MessageCreate) {
 
 	// Background fact extraction for all non-bot messages
 	if !config.MemoryBlacklist[m.ChannelID] {
-		go memory.Extract(m.Author.ID, m.Author.Username, m.ID, m.Content)
+		// Resolve @mentions to usernames so Gemini sees names, not raw IDs
+		extractContent := m.Content
+		for _, mention := range m.Mentions {
+			extractContent = strings.ReplaceAll(extractContent, "<@"+mention.ID+">", mention.Username)
+		}
+		go memory.Extract(m.Author.ID, m.Author.Username, m.ID, extractContent)
 	}
 
 	apiKey := os.Getenv("GEMINI_TOKEN")
