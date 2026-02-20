@@ -90,11 +90,11 @@ func findSimilarFacts(userID int64, embedding []float32) ([]similarFact, error) 
 		FROM vec_facts vf
 		JOIN facts f ON f.id = vf.fact_id
 		WHERE vf.embedding MATCH ?
+		  AND k = ?
 		  AND f.user_id = ?
 		  AND f.is_active = 1
 		ORDER BY vf.distance
-		LIMIT ?
-	`, serializeFloat32(embedding), userID, similarityLimit)
+	`, serializeFloat32(embedding), similarityLimit, userID)
 	if err != nil {
 		return nil, err
 	}
