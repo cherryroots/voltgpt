@@ -17,7 +17,7 @@ import (
 
 const (
 	embeddingModel    = "text-embedding-004"
-	generationModel   = "gemini-2.0-flash"
+	generationModel   = "gemini-3-flash-preview"
 	similarityLimit   = 3
 	retrievalLimit    = 5
 	minMessageLength  = 10
