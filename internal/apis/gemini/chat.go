@@ -292,6 +292,7 @@ func PrependReplyMessages(s *discordgo.Session, c *genai.Client, originMember *d
 	}
 
 	reply := utility.CleanMessage(s, reference)
+	reply.Content = utility.ResolveMentions(reply.Content, reply.Mentions)
 	images, videos, pdfs, ytURLs := utility.GetMessageMediaURL(reply)
 
 	replyContent := config.RequestContent{

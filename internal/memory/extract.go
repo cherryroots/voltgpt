@@ -14,11 +14,12 @@ import (
 const bufferWindow = 30 * time.Second
 
 type messageBuffer struct {
-	discordID string
-	username  string
-	messageID string // latest message ID for DB reference
-	messages  []string
-	timer     *time.Timer
+	discordID   string
+	username    string
+	displayName string
+	messageID   string // latest message ID for DB reference
+	messages    []string
+	timer       *time.Timer
 }
 
 var (
@@ -28,7 +29,7 @@ var (
 
 // Extract buffers a message for fact extraction. Messages from the same user
 // are batched together over a 30-second sliding window for better context.
-func Extract(discordID, username, messageID, text string) {
+func Extract(discordID, username, displayName, messageID, text string) {
 	if !enabled {
 		return
 	}
@@ -39,8 +40,9 @@ func Extract(discordID, username, messageID, text string) {
 	buf, exists := buffers[discordID]
 	if !exists {
 		buf = &messageBuffer{
-			discordID: discordID,
-			username:  username,
+			discordID:   discordID,
+			username:    username,
+			displayName: displayName,
 		}
 		buffers[discordID] = buf
 	}
@@ -48,6 +50,7 @@ func Extract(discordID, username, messageID, text string) {
 	buf.messages = append(buf.messages, text)
 	buf.messageID = messageID
 	buf.username = username
+	buf.displayName = displayName
 
 	// Reset or start the sliding window timer
 	if buf.timer != nil {
@@ -68,6 +71,7 @@ func flushBuffer(discordID string) {
 	}
 	messages := buf.messages
 	username := buf.username
+	displayName := buf.displayName
 	messageID := buf.messageID
 	delete(buffers, discordID)
 	buffersMu.Unlock()
@@ -79,13 +83,13 @@ func flushBuffer(discordID string) {
 
 	ctx := context.Background()
 
-	userID, err := upsertUser(discordID, username)
+	userID, name, err := upsertUser(discordID, username, displayName)
 	if err != nil {
 		log.Printf("memory: failed to upsert user %s: %v", discordID, err)
 		return
 	}
 
-	facts, err := extractFacts(ctx, username, combined)
+	facts, err := extractFacts(ctx, name, combined)
 	if err != nil {
 		log.Printf("memory: extraction failed for buffered messages from %s: %v", username, err)
 		return

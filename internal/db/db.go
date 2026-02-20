@@ -68,6 +68,15 @@ func createTables() {
 		}
 	}
 
+	// Migrate: add display_name and preferred_name to users table
+	migrations := []string{
+		"ALTER TABLE users ADD COLUMN display_name TEXT NOT NULL DEFAULT ''",
+		"ALTER TABLE users ADD COLUMN preferred_name TEXT NOT NULL DEFAULT ''",
+	}
+	for _, m := range migrations {
+		DB.Exec(m) // ignore "duplicate column name" errors
+	}
+
 	var name string
 	err := DB.QueryRow("SELECT name FROM sqlite_master WHERE type='table' AND name='vec_facts'").Scan(&name)
 	if err == sql.ErrNoRows {

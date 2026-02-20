@@ -82,29 +82,43 @@ func serializeFloat32(v []float32) []byte {
 	return buf
 }
 
-// upsertUser returns an existing user's ID or inserts a new one.
+// upsertUser returns an existing user's ID and their effective display name.
 // Uses SELECT-first to avoid burning autoincrement IDs on INSERT OR IGNORE.
-func upsertUser(discordID, username string) (int64, error) {
+// Name priority: preferred_name > display_name > username.
+func upsertUser(discordID, username, displayName string) (int64, string, error) {
 	var id int64
-	err := database.QueryRow("SELECT id FROM users WHERE discord_id = ?", discordID).Scan(&id)
+	var preferredName string
+	err := database.QueryRow("SELECT id, preferred_name FROM users WHERE discord_id = ?", discordID).Scan(&id, &preferredName)
 	if err == nil {
-		// Existing user — update username in case it changed
-		_, _ = database.Exec("UPDATE users SET username = ? WHERE id = ?", username, id)
-		return id, nil
+		// Existing user — update username and display_name
+		_, _ = database.Exec("UPDATE users SET username = ?, display_name = ? WHERE id = ?", username, displayName, id)
+		return id, effectiveName(preferredName, displayName, username), nil
 	}
 	if err != sql.ErrNoRows {
-		return 0, err
+		return 0, "", err
 	}
 
 	// New user — insert
 	res, err := database.Exec(
-		"INSERT INTO users (discord_id, username) VALUES (?, ?)",
-		discordID, username,
+		"INSERT INTO users (discord_id, username, display_name) VALUES (?, ?, ?)",
+		discordID, username, displayName,
 	)
 	if err != nil {
-		return 0, err
+		return 0, "", err
 	}
-	return res.LastInsertId()
+	id, err = res.LastInsertId()
+	return id, effectiveName("", displayName, username), err
+}
+
+// effectiveName returns the best available name: preferred > display > username.
+func effectiveName(preferredName, displayName, username string) string {
+	if preferredName != "" {
+		return preferredName
+	}
+	if displayName != "" {
+		return displayName
+	}
+	return username
 }
 
 // insertFact inserts a new fact and its embedding in a transaction.
