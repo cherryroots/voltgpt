@@ -3,6 +3,7 @@ tmp
 voltgpt
 .uuid
 *.gob
+voltgpt.db*
 *debug_bin*
 /.idea/.gitignore
 /.idea/modules.xml
