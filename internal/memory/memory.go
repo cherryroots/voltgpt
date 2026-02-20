@@ -16,12 +16,13 @@ import (
 )
 
 const (
-	embeddingModel    = "gemini-embedding-001"
-	generationModel   = "gemini-3-flash-preview"
-	similarityLimit   = 3
-	retrievalLimit    = 5
-	minMessageLength  = 10
-	distanceThreshold = float64(0.35)
+	embeddingModel      = "gemini-embedding-001"
+	embeddingDimensions = 768
+	generationModel     = "gemini-3-flash-preview"
+	similarityLimit     = 3
+	retrievalLimit      = 5
+	minMessageLength    = 10
+	distanceThreshold   = float64(0.35)
 )
 
 var (
@@ -54,9 +55,13 @@ func Init(db *sql.DB) {
 	log.Println("Memory system initialized")
 }
 
-// embed calls the Gemini embedding API and returns a float32 vector.
+// embed calls the Gemini embedding API and returns a float32 vector
+// truncated to embeddingDimensions via the API's OutputDimensionality param.
 func embed(ctx context.Context, text string) ([]float32, error) {
-	resp, err := client.Models.EmbedContent(ctx, embeddingModel, genai.Text(text), nil)
+	dim := int32(embeddingDimensions)
+	resp, err := client.Models.EmbedContent(ctx, embeddingModel, genai.Text(text), &genai.EmbedContentConfig{
+		OutputDimensionality: &dim,
+	})
 	if err != nil {
 		return nil, err
 	}
