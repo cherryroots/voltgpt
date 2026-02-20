@@ -40,6 +40,9 @@ func Extract(discordID, username, messageID, text string) {
 func extractFacts(ctx context.Context, username, text string) ([]string, error) {
 	prompt := "Extract long-term, third-person facts about the user from this message. " +
 		"Ignore temporary states like current mood or what they're doing right now. " +
+		"Each fact must be independent and non-overlapping — never return a fact that is a less specific version of another. " +
+		"If multiple facts cover the same topic, return only the single most detailed one. " +
+		"Prefer one high-quality fact over multiple shallow ones. " +
 		"If no long-term facts can be extracted, return an empty array.\n" +
 		"The user's name is " + username + ".\n" +
 		"Message: " + text
