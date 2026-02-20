@@ -309,7 +309,7 @@ func PrependReplyMessages(s *discordgo.Session, c *genai.Client, originMember *d
 	}
 
 	if role == "user" {
-		replyContent.Text = fmt.Sprintf("<username>%s</username>: %s", reply.Author.Username, replyContent.Text)
+		replyContent.Text = fmt.Sprintf("<user name=\"%s\"> %s </user>", reply.Author.Username, replyContent.Text)
 	}
 
 	newMsg := CreateContent(c, role, replyContent)
