@@ -176,7 +176,9 @@ func GetMessagesBefore(s *discordgo.Session, channelID string, count int, messag
 
 func GetChannelMessages(s *discordgo.Session, channelID string, count int) []*discordgo.Message {
 	var messages []*discordgo.Message
-	var lastMessage *discordgo.Message
+	lastMessage := &discordgo.Message{
+		ID: "",
+	}
 
 	iterations := count / 100
 	remainder := count % 100

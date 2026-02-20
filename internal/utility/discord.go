@@ -98,7 +98,7 @@ func GetMessageMediaURL(m *discordgo.Message) (images []string, videos []string,
 			if embed.Provider != nil {
 				provider = embed.Provider.Name
 			}
-			if IsImageURL(embed.Thumbnail.URL) && MatchMultiple(provider, providerBlacklist) {
+			if IsImageURL(embed.Thumbnail.URL) && !MatchMultiple(provider, providerBlacklist) {
 				addIfNotSeen(embed.Thumbnail.URL, &images)
 			}
 			if IsImageURL(embed.Thumbnail.ProxyURL) {
@@ -196,7 +196,7 @@ func HasVideoURL(m *discordgo.Message) bool {
 	regex := regexp.MustCompile(`(?m)<?(https?://[^\s<>]+)>?\b`)
 	result := regex.FindAllStringSubmatch(m.Content, -1)
 	for _, match := range result {
-		if IsImageURL(match[1]) {
+		if IsVideoURL(match[1]) {
 			return true
 		}
 	}

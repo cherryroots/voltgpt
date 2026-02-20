@@ -148,27 +148,18 @@ func StreamMessageResponse(s *discordgo.Session, c *genai.Client, m *discordgo.M
 	// Create system content
 	systemInstruction := genai.NewContentFromText(systemMessageText, genai.RoleModel)
 
-	// Prepare the request
+	// Prepare the request — drop leading model message if present,
+	// as the Gemini API requires history to start with a user turn.
 	var chatHistory []*genai.Content
-	var lastMessage *genai.Content
-
 	if len(history) > 0 && history[0].Role == "model" {
 		chatHistory = history[1:]
 	} else {
 		chatHistory = history
 	}
 
-	if len(chatHistory) > 0 {
-		lastMessage = chatHistory[len(chatHistory)-1]
-		chatHistory = chatHistory[:len(chatHistory)-1]
-	}
-
-	if lastMessage == nil {
+	if len(chatHistory) == 0 {
 		return fmt.Errorf("no messages to send")
 	}
-
-	// Re-assembling contents
-	allContents := append(chatHistory, lastMessage)
 
 	t := float32(1)
 	config := &genai.GenerateContentConfig{
@@ -184,7 +175,7 @@ func StreamMessageResponse(s *discordgo.Session, c *genai.Client, m *discordgo.M
 	}
 
 	// Call the API
-	stream := c.Models.GenerateContentStream(ctx, modelName, allContents, config)
+	stream := c.Models.GenerateContentStream(ctx, modelName, chatHistory, config)
 
 	// Consume stream
 	for resp, err := range stream {
@@ -336,7 +327,7 @@ func CreateContent(c *genai.Client, role string, content config.RequestContent) 
 	}
 
 	for _, imageURL := range content.Images {
-		if strings.Contains(imageURL, "thought_signature.png") {
+		if strings.Contains(imageURL, "thought_signature.png") && role == "model" {
 			data, err := utility.DownloadURL(imageURL)
 			if err != nil {
 				continue
