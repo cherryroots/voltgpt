@@ -33,7 +33,23 @@ var Modals = map[string]func(s *discordgo.Session, i *discordgo.InteractionCreat
 			User: user.User,
 		}
 
-		modalInput := i.ModalSubmitData().Components[0].(*discordgo.ActionsRow).Components[0].(*discordgo.TextInput).Value
+		components := i.ModalSubmitData().Components
+		if len(components) == 0 {
+			discord.UpdateResponse(s, i, "Invalid modal submission")
+			return
+		}
+		row, ok := components[0].(*discordgo.ActionsRow)
+		if !ok || len(row.Components) == 0 {
+			discord.UpdateResponse(s, i, "Invalid modal submission")
+			return
+		}
+		textInput, ok := row.Components[0].(*discordgo.TextInput)
+		if !ok {
+			discord.UpdateResponse(s, i, "Invalid modal submission")
+			return
+		}
+		modalInput := textInput.Value
+
 		amount, err := strconv.Atoi(modalInput)
 		if err != nil {
 			err := discord.UpdateResponse(s, i, "Invalid amount")
@@ -49,7 +65,16 @@ var Modals = map[string]func(s *discordgo.Session, i *discordgo.InteractionCreat
 			Amount: amount,
 		}
 
-		existingBet, hasBet := gamble.GameState.Rounds[gamble.GameState.CurrentRound().ID].HasBet(bet)
+		gamble.Mu.Lock()
+		defer gamble.Mu.Unlock()
+
+		if len(gamble.GameState.Rounds) == 0 {
+			discord.UpdateResponse(s, i, "No active rounds!")
+			return
+		}
+
+		currentRoundID := gamble.GameState.CurrentRound().ID
+		existingBet, hasBet := gamble.GameState.Rounds[currentRoundID].HasBet(bet)
 		existingAmount := 0
 		if hasBet {
 			existingAmount = existingBet.Amount
@@ -85,7 +110,7 @@ var Modals = map[string]func(s *discordgo.Session, i *discordgo.InteractionCreat
 			return
 		}
 
-		gamble.GameState.Rounds[gamble.GameState.CurrentRound().ID].AddBet(bet)
+		gamble.GameState.Rounds[currentRoundID].AddBet(bet)
 		message := fmt.Sprintf("Bet on %s for %d", onPlayer.User.DisplayName(), amount)
 
 		err = discord.UpdateResponse(s, i, message)

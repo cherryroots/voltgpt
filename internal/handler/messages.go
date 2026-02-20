@@ -19,21 +19,20 @@ import (
 
 func HandleMessage(s *discordgo.Session, m *discordgo.MessageCreate) {
 	// Delay 3 seconds to allow embeds to load
-	go func() {
-		if m.Message.GuildID != config.HashServer {
-			return
-		}
-		time.Sleep(3 * time.Second)
-		fetchedMessage, _ := s.ChannelMessage(m.Message.ChannelID, m.Message.ID)
-		if fetchedMessage == nil {
-			return
-		}
+	if m.Message.GuildID == config.HashServer {
+		go func() {
+			time.Sleep(3 * time.Second)
+			fetchedMessage, _ := s.ChannelMessage(m.Message.ChannelID, m.Message.ID)
+			if fetchedMessage == nil {
+				return
+			}
 
-		if utility.HasImageURL(fetchedMessage) || utility.HasVideoURL(fetchedMessage) {
-			options := hasher.HashOptions{Store: true}
-			hasher.HashAttachments(fetchedMessage, options)
-		}
-	}()
+			if utility.HasImageURL(fetchedMessage) || utility.HasVideoURL(fetchedMessage) {
+				options := hasher.HashOptions{Store: true}
+				hasher.HashAttachments(fetchedMessage, options)
+			}
+		}()
+	}
 
 	if m.Author.ID == s.State.User.ID || m.Author.Bot {
 		return
@@ -52,6 +51,7 @@ func HandleMessage(s *discordgo.Session, m *discordgo.MessageCreate) {
 		Backend: genai.BackendGeminiAPI,
 	})
 	if err != nil {
+		discord.LogSendErrorMessage(s, m.Message, fmt.Sprintf("Failed to create Gemini client: %v", err))
 		return
 	}
 

@@ -41,7 +41,11 @@ var Commands = map[string]func(s *discordgo.Session, i *discordgo.InteractionCre
 				resolution = option.StringValue()
 			}
 			if strings.HasPrefix(option.Name, "image") {
-				imgs = append(imgs, &i.ApplicationCommandData().Resolved.Attachments[option.Value.(string)].URL)
+				if val, ok := option.Value.(string); ok {
+					if att, exists := i.ApplicationCommandData().Resolved.Attachments[val]; exists {
+						imgs = append(imgs, &att.URL)
+					}
+				}
 			}
 			if option.Name == "urls" {
 				urls := option.StringValue()
@@ -67,6 +71,7 @@ var Commands = map[string]func(s *discordgo.Session, i *discordgo.InteractionCre
 			resolution = "2048*2048"
 		}
 		var images []*discordgo.File
+		var imgMu sync.Mutex
 
 		var wg sync.WaitGroup
 		for range amount {
@@ -163,7 +168,9 @@ var Commands = map[string]func(s *discordgo.Session, i *discordgo.InteractionCre
 					}
 					return
 				}
+				imgMu.Lock()
 				images = append(images, image...)
+				imgMu.Unlock()
 			}()
 		}
 		wg.Wait()
@@ -194,7 +201,11 @@ var Commands = map[string]func(s *discordgo.Session, i *discordgo.InteractionCre
 				negativePrompt = option.StringValue()
 			}
 			if option.Name == "image" {
-				img = i.ApplicationCommandData().Resolved.Attachments[option.Value.(string)].URL
+				if val, ok := option.Value.(string); ok {
+					if att, exists := i.ApplicationCommandData().Resolved.Attachments[val]; exists {
+						img = att.URL
+					}
+				}
 			}
 			if option.Name == "duration" {
 				duration = int(option.IntValue())
@@ -464,6 +475,10 @@ var Commands = map[string]func(s *discordgo.Session, i *discordgo.InteractionCre
 	"wheel_status": func(s *discordgo.Session, i *discordgo.InteractionCreate) {
 		log.Printf("Received interaction: %s by %s", i.ApplicationCommandData().Name, i.Interaction.Member.User.Username)
 		discord.DeferResponse(s, i)
+
+		gamble.Mu.Lock()
+		defer gamble.Mu.Unlock()
+
 		if len(gamble.GameState.Rounds) == 0 {
 			gamble.GameState.AddRound()
 		}
@@ -493,6 +508,10 @@ var Commands = map[string]func(s *discordgo.Session, i *discordgo.InteractionCre
 	"wheel_add": func(s *discordgo.Session, i *discordgo.InteractionCreate) {
 		log.Printf("Received interaction: %s by %s", i.ApplicationCommandData().Name, i.Interaction.Member.User.Username)
 		discord.DeferEphemeralResponse(s, i)
+
+		gamble.Mu.Lock()
+		defer gamble.Mu.Unlock()
+
 		var user *discordgo.User
 		var remove bool
 
@@ -560,6 +579,17 @@ var Commands = map[string]func(s *discordgo.Session, i *discordgo.InteractionCre
 			return
 		}
 
+		gamble.Mu.Lock()
+		defer gamble.Mu.Unlock()
+
+		if round <= 0 || round > len(gamble.GameState.Rounds) {
+			_, err := discord.SendFollowup(s, i, fmt.Sprintf("Invalid round number! Must be between 1 and %d", len(gamble.GameState.Rounds)))
+			if err != nil {
+				log.Println(err)
+			}
+			return
+		}
+
 		onPlayer := gamble.Player{
 			User: on,
 		}
@@ -601,6 +631,9 @@ var Commands = map[string]func(s *discordgo.Session, i *discordgo.InteractionCre
 			}
 			return
 		}
+
+		gamble.Mu.Lock()
+		defer gamble.Mu.Unlock()
 
 		gamble.GameState.ResetWheel()
 		_, err := discord.SendFollowup(s, i, "Wheel reset!")

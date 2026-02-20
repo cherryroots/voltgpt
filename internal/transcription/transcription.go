@@ -99,8 +99,8 @@ func writeTranscriptToDB(contentURL string, resp openai.AudioResponse) {
 
 func readTranscriptCache(contentURL string, locking bool) Transcript {
 	if locking {
-		TranscriptCache.Lock()
-		defer TranscriptCache.Unlock()
+		TranscriptCache.RLock()
+		defer TranscriptCache.RUnlock()
 	}
 
 	return TranscriptCache.t[contentURL]
@@ -118,13 +118,21 @@ func writeTranscriptCache(transcript Transcript, locking bool) {
 
 func checkTranscriptCache(contentURL string, locking bool) bool {
 	if locking {
-		TranscriptCache.Lock()
-		defer TranscriptCache.Unlock()
+		TranscriptCache.RLock()
+		defer TranscriptCache.RUnlock()
 	}
 
 	_, ok := TranscriptCache.t[contentURL]
 
 	return ok
+}
+
+// getFromCache atomically checks and retrieves a transcript from the cache.
+func getFromCache(contentURL string) (Transcript, bool) {
+	TranscriptCache.RLock()
+	defer TranscriptCache.RUnlock()
+	t, ok := TranscriptCache.t[contentURL]
+	return t, ok
 }
 
 func TotalTranscripts() int {
@@ -158,8 +166,7 @@ func GetTranscript(s *discordgo.Session, message *discordgo.Message) (text strin
 	}
 
 	for count, videoURL := range videoURLs {
-		if checkTranscriptCache(videoURL.contentURL, false) {
-			transcript := readTranscriptCache(videoURL.contentURL, false)
+		if transcript, ok := getFromCache(videoURL.contentURL); ok {
 			transcripts = append(transcripts, transcript)
 			continue
 		}
@@ -195,14 +202,13 @@ func GetTranscript(s *discordgo.Session, message *discordgo.Message) (text strin
 }
 
 func GetTranscriptFromVideo(videoURL string, downloadType string) (Transcript, error) {
-	if checkTranscriptCache(videoURL, false) {
-		transcript := readTranscriptCache(videoURL, false)
+	if transcript, ok := getFromCache(videoURL); ok {
 		return transcript, nil
 	}
 
 	openaiToken := os.Getenv("OPENAI_TOKEN")
 	if openaiToken == "" {
-		log.Fatal("OPENAI_TOKEN is not set")
+		return Transcript{}, fmt.Errorf("OPENAI_TOKEN is not set")
 	}
 	dir, err := os.MkdirTemp("", "video-*")
 	if err != nil {

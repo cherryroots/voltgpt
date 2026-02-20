@@ -8,6 +8,7 @@ import (
 	"log"
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/bwmarrin/discordgo"
 
@@ -15,6 +16,9 @@ import (
 )
 
 var database *sql.DB
+
+// Mu protects all GameState access. Lock in handlers before accessing GameState.
+var Mu sync.Mutex
 
 var GameState = game{
 	Rounds:     []round{},
@@ -192,7 +196,7 @@ func (g *game) CurrentRound() round {
 }
 
 func (g *game) Round(round int) round {
-	if round >= len(g.Rounds) {
+	if round <= 0 || round > len(g.Rounds) {
 		return g.CurrentRound()
 	}
 	return g.Rounds[round-1]
@@ -309,6 +313,7 @@ func (r *round) RemoveBet(by Player, on Player) {
 	for i, bet := range r.Bets {
 		if bet.By.ID() == by.ID() && bet.On.ID() == on.ID() {
 			r.Bets = append(r.Bets[:i], r.Bets[i+1:]...)
+			break
 		}
 	}
 	saveToDB()

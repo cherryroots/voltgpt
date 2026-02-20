@@ -15,6 +15,9 @@ import (
 var Components = map[string]func(s *discordgo.Session, i *discordgo.InteractionCreate){
 	"button_refresh": func(s *discordgo.Session, i *discordgo.InteractionCreate) {
 		log.Printf("Received interaction: %s by %s", i.MessageComponentData().CustomID, i.Interaction.Member.User.Username)
+		gamble.Mu.Lock()
+		defer gamble.Mu.Unlock()
+
 		s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 			Type: discordgo.InteractionResponseUpdateMessage,
 		})
@@ -39,16 +42,28 @@ var Components = map[string]func(s *discordgo.Session, i *discordgo.InteractionC
 		log.Printf("Received interaction: %s by %s", i.MessageComponentData().CustomID, i.Interaction.Member.User.Username)
 		discord.DeferEphemeralResponse(s, i)
 
+		gamble.Mu.Lock()
+		defer gamble.Mu.Unlock()
+
 		player := gamble.Player{
 			User: i.Interaction.Member.User,
 		}
 
 		gamble.GameState.AddPlayer(player)
 
+		if len(gamble.GameState.Rounds) == 0 {
+			_, err := discord.SendFollowup(s, i, "No active rounds!")
+			if err != nil {
+				log.Println(err)
+			}
+			return
+		}
+
 		message := ""
 		hasClaimed := false
+		currentRoundID := gamble.GameState.CurrentRound().ID
 
-		for _, claim := range gamble.GameState.Rounds[gamble.GameState.CurrentRound().ID].Claims {
+		for _, claim := range gamble.GameState.Rounds[currentRoundID].Claims {
 			if claim.ID() == player.ID() {
 				message = "You've already claimed!"
 				hasClaimed = true
@@ -57,7 +72,7 @@ var Components = map[string]func(s *discordgo.Session, i *discordgo.InteractionC
 		}
 
 		if !hasClaimed {
-			gamble.GameState.Rounds[gamble.GameState.CurrentRound().ID].AddClaim(player)
+			gamble.GameState.Rounds[currentRoundID].AddClaim(player)
 			message = "Claimed 100!"
 		}
 
@@ -68,6 +83,9 @@ var Components = map[string]func(s *discordgo.Session, i *discordgo.InteractionC
 	},
 	"button_bet": func(s *discordgo.Session, i *discordgo.InteractionCreate) {
 		log.Printf("Received interaction: %s by %s", i.MessageComponentData().CustomID, i.Interaction.Member.User.Username)
+
+		gamble.Mu.Lock()
+		defer gamble.Mu.Unlock()
 
 		gamble.GameState.AddPlayer(gamble.Player{User: i.Interaction.Member.User})
 
@@ -87,15 +105,32 @@ var Components = map[string]func(s *discordgo.Session, i *discordgo.InteractionC
 			}
 			return
 		}
+
+		gamble.Mu.Lock()
+		defer gamble.Mu.Unlock()
+
 		gamble.GameState.SendMenu(s, i, false, true)
 	},
 	"menu_bet": func(s *discordgo.Session, i *discordgo.InteractionCreate) {
 		log.Printf("Received interaction: %s by %s", i.MessageComponentData().CustomID, i.Interaction.Member.User.Username)
+
+		gamble.Mu.Lock()
+		defer gamble.Mu.Unlock()
+
+		if len(gamble.GameState.Rounds) == 0 {
+			discord.UpdateResponse(s, i, "No active rounds!")
+			return
+		}
+
 		selectedUser := i.MessageComponentData().Values
 		round := gamble.GameState.CurrentRound().ID
 
 		if strings.Contains(i.MessageComponentData().CustomID, "remove") {
-			member, _ := s.GuildMember(i.GuildID, selectedUser[0])
+			member, err := s.GuildMember(i.GuildID, selectedUser[0])
+			if err != nil || member == nil {
+				discord.UpdateResponse(s, i, "User is not in the server!")
+				return
+			}
 			by := gamble.Player{
 				User: i.Interaction.Member.User,
 			}
@@ -103,14 +138,18 @@ var Components = map[string]func(s *discordgo.Session, i *discordgo.InteractionC
 				User: member.User,
 			}
 			gamble.GameState.Rounds[round].RemoveBet(by, on)
-			err := discord.UpdateResponse(s, i, "Removed bet!")
+			err = discord.UpdateResponse(s, i, "Removed bet!")
 			if err != nil {
 				log.Println(err)
 			}
 			return
 		}
 		if strings.Contains(i.MessageComponentData().CustomID, "winner") {
-			member, _ := s.GuildMember(i.GuildID, selectedUser[0])
+			member, err := s.GuildMember(i.GuildID, selectedUser[0])
+			if err != nil || member == nil {
+				discord.UpdateResponse(s, i, "User is not in the server!")
+				return
+			}
 			player := gamble.Player{
 				User: member.User,
 			}
@@ -128,7 +167,7 @@ var Components = map[string]func(s *discordgo.Session, i *discordgo.InteractionC
 			}
 
 			gamble.GameState.Rounds[round].SetWinner(player)
-			err := discord.UpdateResponse(s, i, "Set winner!")
+			err = discord.UpdateResponse(s, i, "Set winner!")
 			if err != nil {
 				log.Println(err)
 			}

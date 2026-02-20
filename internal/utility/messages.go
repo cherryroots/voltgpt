@@ -188,6 +188,9 @@ func GetChannelMessages(s *discordgo.Session, channelID string, count int) []*di
 		if err != nil {
 			log.Printf("Error getting messages: %s\nClosest message: %s", err, lastMessage.Timestamp.String())
 		}
+		if len(batch) == 0 {
+			break
+		}
 		lastMessage = batch[len(batch)-1]
 		messages = append(messages, batch...)
 	}
