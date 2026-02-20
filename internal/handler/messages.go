@@ -103,15 +103,18 @@ func HandleMessage(s *discordgo.Session, m *discordgo.MessageCreate) {
 		gemini.PrependReplyMessages(s, c, m.Message.Member, m.Message, cache, &chatMessages)
 	}
 
-	// Retrieve memory facts for all users in the conversation
+	// Retrieve memory facts for users in the reply chain (not the whole channel)
 	users := map[string]string{m.Author.ID: m.Author.Username}
-	if cache != nil {
-		for _, cached := range cache {
-			if cached == nil || cached.Author == nil {
-				continue
+	if isReply {
+		ref := utility.GetReferencedMessage(s, m.Message, cache)
+		for ref != nil {
+			if ref.Author != nil && !ref.Author.Bot && ref.Author.ID != s.State.User.ID {
+				users[ref.Author.ID] = ref.Author.Username
 			}
-			if !cached.Author.Bot && cached.Author.ID != s.State.User.ID {
-				users[cached.Author.ID] = cached.Author.Username
+			if ref.Type == discordgo.MessageTypeReply {
+				ref = utility.GetReferencedMessage(s, ref, cache)
+			} else {
+				break
 			}
 		}
 	}
