@@ -16,6 +16,7 @@ import (
 	"voltgpt/internal/gamble"
 	"voltgpt/internal/handler"
 	"voltgpt/internal/hasher"
+	"voltgpt/internal/memory"
 	"voltgpt/internal/transcription"
 )
 
@@ -29,6 +30,7 @@ func init() {
 	hasher.Init(db.DB)
 	gamble.Init(db.DB)
 	transcription.Init(db.DB)
+	memory.Init(db.DB)
 }
 
 func main() {
@@ -43,7 +45,7 @@ func main() {
 		return
 	}
 
-	dg.Identify.Intents = discordgo.IntentGuildMessages
+	dg.Identify.Intents = discordgo.IntentGuildMessages | discordgo.IntentMessageContent
 	dg.ShouldReconnectOnError = true
 	dg.ShouldRetryOnRateLimit = true
 
@@ -75,6 +77,7 @@ func main() {
 		log.Printf("Hashes: %d", hasher.TotalHashes())
 		log.Printf("Rounds: %d", gamble.GameState.TotalRounds())
 		log.Printf("Transcripts in cache: %d", transcription.TotalTranscripts())
+		log.Printf("Active facts: %d", memory.TotalFacts())
 	})
 
 	err = dg.Open()

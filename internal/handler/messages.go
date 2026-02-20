@@ -11,6 +11,7 @@ import (
 	"voltgpt/internal/config"
 	"voltgpt/internal/discord"
 	"voltgpt/internal/hasher"
+	"voltgpt/internal/memory"
 	"voltgpt/internal/utility"
 
 	"github.com/bwmarrin/discordgo"
@@ -37,6 +38,9 @@ func HandleMessage(s *discordgo.Session, m *discordgo.MessageCreate) {
 	if m.Author.ID == s.State.User.ID || m.Author.Bot {
 		return
 	}
+
+	// Background fact extraction for all non-bot messages
+	go memory.Extract(m.Author.ID, m.Author.Username, m.ID, m.Content)
 
 	apiKey := os.Getenv("GEMINI_TOKEN")
 	if apiKey == "" {
@@ -99,7 +103,18 @@ func HandleMessage(s *discordgo.Session, m *discordgo.MessageCreate) {
 		gemini.PrependReplyMessages(s, c, m.Message.Member, m.Message, cache, &chatMessages)
 	}
 
-	err = gemini.StreamMessageResponse(s, c, m.Message, chatMessages)
+	// Retrieve memory facts for all users in the conversation
+	users := map[string]string{m.Author.ID: m.Author.Username}
+	if cache != nil {
+		for _, cached := range cache {
+			if cached.Author != nil && !cached.Author.Bot && cached.Author.ID != s.State.User.ID {
+				users[cached.Author.ID] = cached.Author.Username
+			}
+		}
+	}
+	backgroundFacts := memory.RetrieveMultiUser(m.Content, users)
+
+	err = gemini.StreamMessageResponse(s, c, m.Message, chatMessages, backgroundFacts)
 	if err != nil {
 		discord.LogSendErrorMessage(s, m.Message, err.Error())
 	}

@@ -124,7 +124,7 @@ func (s *Streamer) Flush() {
 }
 
 // StreamMessageResponse streams the response from Gemini to Discord.
-func StreamMessageResponse(s *discordgo.Session, c *genai.Client, m *discordgo.Message, history []*genai.Content) error {
+func StreamMessageResponse(s *discordgo.Session, c *genai.Client, m *discordgo.Message, history []*genai.Content, backgroundFacts string) error {
 	ctx := context.Background()
 
 	// Configure the model
@@ -144,6 +144,9 @@ func StreamMessageResponse(s *discordgo.Session, c *genai.Client, m *discordgo.M
 	// Inject System Message
 	instructionMessage := instructionSwitch(history)
 	systemMessageText := fmt.Sprintf("System message: %s\n\nInstruction message: %s", config.SystemMessageMinimal, instructionMessage)
+	if backgroundFacts != "" {
+		systemMessageText += "\n\n" + backgroundFacts
+	}
 
 	// Create system content
 	systemInstruction := genai.NewContentFromText(systemMessageText, genai.RoleModel)
