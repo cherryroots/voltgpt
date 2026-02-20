@@ -13,6 +13,7 @@ import (
 	"voltgpt/internal/discord"
 	"voltgpt/internal/gamble"
 	"voltgpt/internal/hasher"
+	"voltgpt/internal/memory"
 	"voltgpt/internal/utility"
 
 	"github.com/bwmarrin/discordgo"
@@ -623,6 +624,182 @@ var Commands = map[string]func(s *discordgo.Session, i *discordgo.InteractionCre
 
 		gamble.GameState.ResetWheel()
 		_, err := discord.SendFollowup(s, i, "Wheel reset!")
+		if err != nil {
+			log.Println(err)
+		}
+	},
+	"memory_view": func(s *discordgo.Session, i *discordgo.InteractionCreate) {
+		log.Printf("Received interaction: %s by %s", i.ApplicationCommandData().Name, i.Interaction.Member.User.Username)
+		discord.DeferEphemeralResponse(s, i)
+
+		if !utility.IsAdmin(i.Interaction.Member.User.ID) {
+			_, err := discord.SendFollowup(s, i, "Only admins can use this command!")
+			if err != nil {
+				log.Println(err)
+			}
+			return
+		}
+
+		var user *discordgo.User
+		for _, option := range i.ApplicationCommandData().Options {
+			if option.Name == "user" {
+				user = option.UserValue(s)
+			}
+		}
+
+		if user == nil {
+			_, err := discord.SendFollowup(s, i, "Please select a user.")
+			if err != nil {
+				log.Println(err)
+			}
+			return
+		}
+
+		facts := memory.GetUserFacts(user.ID)
+		if len(facts) == 0 {
+			_, err := discord.SendFollowup(s, i, fmt.Sprintf("No facts stored for %s.", user.Username))
+			if err != nil {
+				log.Println(err)
+			}
+			return
+		}
+
+		var sb strings.Builder
+		sb.WriteString(fmt.Sprintf("**Facts about %s** (%d total):\n", user.Username, len(facts)))
+		for _, f := range facts {
+			reinforcement := ""
+			if f.ReinforcementCount > 0 {
+				reinforcement = fmt.Sprintf(" [x%d]", f.ReinforcementCount)
+			}
+			sb.WriteString(fmt.Sprintf("- %s%s\n", f.FactText, reinforcement))
+		}
+
+		message := sb.String()
+		if len(message) > 2000 {
+			message = message[:1997] + "..."
+		}
+
+		_, err := discord.SendFollowup(s, i, message)
+		if err != nil {
+			log.Println(err)
+		}
+	},
+	"memory_delete": func(s *discordgo.Session, i *discordgo.InteractionCreate) {
+		log.Printf("Received interaction: %s by %s", i.ApplicationCommandData().Name, i.Interaction.Member.User.Username)
+		discord.DeferEphemeralResponse(s, i)
+
+		if !utility.IsAdmin(i.Interaction.Member.User.ID) {
+			_, err := discord.SendFollowup(s, i, "Only admins can use this command!")
+			if err != nil {
+				log.Println(err)
+			}
+			return
+		}
+
+		var user *discordgo.User
+		for _, option := range i.ApplicationCommandData().Options {
+			if option.Name == "user" {
+				user = option.UserValue(s)
+			}
+		}
+
+		var count int64
+		var err error
+		var message string
+
+		if user != nil {
+			count, err = memory.DeleteUserFacts(user.ID)
+			message = fmt.Sprintf("Deleted %d facts for %s.", count, user.Username)
+		} else {
+			count, err = memory.DeleteAllFacts()
+			message = fmt.Sprintf("Deleted %d facts for all users.", count)
+		}
+
+		if err != nil {
+			_, err := discord.SendFollowup(s, i, fmt.Sprintf("Error: %v", err))
+			if err != nil {
+				log.Println(err)
+			}
+			return
+		}
+
+		_, err = discord.SendFollowup(s, i, message)
+		if err != nil {
+			log.Println(err)
+		}
+	},
+	"memory_self": func(s *discordgo.Session, i *discordgo.InteractionCreate) {
+		log.Printf("Received interaction: %s by %s", i.ApplicationCommandData().Name, i.Interaction.Member.User.Username)
+		discord.DeferEphemeralResponse(s, i)
+
+		facts := memory.GetUserFacts(i.Interaction.Member.User.ID)
+		if len(facts) == 0 {
+			_, err := discord.SendFollowup(s, i, "I don't have any facts stored about you yet!")
+			if err != nil {
+				log.Println(err)
+			}
+			return
+		}
+
+		var sb strings.Builder
+		sb.WriteString(fmt.Sprintf("**What I know about you** (%d facts):\n", len(facts)))
+		for _, f := range facts {
+			sb.WriteString(fmt.Sprintf("- %s\n", f.FactText))
+		}
+
+		message := sb.String()
+		if len(message) > 2000 {
+			message = message[:1997] + "..."
+		}
+
+		_, err := discord.SendFollowup(s, i, message)
+		if err != nil {
+			log.Println(err)
+		}
+	},
+	"memory_digest": func(s *discordgo.Session, i *discordgo.InteractionCreate) {
+		log.Printf("Received interaction: %s by %s", i.ApplicationCommandData().Name, i.Interaction.Member.User.Username)
+		discord.DeferResponse(s, i)
+
+		if !utility.IsAdmin(i.Interaction.Member.User.ID) {
+			_, err := discord.SendFollowup(s, i, "Only admins can use this command!")
+			if err != nil {
+				log.Println(err)
+			}
+			return
+		}
+
+		recentFacts := memory.GetRecentFacts(20)
+		if len(recentFacts) == 0 {
+			_, err := discord.SendFollowup(s, i, "No facts learned recently!")
+			if err != nil {
+				log.Println(err)
+			}
+			return
+		}
+
+		// Group facts by user
+		userFacts := make(map[string][]string)
+		for _, f := range recentFacts {
+			userFacts[f.Username] = append(userFacts[f.Username], f.FactText)
+		}
+
+		var sb strings.Builder
+		sb.WriteString("**Memory Digest** — Here's what I've learned recently:\n\n")
+		for username, facts := range userFacts {
+			sb.WriteString(fmt.Sprintf("**%s:**\n", username))
+			for _, fact := range facts {
+				sb.WriteString(fmt.Sprintf("- %s\n", fact))
+			}
+			sb.WriteString("\n")
+		}
+
+		message := sb.String()
+		if len(message) > 2000 {
+			message = message[:1997] + "..."
+		}
+
+		_, err := discord.SendFollowup(s, i, message)
 		if err != nil {
 			log.Println(err)
 		}

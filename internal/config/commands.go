@@ -210,5 +210,45 @@ var (
 			Name: "Hash",
 			Type: discordgo.MessageApplicationCommand,
 		},
+		{
+			Name:                     "memory_view",
+			Description:              "View stored facts about a user (admin only)",
+			DefaultMemberPermissions: &writePermission,
+			DMPermission:             &dmPermission,
+			Options: []*discordgo.ApplicationCommandOption{
+				{
+					Type:        discordgo.ApplicationCommandOptionUser,
+					Name:        "user",
+					Description: "User to view facts for",
+					Required:    true,
+				},
+			},
+		},
+		{
+			Name:                     "memory_delete",
+			Description:              "Delete stored facts (admin only)",
+			DefaultMemberPermissions: &writePermission,
+			DMPermission:             &dmPermission,
+			Options: []*discordgo.ApplicationCommandOption{
+				{
+					Type:        discordgo.ApplicationCommandOptionUser,
+					Name:        "user",
+					Description: "User to delete facts for (omit for all)",
+					Required:    false,
+				},
+			},
+		},
+		{
+			Name:                     "memory_self",
+			Description:              "See what the bot remembers about you",
+			DefaultMemberPermissions: &writePermission,
+			DMPermission:             &dmPermission,
+		},
+		{
+			Name:                     "memory_digest",
+			Description:              "Post a summary of recently learned facts (admin only)",
+			DefaultMemberPermissions: &writePermission,
+			DMPermission:             &dmPermission,
+		},
 	}
 )

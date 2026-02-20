@@ -57,7 +57,8 @@ func createTables() {
 			original_message_id TEXT NOT NULL,
 			fact_text TEXT NOT NULL,
 			created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-			is_active INTEGER DEFAULT 1
+			is_active INTEGER DEFAULT 1,
+			reinforcement_count INTEGER DEFAULT 0
 		)`,
 	}
 

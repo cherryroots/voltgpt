@@ -71,6 +71,9 @@ func consolidateAndStore(ctx context.Context, userID int64, messageID, factText 
 			return replaceFact(sf.ID, userID, messageID, action.MergedText, mergedEmbedding)
 
 		case "KEEP":
+			if err := reinforceFact(sf.ID); err != nil {
+				log.Printf("memory: failed to reinforce fact %d: %v", sf.ID, err)
+			}
 			continue
 		}
 	}

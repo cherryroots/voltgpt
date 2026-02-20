@@ -178,3 +178,114 @@ func TotalFacts() int {
 	database.QueryRow("SELECT COUNT(*) FROM facts WHERE is_active = 1").Scan(&count)
 	return count
 }
+
+// Fact represents a stored fact for display.
+type Fact struct {
+	ID                 int64
+	FactText           string
+	CreatedAt          string
+	ReinforcementCount int
+}
+
+// GetUserFacts returns all active facts for a Discord user.
+func GetUserFacts(discordID string) []Fact {
+	if database == nil {
+		return nil
+	}
+
+	rows, err := database.Query(`
+		SELECT f.id, f.fact_text, f.created_at, f.reinforcement_count
+		FROM facts f
+		JOIN users u ON u.id = f.user_id
+		WHERE u.discord_id = ? AND f.is_active = 1
+		ORDER BY f.reinforcement_count DESC, f.created_at DESC
+	`, discordID)
+	if err != nil {
+		log.Printf("memory: failed to get user facts: %v", err)
+		return nil
+	}
+	defer rows.Close()
+
+	var facts []Fact
+	for rows.Next() {
+		var f Fact
+		if err := rows.Scan(&f.ID, &f.FactText, &f.CreatedAt, &f.ReinforcementCount); err != nil {
+			log.Printf("memory: failed to scan fact: %v", err)
+			continue
+		}
+		facts = append(facts, f)
+	}
+	return facts
+}
+
+// DeleteUserFacts soft-deletes all facts for a Discord user.
+func DeleteUserFacts(discordID string) (int64, error) {
+	res, err := database.Exec(`
+		UPDATE facts SET is_active = 0
+		WHERE user_id = (SELECT id FROM users WHERE discord_id = ?)
+		AND is_active = 1
+	`, discordID)
+	if err != nil {
+		return 0, err
+	}
+	return res.RowsAffected()
+}
+
+// DeleteAllFacts soft-deletes all facts.
+func DeleteAllFacts() (int64, error) {
+	res, err := database.Exec("UPDATE facts SET is_active = 0 WHERE is_active = 1")
+	if err != nil {
+		return 0, err
+	}
+	return res.RowsAffected()
+}
+
+// reinforceFact increments the reinforcement counter for a fact.
+func reinforceFact(factID int64) error {
+	_, err := database.Exec("UPDATE facts SET reinforcement_count = reinforcement_count + 1 WHERE id = ?", factID)
+	return err
+}
+
+// GetRecentFacts returns recently created active facts for the digest.
+func GetRecentFacts(limit int) []struct {
+	Username string
+	FactText string
+} {
+	if database == nil {
+		return nil
+	}
+
+	rows, err := database.Query(`
+		SELECT u.username, f.fact_text
+		FROM facts f
+		JOIN users u ON u.id = f.user_id
+		WHERE f.is_active = 1
+		ORDER BY f.created_at DESC
+		LIMIT ?
+	`, limit)
+	if err != nil {
+		log.Printf("memory: failed to get recent facts: %v", err)
+		return nil
+	}
+	defer rows.Close()
+
+	type recentFact struct {
+		Username string
+		FactText string
+	}
+	var facts []struct {
+		Username string
+		FactText string
+	}
+	for rows.Next() {
+		var f struct {
+			Username string
+			FactText string
+		}
+		if err := rows.Scan(&f.Username, &f.FactText); err != nil {
+			continue
+		}
+		facts = append(facts, f)
+	}
+	return facts
+}
