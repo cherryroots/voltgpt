@@ -184,6 +184,9 @@ func RetrieveMultiUser(query string, users map[string]string) string {
 func formatFactsXML(userFacts []UserFacts, generalFacts []GeneralFact) string {
 	var sb strings.Builder
 	sb.WriteString("<background_facts>\n")
+	sb.WriteString("<note>The <user> sections contain facts about the people you are currently talking to. " +
+		"The <general> section contains facts about OTHER people that may be topically relevant — " +
+		"never attribute general facts to the person you are speaking with.</note>\n")
 	for _, uf := range userFacts {
 		sb.WriteString(fmt.Sprintf("<user name=%q>\n", uf.Username))
 		for _, fact := range uf.Facts {
