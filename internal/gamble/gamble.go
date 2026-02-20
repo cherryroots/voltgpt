@@ -218,8 +218,15 @@ func (g *game) playerMoney(player Player, toRound round) int {
 			return money
 		}
 
-		if g.betsPercentage(player, r) < 10 {
-			money -= g.playerTax(player, r)
+		_, betAmount := g.PlayerBets(player, r)
+		var betPercentage int
+		if money > 0 {
+			betPercentage = betAmount * 100 / money
+		}
+
+		if betPercentage < 10 {
+			taxPercentage := 10 - betPercentage
+			money -= (money * 3 * taxPercentage) / 100
 		}
 
 		money += g.payout(player, r)
