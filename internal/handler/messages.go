@@ -107,7 +107,10 @@ func HandleMessage(s *discordgo.Session, m *discordgo.MessageCreate) {
 	users := map[string]string{m.Author.ID: m.Author.Username}
 	if cache != nil {
 		for _, cached := range cache {
-			if cached.Author != nil && !cached.Author.Bot && cached.Author.ID != s.State.User.ID {
+			if cached == nil || cached.Author == nil {
+				continue
+			}
+			if !cached.Author.Bot && cached.Author.ID != s.State.User.ID {
 				users[cached.Author.ID] = cached.Author.Username
 			}
 		}
