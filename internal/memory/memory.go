@@ -82,28 +82,29 @@ func serializeFloat32(v []float32) []byte {
 	return buf
 }
 
-// upsertUser inserts a user if they don't exist and returns their ID.
+// upsertUser returns an existing user's ID or inserts a new one.
+// Uses SELECT-first to avoid burning autoincrement IDs on INSERT OR IGNORE.
 func upsertUser(discordID, username string) (int64, error) {
-	_, err := database.Exec(
-		"INSERT OR IGNORE INTO users (discord_id, username) VALUES (?, ?)",
+	var id int64
+	err := database.QueryRow("SELECT id FROM users WHERE discord_id = ?", discordID).Scan(&id)
+	if err == nil {
+		// Existing user — update username in case it changed
+		_, _ = database.Exec("UPDATE users SET username = ? WHERE id = ?", username, id)
+		return id, nil
+	}
+	if err != sql.ErrNoRows {
+		return 0, err
+	}
+
+	// New user — insert
+	res, err := database.Exec(
+		"INSERT INTO users (discord_id, username) VALUES (?, ?)",
 		discordID, username,
 	)
 	if err != nil {
 		return 0, err
 	}
-
-	// Update username in case it changed
-	_, err = database.Exec(
-		"UPDATE users SET username = ? WHERE discord_id = ?",
-		username, discordID,
-	)
-	if err != nil {
-		return 0, err
-	}
-
-	var id int64
-	err = database.QueryRow("SELECT id FROM users WHERE discord_id = ?", discordID).Scan(&id)
-	return id, err
+	return res.LastInsertId()
 }
 
 // insertFact inserts a new fact and its embedding in a transaction.
