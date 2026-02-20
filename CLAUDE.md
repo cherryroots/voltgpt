@@ -50,7 +50,13 @@ internal/
   gamble/gamble.go             # Movie wheel game: rounds, bets, players
   hasher/hasher.go             # Perceptual image hashing, duplicate detection
   transcription/transcription.go  # Transcription cache backed by SQLite
-  utility/utility.go           # Image/media processing helpers, URL handling
+  utility/
+    discord.go               # Discord message formatting, content extraction, admin
+    messages.go              # Message splitting, sending, and retrieval
+    url.go                   # URL parsing, media type detection, downloading
+    image.go                 # Image processing, base64 encoding, PNG grids
+    video.go                 # FFmpeg video frame extraction
+    strings.go               # Generic string helpers
 ```
 
 ## Architecture

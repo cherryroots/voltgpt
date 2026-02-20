@@ -19,11 +19,11 @@ var Components = map[string]func(s *discordgo.Session, i *discordgo.InteractionC
 			Type: discordgo.InteractionResponseUpdateMessage,
 		})
 
-		if len(gamble.Wheel.Rounds) == 0 {
-			gamble.Wheel.AddRound()
+		if len(gamble.GameState.Rounds) == 0 {
+			gamble.GameState.AddRound()
 		}
 
-		embed := gamble.Wheel.StatusEmbed(gamble.Wheel.CurrentRound())
+		embed := gamble.GameState.StatusEmbed(gamble.GameState.CurrentRound())
 
 		_, err := s.ChannelMessageEditComplex(&discordgo.MessageEdit{
 			Channel:    i.ChannelID,
@@ -43,12 +43,12 @@ var Components = map[string]func(s *discordgo.Session, i *discordgo.InteractionC
 			User: i.Interaction.Member.User,
 		}
 
-		gamble.Wheel.AddPlayer(player)
+		gamble.GameState.AddPlayer(player)
 
 		message := ""
 		hasClaimed := false
 
-		for _, claim := range gamble.Wheel.Rounds[gamble.Wheel.CurrentRound().ID].Claims {
+		for _, claim := range gamble.GameState.Rounds[gamble.GameState.CurrentRound().ID].Claims {
 			if claim.ID() == player.ID() {
 				message = "You've already claimed!"
 				hasClaimed = true
@@ -57,7 +57,7 @@ var Components = map[string]func(s *discordgo.Session, i *discordgo.InteractionC
 		}
 
 		if !hasClaimed {
-			gamble.Wheel.Rounds[gamble.Wheel.CurrentRound().ID].AddClaim(player)
+			gamble.GameState.Rounds[gamble.GameState.CurrentRound().ID].AddClaim(player)
 			message = "Claimed 100!"
 		}
 
@@ -69,13 +69,13 @@ var Components = map[string]func(s *discordgo.Session, i *discordgo.InteractionC
 	"button_bet": func(s *discordgo.Session, i *discordgo.InteractionCreate) {
 		log.Printf("Received interaction: %s by %s", i.MessageComponentData().CustomID, i.Interaction.Member.User.Username)
 
-		gamble.Wheel.AddPlayer(gamble.Player{User: i.Interaction.Member.User})
+		gamble.GameState.AddPlayer(gamble.Player{User: i.Interaction.Member.User})
 
 		var remove bool
 		if strings.Contains(i.MessageComponentData().CustomID, "remove") {
 			remove = true
 		}
-		gamble.Wheel.SendMenu(s, i, remove, false)
+		gamble.GameState.SendMenu(s, i, remove, false)
 	},
 	"button_winner": func(s *discordgo.Session, i *discordgo.InteractionCreate) {
 		log.Printf("Received interaction: %s by %s", i.MessageComponentData().CustomID, i.Interaction.Member.User.Username)
@@ -87,12 +87,12 @@ var Components = map[string]func(s *discordgo.Session, i *discordgo.InteractionC
 			}
 			return
 		}
-		gamble.Wheel.SendMenu(s, i, false, true)
+		gamble.GameState.SendMenu(s, i, false, true)
 	},
 	"menu_bet": func(s *discordgo.Session, i *discordgo.InteractionCreate) {
 		log.Printf("Received interaction: %s by %s", i.MessageComponentData().CustomID, i.Interaction.Member.User.Username)
 		selectedUser := i.MessageComponentData().Values
-		round := gamble.Wheel.CurrentRound().ID
+		round := gamble.GameState.CurrentRound().ID
 
 		if strings.Contains(i.MessageComponentData().CustomID, "remove") {
 			member, _ := s.GuildMember(i.GuildID, selectedUser[0])
@@ -102,7 +102,7 @@ var Components = map[string]func(s *discordgo.Session, i *discordgo.InteractionC
 			on := gamble.Player{
 				User: member.User,
 			}
-			gamble.Wheel.Rounds[round].RemoveBet(by, on)
+			gamble.GameState.Rounds[round].RemoveBet(by, on)
 			err := discord.UpdateResponse(s, i, "Removed bet!")
 			if err != nil {
 				log.Println(err)
@@ -115,7 +115,7 @@ var Components = map[string]func(s *discordgo.Session, i *discordgo.InteractionC
 				User: member.User,
 			}
 
-			if len(gamble.Wheel.Rounds[round].Bets) == 0 {
+			if len(gamble.GameState.Rounds[round].Bets) == 0 {
 				err := discord.UpdateResponse(s, i, "No bets!")
 				if err != nil {
 					log.Println(err)
@@ -123,11 +123,11 @@ var Components = map[string]func(s *discordgo.Session, i *discordgo.InteractionC
 				return
 			}
 
-			if !gamble.Wheel.Rounds[round].HasWinner() {
-				gamble.Wheel.AddRound()
+			if !gamble.GameState.Rounds[round].HasWinner() {
+				gamble.GameState.AddRound()
 			}
 
-			gamble.Wheel.Rounds[round].SetWinner(player)
+			gamble.GameState.Rounds[round].SetWinner(player)
 			err := discord.UpdateResponse(s, i, "Set winner!")
 			if err != nil {
 				log.Println(err)
@@ -135,6 +135,6 @@ var Components = map[string]func(s *discordgo.Session, i *discordgo.InteractionC
 			return
 		}
 
-		gamble.Wheel.SendModal(s, i, selectedUser[0])
+		gamble.GameState.SendModal(s, i, selectedUser[0])
 	},
 }

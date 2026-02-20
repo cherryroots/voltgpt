@@ -464,8 +464,8 @@ var Commands = map[string]func(s *discordgo.Session, i *discordgo.InteractionCre
 	"wheel_status": func(s *discordgo.Session, i *discordgo.InteractionCreate) {
 		log.Printf("Received interaction: %s by %s", i.ApplicationCommandData().Name, i.Interaction.Member.User.Username)
 		discord.DeferResponse(s, i)
-		if len(gamble.Wheel.Rounds) == 0 {
-			gamble.Wheel.AddRound()
+		if len(gamble.GameState.Rounds) == 0 {
+			gamble.GameState.AddRound()
 		}
 
 		var round int
@@ -477,10 +477,10 @@ var Commands = map[string]func(s *discordgo.Session, i *discordgo.InteractionCre
 		}
 
 		if round == 0 {
-			round = gamble.Wheel.CurrentRound().ID + 1
+			round = gamble.GameState.CurrentRound().ID + 1
 		}
 
-		embed := gamble.Wheel.StatusEmbed(gamble.Wheel.Round(round))
+		embed := gamble.GameState.StatusEmbed(gamble.GameState.Round(round))
 		_, err := s.FollowupMessageCreate(i.Interaction, true, &discordgo.WebhookParams{
 			Embeds:     []*discordgo.MessageEmbed{&embed},
 			Components: gamble.RoundMessageComponents,
@@ -518,10 +518,10 @@ var Commands = map[string]func(s *discordgo.Session, i *discordgo.InteractionCre
 			User: user,
 		}
 		if remove {
-			gamble.Wheel.RemoveWheelOption(player)
+			gamble.GameState.RemoveWheelOption(player)
 			message = fmt.Sprintf("Removed %s from the wheel!", player.User.DisplayName())
 		} else {
-			gamble.Wheel.AddWheelOption(player)
+			gamble.GameState.AddWheelOption(player)
 			message = fmt.Sprintf("Added %s to the wheel!", player.User.DisplayName())
 		}
 
@@ -576,11 +576,11 @@ var Commands = map[string]func(s *discordgo.Session, i *discordgo.InteractionCre
 		var message string
 
 		if bet.Amount == 0 {
-			gamble.Wheel.Rounds[round-1].RemoveBet(byPlayer, onPlayer)
+			gamble.GameState.Rounds[round-1].RemoveBet(byPlayer, onPlayer)
 			message = fmt.Sprintf("Removed bet on %s, by %s on round %d", onPlayer.User.DisplayName(), byPlayer.User.DisplayName(), round)
 
 		} else {
-			gamble.Wheel.Rounds[round-1].AddBet(bet)
+			gamble.GameState.Rounds[round-1].AddBet(bet)
 			message = fmt.Sprintf("Added bet on %s, by %s for %d on round %d", onPlayer.User.DisplayName(), byPlayer.User.DisplayName(), amount, round)
 
 		}
@@ -602,7 +602,7 @@ var Commands = map[string]func(s *discordgo.Session, i *discordgo.InteractionCre
 			return
 		}
 
-		gamble.Wheel.ResetWheel()
+		gamble.GameState.ResetWheel()
 		_, err := discord.SendFollowup(s, i, "Wheel reset!")
 		if err != nil {
 			log.Println(err)

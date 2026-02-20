@@ -16,7 +16,7 @@ import (
 
 var database *sql.DB
 
-var Wheel = game{
+var GameState = game{
 	Rounds:     []round{},
 	BetOptions: []Player{},
 	Players:    []Player{},
@@ -37,7 +37,7 @@ func loadFromDB() {
 		log.Fatalf("Failed to load game_state: %v", err)
 	}
 
-	if err := json.Unmarshal([]byte(data), &Wheel); err != nil {
+	if err := json.Unmarshal([]byte(data), &GameState); err != nil {
 		log.Fatalf("Failed to unmarshal game state: %v", err)
 	}
 }
@@ -46,7 +46,7 @@ func saveToDB() {
 	if database == nil {
 		return
 	}
-	data, err := json.Marshal(Wheel)
+	data, err := json.Marshal(GameState)
 	if err != nil {
 		log.Printf("Failed to marshal game state: %v", err)
 		return

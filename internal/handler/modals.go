@@ -49,14 +49,14 @@ var Modals = map[string]func(s *discordgo.Session, i *discordgo.InteractionCreat
 			Amount: amount,
 		}
 
-		existingBet, hasBet := gamble.Wheel.Rounds[gamble.Wheel.CurrentRound().ID].HasBet(bet)
+		existingBet, hasBet := gamble.GameState.Rounds[gamble.GameState.CurrentRound().ID].HasBet(bet)
 		existingAmount := 0
 		if hasBet {
 			existingAmount = existingBet.Amount
 		}
 
-		options := len(gamble.Wheel.CurrentWheelOptions())
-		PlayerBets, _ := gamble.Wheel.PlayerBets(byPlayer, gamble.Wheel.CurrentRound())
+		options := len(gamble.GameState.CurrentWheelOptions())
+		PlayerBets, _ := gamble.GameState.PlayerBets(byPlayer, gamble.GameState.CurrentRound())
 		if options%2 == 1 {
 			options++
 		}
@@ -69,7 +69,7 @@ var Modals = map[string]func(s *discordgo.Session, i *discordgo.InteractionCreat
 
 		}
 
-		if amount > gamble.Wheel.PlayerUsableMoney(byPlayer)+existingAmount {
+		if amount > gamble.GameState.PlayerUsableMoney(byPlayer)+existingAmount {
 			err := discord.UpdateResponse(s, i, "You don't have that much money")
 			if err != nil {
 				log.Println(err)
@@ -85,7 +85,7 @@ var Modals = map[string]func(s *discordgo.Session, i *discordgo.InteractionCreat
 			return
 		}
 
-		gamble.Wheel.Rounds[gamble.Wheel.CurrentRound().ID].AddBet(bet)
+		gamble.GameState.Rounds[gamble.GameState.CurrentRound().ID].AddBet(bet)
 		message := fmt.Sprintf("Bet on %s for %d", onPlayer.User.DisplayName(), amount)
 
 		err = discord.UpdateResponse(s, i, message)

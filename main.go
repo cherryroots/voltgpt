@@ -73,7 +73,7 @@ func main() {
 	dg.AddHandler(func(s *discordgo.Session, _ *discordgo.Ready) {
 		log.Printf("Logged in as: %v#%v", s.State.User.Username, s.State.User.Discriminator)
 		log.Printf("Hashes: %d", hasher.TotalHashes())
-		log.Printf("Rounds: %d", gamble.Wheel.TotalRounds())
+		log.Printf("Rounds: %d", gamble.GameState.TotalRounds())
 		log.Printf("Transcripts in cache: %d", transcription.TotalTranscripts())
 	})
 
