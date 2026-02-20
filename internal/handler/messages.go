@@ -40,7 +40,9 @@ func HandleMessage(s *discordgo.Session, m *discordgo.MessageCreate) {
 	}
 
 	// Background fact extraction for all non-bot messages
-	go memory.Extract(m.Author.ID, m.Author.Username, m.ID, m.ChannelID, m.Content)
+	if !memory.ExtractionBlacklist[m.ChannelID] {
+		go memory.Extract(m.Author.ID, m.Author.Username, m.ID, m.Content)
+	}
 
 	apiKey := os.Getenv("GEMINI_TOKEN")
 	if apiKey == "" {
