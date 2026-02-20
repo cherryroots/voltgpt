@@ -21,8 +21,8 @@ func TestCreateMemoryTables(t *testing.T) {
 		t.Fatalf("facts table not created: %v", err)
 	}
 
-	// Verify vec_facts virtual table exists by inserting a zero vector (768 floats)
-	// sqlite-vec expects a JSON array for inserts
+	// Verify vec_facts virtual table exists by inserting a zero vector
+	// sqlite-vec accepts raw little-endian float32 bytes
 	zeroVec := make([]byte, 768*4) // 768 float32s = 3072 bytes
 	_, err = DB.Exec("INSERT INTO vec_facts (fact_id, embedding) VALUES (1, ?)", zeroVec)
 	if err != nil {

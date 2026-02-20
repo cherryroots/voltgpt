@@ -69,10 +69,12 @@ func createTables() {
 
 	var name string
 	err := DB.QueryRow("SELECT name FROM sqlite_master WHERE type='table' AND name='vec_facts'").Scan(&name)
-	if err != nil {
+	if err == sql.ErrNoRows {
 		_, err = DB.Exec(`CREATE VIRTUAL TABLE vec_facts USING vec0(fact_id INTEGER PRIMARY KEY, embedding float[768])`)
 		if err != nil {
 			log.Fatalf("Failed to create vec_facts table: %v", err)
 		}
+	} else if err != nil {
+		log.Fatalf("Failed to check vec_facts table: %v", err)
 	}
 }
