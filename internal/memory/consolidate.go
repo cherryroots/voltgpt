@@ -25,7 +25,7 @@ const consolidationSystemPrompt = `You are a memory consolidation AI. Your job i
 Rules:
 1. INVALIDATE: Use this if the new fact completely replaces or contradicts the old fact (e.g., 'Lives in NY' vs 'Moved to LA').
 2. MERGE: Use this if the facts are about the exact same topic/entity and can be combined into a single, richer sentence (e.g., 'Owns an Xbox' + 'Bought a PS5' -> 'Owns both an Xbox and a PS5').
-3. KEEP: Use this if the facts are completely unrelated and should both exist independently.
+3. KEEP: Use this if the old fact already covers the same information, or if the facts are about different topics. The old fact will be reinforced and no new entry will be created.
 
 If you choose MERGE, you must provide the newly combined fact. If you choose KEEP or INVALIDATE, leave the merged text blank.`
 
@@ -48,6 +48,7 @@ func consolidateAndStore(ctx context.Context, userID int64, messageID, factText 
 	}
 
 	// Check each similar fact for consolidation
+	reinforced := false
 	for _, sf := range similar {
 		action, err := decideAction(ctx, sf.FactText, factText)
 		if err != nil {
@@ -71,14 +72,18 @@ func consolidateAndStore(ctx context.Context, userID int64, messageID, factText 
 			return replaceFact(sf.ID, userID, messageID, action.MergedText, mergedEmbedding)
 
 		case "KEEP":
+			// Similar fact already covers this knowledge — reinforce it
 			if err := reinforceFact(sf.ID); err != nil {
 				log.Printf("memory: failed to reinforce fact %d: %v", sf.ID, err)
 			}
-			continue
+			reinforced = true
 		}
 	}
 
-	// All similar facts returned KEEP — insert as new
+	// Only insert as new if no existing fact was reinforced
+	if reinforced {
+		return nil
+	}
 	return insertFact(userID, messageID, factText, embedding)
 }
 
