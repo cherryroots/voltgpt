@@ -9,13 +9,16 @@ Go Discord bot ("Volt-仙女") providing multimodal AI chat (Gemini, OpenRouter)
 ```bash
 go build -o voltgpt   # build
 ./voltgpt             # run (reads .env automatically)
+go vet ./...          # static analysis
 ```
 
 SQLite database (`voltgpt.db`) is created automatically on first run with WAL mode enabled.
 
+The `backup/` directory holds legacy `.gob` snapshots from before the SQLite migration; safe to ignore.
+
 ## Environment Variables
 
-Copy `sample.env` to `.env`. Required:
+Copy `sample.env` to `.env` and add missing tokens manually (sample.env is incomplete). Required:
 - `DISCORD_TOKEN` — bot authentication
 
 Optional (features degrade gracefully without these):
@@ -92,5 +95,4 @@ Data lives in memory (protected by `sync.RWMutex`) and is periodically written b
 | `mattn/go-sqlite3` | SQLite driver |
 | `u2takey/ffmpeg-go` | FFmpeg media processing |
 | `corona10/goimagehash` | Perceptual image hashing |
-| `jaytaylor.com/html2text` | HTML-to-markdown for web browsing |
 | `joho/godotenv` | .env file loading |

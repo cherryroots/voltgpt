@@ -8,7 +8,6 @@ import (
 	"sync"
 	"time"
 
-	oai "voltgpt/internal/apis/openai"
 	wave "voltgpt/internal/apis/wavespeed"
 	"voltgpt/internal/config"
 	"voltgpt/internal/discord"
@@ -412,19 +411,6 @@ var Commands = map[string]func(s *discordgo.Session, i *discordgo.InteractionCre
 		wg.Wait()
 
 		_, err := discord.EditMessage(s, hashedStatus, fmt.Sprintf("Status: done\n Threads included: %t\nHashing until: %s\nMessages processed: %d\nHashes: %d", threads, endDate.Format("2006/01/02"), msgCount, hashCount))
-		if err != nil {
-			log.Println(err)
-		}
-	},
-	"TTS": func(s *discordgo.Session, i *discordgo.InteractionCreate) {
-		log.Printf("Received interaction: %s by %s", i.ApplicationCommandData().Name, i.Interaction.Member.User.Username)
-		discord.DeferResponse(s, i)
-
-		message := i.ApplicationCommandData().Resolved.Messages[i.ApplicationCommandData().TargetID]
-
-		files := oai.SplitTTS(message.Content)
-
-		_, err := discord.SendFollowupFile(s, i, utility.LinkFromIMessage(i.GuildID, message), files)
 		if err != nil {
 			log.Println(err)
 		}

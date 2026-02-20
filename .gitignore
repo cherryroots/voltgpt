@@ -12,3 +12,4 @@ voltgpt.db*
 /.idea/voltgpt.iml
 /.vscode
 /.claude
+/backup

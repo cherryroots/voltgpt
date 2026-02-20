@@ -208,7 +208,7 @@ func GetChannelMessages(s *discordgo.Session, channelID string, count int) []*di
 func GetAllServerMessages(s *discordgo.Session, statusMessage *discordgo.Message, channels []*discordgo.Channel, threads bool, endDate time.Time, c chan []*discordgo.Message) {
 	defer close(c)
 
-	var hashChannels []*discordgo.Channel
+	var channelCollection []*discordgo.Channel
 
 	if threads {
 		discord.EditMessage(s, statusMessage, fmt.Sprintf("Fetching threads for %d channels...", len(channels)))
@@ -221,15 +221,15 @@ func GetAllServerMessages(s *discordgo.Session, statusMessage *discordgo.Message
 			if err != nil {
 				log.Printf("Error getting archived threads for channel %s: %s\n", channel.Name, err)
 			}
-			hashChannels = append(hashChannels, channel)
-			hashChannels = append(hashChannels, activeThreads.Threads...)
-			hashChannels = append(hashChannels, archivedThreads.Threads...)
+			channelCollection = append(channelCollection, channel)
+			channelCollection = append(channelCollection, activeThreads.Threads...)
+			channelCollection = append(channelCollection, archivedThreads.Threads...)
 		}
 	} else {
-		hashChannels = channels
+		channelCollection = channels
 	}
 
-	for _, channel := range hashChannels {
+	for _, channel := range channelCollection {
 		var outputMessage string
 		var err error
 		if channel.IsThread() {
