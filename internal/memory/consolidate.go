@@ -23,11 +23,12 @@ type similarFact struct {
 const consolidationSystemPrompt = `You are a memory consolidation AI. Your job is to compare a NEW fact with an OLD fact and decide how to update the database.
 
 Rules:
-1. INVALIDATE: Use this if the new fact completely replaces or contradicts the old fact (e.g., 'Lives in NY' vs 'Moved to LA').
-2. MERGE: Use this if the facts are about the exact same topic/entity and can be combined into a single, richer sentence (e.g., 'Owns an Xbox' + 'Bought a PS5' -> 'Owns both an Xbox and a PS5').
-3. KEEP: Use this if the old fact already covers the same information, or if the facts are about different topics. The old fact will be reinforced and no new entry will be created.
+1. REINFORCE: Use this if the new fact is essentially the same information as the old fact, just reconfirming what we already know (e.g., 'Uses AutoCAD' vs 'Uses AutoCAD'). The existing fact's confidence will be increased.
+2. INVALIDATE: Use this if the new fact completely replaces or contradicts the old fact (e.g., 'Lives in NY' vs 'Moved to LA').
+3. MERGE: Use this if the facts are about the exact same topic/entity and can be combined into a single, richer sentence (e.g., 'Owns an Xbox' + 'Bought a PS5' -> 'Owns both an Xbox and a PS5').
+4. KEEP: Use this if the facts are about completely different topics and should both exist independently (e.g., 'Likes cooking' vs 'Works at Google').
 
-If you choose MERGE, you must provide the newly combined fact. If you choose KEEP or INVALIDATE, leave the merged text blank.`
+If you choose MERGE, you must provide the newly combined fact. For REINFORCE, KEEP, or INVALIDATE, leave the merged text blank.`
 
 // consolidateAndStore embeds a new fact, checks for similar existing facts,
 // and either inserts, merges, or invalidates as appropriate.
@@ -48,7 +49,6 @@ func consolidateAndStore(ctx context.Context, userID int64, messageID, factText 
 	}
 
 	// Check each similar fact for consolidation
-	reinforced := false
 	for _, sf := range similar {
 		action, err := decideAction(ctx, sf.FactText, factText)
 		if err != nil {
@@ -57,13 +57,20 @@ func consolidateAndStore(ctx context.Context, userID int64, messageID, factText 
 		}
 
 		switch action.Action {
+		case "REINFORCE":
+			// Same info restated — bump confidence, don't insert
+			if err := reinforceFact(sf.ID); err != nil {
+				log.Printf("memory: failed to reinforce fact %d: %v", sf.ID, err)
+			}
+			return nil
+
 		case "INVALIDATE":
 			return replaceFact(sf.ID, userID, messageID, factText, embedding)
 
 		case "MERGE":
 			if action.MergedText == "" {
-				log.Printf("memory: MERGE action returned empty merged_text, falling back to KEEP")
-				continue
+				log.Printf("memory: MERGE action returned empty merged_text, falling back to REINFORCE")
+				return nil
 			}
 			mergedEmbedding, err := embed(ctx, action.MergedText)
 			if err != nil {
@@ -72,18 +79,12 @@ func consolidateAndStore(ctx context.Context, userID int64, messageID, factText 
 			return replaceFact(sf.ID, userID, messageID, action.MergedText, mergedEmbedding)
 
 		case "KEEP":
-			// Similar fact already covers this knowledge — reinforce it
-			if err := reinforceFact(sf.ID); err != nil {
-				log.Printf("memory: failed to reinforce fact %d: %v", sf.ID, err)
-			}
-			reinforced = true
+			// Different topics — continue checking other similar facts
+			continue
 		}
 	}
 
-	// Only insert as new if no existing fact was reinforced
-	if reinforced {
-		return nil
-	}
+	// No similar fact claimed this knowledge — insert as new
 	return insertFact(userID, messageID, factText, embedding)
 }
 
@@ -118,7 +119,7 @@ func findSimilarFacts(userID int64, embedding []float32) ([]similarFact, error) 
 	return results, rows.Err()
 }
 
-// decideAction calls Gemini to decide whether to KEEP, INVALIDATE, or MERGE two facts.
+// decideAction calls Gemini to decide whether to REINFORCE, INVALIDATE, MERGE, or KEEP two facts.
 func decideAction(ctx context.Context, oldFact, newFact string) (*consolidationAction, error) {
 	prompt := fmt.Sprintf("OLD: %q\nNEW: %q", oldFact, newFact)
 
@@ -134,7 +135,7 @@ func decideAction(ctx context.Context, oldFact, newFact string) (*consolidationA
 				Properties: map[string]*genai.Schema{
 					"action": {
 						Type: genai.TypeString,
-						Enum: []string{"KEEP", "INVALIDATE", "MERGE"},
+						Enum: []string{"REINFORCE", "INVALIDATE", "MERGE", "KEEP"},
 					},
 					"merged_text": {
 						Type: genai.TypeString,
@@ -149,7 +150,7 @@ func decideAction(ctx context.Context, oldFact, newFact string) (*consolidationA
 	}
 
 	if len(resp.Candidates) == 0 || resp.Candidates[0].Content == nil {
-		return &consolidationAction{Action: "KEEP"}, nil
+		return &consolidationAction{Action: "REINFORCE"}, nil
 	}
 
 	var responseText string
