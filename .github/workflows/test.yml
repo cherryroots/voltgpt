@@ -16,7 +16,7 @@ jobs:
           go-version: "1.26"
 
       - name: Install system dependencies
-        run: sudo apt-get install -y gcc ffmpeg
+        run: sudo apt-get update && sudo apt-get install -y --fix-missing gcc ffmpeg
 
       - name: Test
         run: go test ./... -timeout 60s
