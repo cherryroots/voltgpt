@@ -1,0 +1,25 @@
+name: Test
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.26"
+
+      - name: Install system dependencies
+        run: sudo apt-get install -y gcc ffmpeg
+
+      - name: Test
+        run: go test ./... -timeout 60s
+        env:
+          MEMORY_GEMINI_TOKEN: ${{ secrets.MEMORY_GEMINI_TOKEN }}
+          CGO_ENABLED: "1"
