@@ -23,10 +23,7 @@ Copy `sample.env` to `.env` and add missing tokens manually (sample.env is incom
 
 Optional (features degrade gracefully without these):
 - `GEMINI_TOKEN` — Google Gemini API (message handler chat)
-- `OPENROUTER_TOKEN` — OpenRouter API (slash command chat, model: o3)
-- `OPENAI_TOKEN` — OpenAI API (TTS transcription)
 - `WAVESPEED_TOKEN` — Wavespeed API (image generation, video creation)
-- `ANTHROPIC_TOKEN`, `STABILITY_TOKEN` — currently unused but defined in sample.env
 
 ## Project Structure
 

@@ -17,12 +17,12 @@ import (
 )
 
 const (
-	embeddingModel      = "gemini-embedding-001"
-	embeddingDimensions = 768
-	generationModel     = "gemini-3-flash-preview"
+	embeddingModel        = "gemini-embedding-001"
+	embeddingDimensions   = 768
+	generationModel       = "gemini-3-flash-preview"
 	similarityLimit       = 3
 	retrievalLimit        = 5
-	generalRetrievalLimit = 5
+	generalRetrievalLimit = 10
 	minMessageLength      = 10
 	distanceThreshold     = float64(0.35)
 )

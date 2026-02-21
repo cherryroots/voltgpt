@@ -20,7 +20,7 @@ import (
 
 func HandleMessage(s *discordgo.Session, m *discordgo.MessageCreate) {
 	// Delay 3 seconds to allow embeds to load
-	if m.Message.GuildID == config.HashServer {
+	if m.Message.GuildID == config.MainServer {
 		go func() {
 			time.Sleep(3 * time.Second)
 			fetchedMessage, _ := s.ChannelMessage(m.Message.ChannelID, m.Message.ID)
@@ -40,7 +40,7 @@ func HandleMessage(s *discordgo.Session, m *discordgo.MessageCreate) {
 	}
 
 	// Background fact extraction for all non-bot messages
-	if !config.MemoryBlacklist[m.ChannelID] {
+	if !config.MemoryBlacklist[m.ChannelID] && m.Message.GuildID == config.MainServer {
 		extractContent := utility.ResolveMentions(m.Content, m.Mentions)
 		go memory.Extract(m.Author.ID, m.Author.Username, m.Author.GlobalName, m.ID, extractContent)
 	}

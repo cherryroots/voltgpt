@@ -141,11 +141,18 @@ func StreamMessageResponse(s *discordgo.Session, c *genai.Client, m *discordgo.M
 	streamer.Start()
 	defer streamer.Stop()
 
-	// Inject System Message
-	instructionMessage := instructionSwitch(history)
-	systemMessageText := fmt.Sprintf("System message: %s\n\nInstruction message: %s", config.SystemMessageMinimal, instructionMessage)
+	// Modify system message
+	systemMessageText := config.SystemMessage
+	systemMessageText = strings.ReplaceAll(systemMessageText, "{TIME}", time.Now().Format("2006-01-02 15:04:05"))
+	channel, err := s.Channel(m.ChannelID)
+	if err != nil {
+		channel = &discordgo.Channel{
+			Name: "Unknown",
+		}
+	}
+	systemMessageText = strings.ReplaceAll(systemMessageText, "{CHANNEL}", channel.Name)
 	if backgroundFacts != "" {
-		systemMessageText += "\n\n" + backgroundFacts
+		systemMessageText = strings.ReplaceAll(systemMessageText, "{BACKGROUND_FACTS}", backgroundFacts)
 	}
 
 	// Create system content
@@ -202,34 +209,6 @@ func StreamMessageResponse(s *discordgo.Session, c *genai.Client, m *discordgo.M
 	}
 
 	return nil
-}
-
-func instructionSwitch(history []*genai.Content) string {
-	if len(history) == 0 {
-		return config.InstructionMessageDefault
-	}
-
-	var text string
-	firstMessageText := contentToString(history[0])
-	lastMessageText := contentToString(history[len(history)-1])
-
-	if firstMessageText == lastMessageText {
-		text = lastMessageText
-	} else {
-		text = fmt.Sprintf("%s\n%s", firstMessageText, lastMessageText)
-	}
-
-	if strings.Contains(text, "💢") || strings.Contains(text, "�") {
-		return config.InstructionMessageMean
-	}
-
-	if sysMsg := utility.ExtractPairText(text, "⚙️"); sysMsg != "" {
-		return strings.TrimSpace(sysMsg)
-	} else if sysMsg := utility.ExtractPairText(text, "⚙"); sysMsg != "" {
-		return strings.TrimSpace(sysMsg)
-	}
-
-	return config.InstructionMessageDefault
 }
 
 func contentToString(c *genai.Content) string {
