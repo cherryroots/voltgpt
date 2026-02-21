@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/joho/godotenv"
 	"google.golang.org/genai"
 	"voltgpt/internal/db"
 )
@@ -28,6 +29,7 @@ func setupTestDB(t *testing.T) {
 // MEMORY_GEMINI_TOKEN. The test is skipped when the token is absent.
 func setupGemini(t *testing.T) {
 	t.Helper()
+	godotenv.Load("../../.env") // no-op if already set or file absent
 	apiKey := os.Getenv("MEMORY_GEMINI_TOKEN")
 	if apiKey == "" {
 		t.Skip("MEMORY_GEMINI_TOKEN not set")
