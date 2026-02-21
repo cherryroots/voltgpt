@@ -340,3 +340,35 @@ func TestDownloadURL(t *testing.T) {
 		}
 	})
 }
+
+func TestUrlToExtInvalidURL(t *testing.T) {
+	_, err := UrlToExt("://bad url")
+	if err == nil {
+		t.Error("UrlToExt() expected error for invalid URL, got nil")
+	}
+}
+
+func TestIsImageURLInvalidURL(t *testing.T) {
+	if IsImageURL("://bad url") {
+		t.Error("IsImageURL() = true for invalid URL, want false")
+	}
+}
+
+func TestIsVideoURLInvalidURL(t *testing.T) {
+	if IsVideoURL("://bad url") {
+		t.Error("IsVideoURL() = true for invalid URL, want false")
+	}
+}
+
+func TestIsPDFURLInvalidURL(t *testing.T) {
+	if IsPDFURL("://bad url") {
+		t.Error("IsPDFURL() = true for invalid URL, want false")
+	}
+}
+
+func TestMediaTypeUnknown(t *testing.T) {
+	got := MediaType("https://example.com/file.xyz")
+	if got != "" {
+		t.Errorf("MediaType() = %q for unknown extension, want \"\"", got)
+	}
+}
