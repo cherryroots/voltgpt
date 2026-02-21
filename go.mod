@@ -6,6 +6,7 @@ require (
 	github.com/asg017/sqlite-vec-go-bindings v0.1.6
 	github.com/bwmarrin/discordgo v0.29.0
 	github.com/corona10/goimagehash v1.1.0
+	github.com/ewohltman/discordgo-mock v0.0.11
 	github.com/joho/godotenv v1.5.1
 	github.com/mattn/go-sqlite3 v1.14.34
 	github.com/u2takey/ffmpeg-go v0.5.0

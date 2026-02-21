@@ -5,6 +5,9 @@ import (
 	"testing"
 
 	"github.com/bwmarrin/discordgo"
+	"github.com/ewohltman/discordgo-mock/mocksession"
+	"github.com/ewohltman/discordgo-mock/mockstate"
+	"github.com/ewohltman/discordgo-mock/mockuser"
 
 	"voltgpt/internal/config"
 )
@@ -552,5 +555,51 @@ func TestHasVideoURLFromContent(t *testing.T) {
 	}
 	if !HasVideoURL(m) {
 		t.Error("HasVideoURL() = false for message with video URL in content, want true")
+	}
+}
+
+func TestCleanMessage(t *testing.T) {
+	botUser := mockuser.New(
+		mockuser.WithID("bot123"),
+		mockuser.WithUsername("VoltBot"),
+		mockuser.WithBotFlag(true),
+	)
+	state, err := mockstate.New(
+		mockstate.WithUser(botUser),
+	)
+	if err != nil {
+		t.Fatalf("mockstate.New() error: %v", err)
+	}
+	s, err := mocksession.New(
+		mocksession.WithState(state),
+	)
+	if err != nil {
+		t.Fatalf("mocksession.New() error: %v", err)
+	}
+
+	m := &discordgo.Message{
+		Content: "  <@bot123> hello world  ",
+	}
+	result := CleanMessage(s, m)
+	if result.Content != "hello world" {
+		t.Errorf("CleanMessage() content = %q, want \"hello world\"", result.Content)
+	}
+}
+
+func TestCleanMessageNoMention(t *testing.T) {
+	botUser := mockuser.New(mockuser.WithID("bot123"))
+	state, err := mockstate.New(mockstate.WithUser(botUser))
+	if err != nil {
+		t.Fatalf("mockstate.New() error: %v", err)
+	}
+	s, err := mocksession.New(mocksession.WithState(state))
+	if err != nil {
+		t.Fatalf("mocksession.New() error: %v", err)
+	}
+
+	m := &discordgo.Message{Content: "hello world"}
+	result := CleanMessage(s, m)
+	if result.Content != "hello world" {
+		t.Errorf("CleanMessage() content = %q, want \"hello world\"", result.Content)
 	}
 }
