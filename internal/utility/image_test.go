@@ -154,7 +154,9 @@ func TestGetAspectRatioFromServer(t *testing.T) {
 	// 8x4 image → aspect ratio 2.0
 	img := image.NewRGBA(image.Rect(0, 0, 8, 4))
 	var buf bytes.Buffer
-	png.Encode(&buf, img)
+	if err := png.Encode(&buf, img); err != nil {
+		t.Fatalf("png.Encode: %v", err)
+	}
 
 	srv := serveBytes(buf.Bytes(), "image/png")
 	defer srv.Close()
