@@ -603,3 +603,69 @@ func TestCleanMessageNoMention(t *testing.T) {
 		t.Errorf("CleanMessage() content = %q, want \"hello world\"", result.Content)
 	}
 }
+
+func TestGetMessageMediaURLEmbedThumbnail(t *testing.T) {
+	m := &discordgo.Message{
+		Embeds: []*discordgo.MessageEmbed{
+			{
+				Thumbnail: &discordgo.MessageEmbedThumbnail{
+					URL: "https://example.com/thumb.png",
+				},
+			},
+		},
+	}
+	images, _, _, _ := GetMessageMediaURL(m)
+	if len(images) == 0 {
+		t.Error("GetMessageMediaURL() found no images from embed thumbnail, want 1")
+	}
+	if images[0] != "https://example.com/thumb.png" {
+		t.Errorf("GetMessageMediaURL() image = %q, want embed thumbnail URL", images[0])
+	}
+}
+
+func TestGetMessageMediaURLEmbedImage(t *testing.T) {
+	m := &discordgo.Message{
+		Embeds: []*discordgo.MessageEmbed{
+			{
+				Image: &discordgo.MessageEmbedImage{
+					URL: "https://example.com/image.jpg",
+				},
+			},
+		},
+	}
+	images, _, _, _ := GetMessageMediaURL(m)
+	if len(images) == 0 {
+		t.Error("GetMessageMediaURL() found no images from embed image field, want 1")
+	}
+}
+
+func TestGetMessageMediaURLContentURLs(t *testing.T) {
+	m := &discordgo.Message{
+		Content: "look: https://example.com/pic.webp and https://example.com/video.mp4",
+	}
+	images, videos, _, _ := GetMessageMediaURL(m)
+	if len(images) == 0 {
+		t.Error("GetMessageMediaURL() found no images from content URL, want 1")
+	}
+	if len(videos) == 0 {
+		t.Error("GetMessageMediaURL() found no videos from content URL, want 1")
+	}
+}
+
+func TestGetMessageMediaURLDeduplication(t *testing.T) {
+	// Same image URL appearing in both URL and ProxyURL should be deduplicated
+	m := &discordgo.Message{
+		Embeds: []*discordgo.MessageEmbed{
+			{
+				Thumbnail: &discordgo.MessageEmbedThumbnail{
+					URL:      "https://example.com/same.png",
+					ProxyURL: "https://example.com/same.png",
+				},
+			},
+		},
+	}
+	images, _, _, _ := GetMessageMediaURL(m)
+	if len(images) != 1 {
+		t.Errorf("GetMessageMediaURL() len = %d, want 1 (deduplicated)", len(images))
+	}
+}
