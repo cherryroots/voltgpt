@@ -42,10 +42,6 @@ func createTables() {
 			id INTEGER PRIMARY KEY CHECK (id = 1),
 			data TEXT NOT NULL
 		)`,
-		`CREATE TABLE IF NOT EXISTS transcriptions (
-			content_url TEXT PRIMARY KEY,
-			response_json TEXT NOT NULL
-		)`,
 		`CREATE TABLE IF NOT EXISTS users (
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
 			discord_id TEXT NOT NULL UNIQUE,
