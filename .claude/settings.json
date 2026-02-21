@@ -1,0 +1,26 @@
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 -c \"import os,json,subprocess; d=json.loads(os.environ.get('CLAUDE_TOOL_INPUT','{}')); f=d.get('file_path',''); r=subprocess.run(['/usr/local/go/bin/go','build','./...'],capture_output=True,text=True,cwd='/home/bot/dev/bots/voltgpt') if f.endswith('.go') else None; print((r.stdout+r.stderr)[:500]) if r and (r.stdout or r.stderr) else None\""
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 -c \"import os,json,sys; d=json.loads(os.environ.get('CLAUDE_TOOL_INPUT','{}')); f=d.get('file_path',''); (print('BLOCK: .env contains live tokens — edit sample.env instead') or sys.exit(2)) if f.endswith('.env') and not f.endswith('sample.env') else None\""
+          }
+        ]
+      }
+    ]
+  }
+}
