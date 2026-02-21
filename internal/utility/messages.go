@@ -23,12 +23,10 @@ func SplitParagraph(message string) (firstPart string, lastPart string) {
 	} else if lastSecondaryIndex != -1 {
 		firstPart = message[:lastSecondaryIndex]
 		lastPart = message[lastSecondaryIndex+len(secondarySeparator):]
-
-	}
-	if len(firstPart) > 1990 {
-		log.Printf("Splitting forcibly: %d", len(firstPart))
-		firstPart = message[:1990]
-		lastPart = message[1990:]
+	} else {
+		log.Printf("Splitting forcibly: %d", len(message))
+		firstPart = message[:min(1990, len(message))]
+		lastPart = message[min(1990, len(message)):]
 	}
 
 	if strings.Count(firstPart, "```")%2 != 0 {
