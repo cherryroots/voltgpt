@@ -151,9 +151,7 @@ func StreamMessageResponse(s *discordgo.Session, c *genai.Client, m *discordgo.M
 		}
 	}
 	systemMessageText = strings.ReplaceAll(systemMessageText, "{CHANNEL}", channel.Name)
-	if backgroundFacts != "" {
-		systemMessageText = strings.ReplaceAll(systemMessageText, "{BACKGROUND_FACTS}", backgroundFacts)
-	}
+	systemMessageText = strings.ReplaceAll(systemMessageText, "{BACKGROUND_FACTS}", backgroundFacts)
 
 	// Create system content
 	systemInstruction := genai.NewContentFromText(systemMessageText, genai.RoleModel)

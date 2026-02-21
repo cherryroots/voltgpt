@@ -89,8 +89,8 @@ func consolidateAndStore(ctx context.Context, userID int64, messageID, factText 
 
 		case "MERGE":
 			if action.MergedText == "" {
-				log.Printf("memory: MERGE action returned empty merged_text, falling back to REINFORCE")
-				return nil
+				log.Printf("memory: MERGE action returned empty merged_text, inserting as new fact")
+				return insertFact(userID, messageID, factText, embedding)
 			}
 			mergedEmbedding, err := embed(ctx, action.MergedText)
 			if err != nil {
@@ -170,7 +170,7 @@ func decideAction(ctx context.Context, oldFact, newFact string) (*consolidationA
 	}
 
 	if len(resp.Candidates) == 0 || resp.Candidates[0].Content == nil {
-		return &consolidationAction{Action: "REINFORCE"}, nil
+		return &consolidationAction{Action: "KEEP"}, nil
 	}
 
 	var responseText string

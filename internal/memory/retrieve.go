@@ -27,7 +27,8 @@ type UserFacts struct {
 	Facts    []RetrievedFact
 }
 
-// Retrieve fetches the top relevant active facts for a user.
+// Retrieve fetches the top relevant active facts for a user,
+// filtered to those within retrievalDistanceThreshold.
 func Retrieve(query string, discordID string) []RetrievedFact {
 	if !enabled {
 		return nil
@@ -42,7 +43,7 @@ func Retrieve(query string, discordID string) []RetrievedFact {
 	}
 
 	rows, err := database.Query(`
-		SELECT f.fact_text, f.created_at
+		SELECT f.fact_text, f.created_at, vf.distance
 		FROM vec_facts vf
 		JOIN facts f ON f.id = vf.fact_id
 		JOIN users u ON u.id = f.user_id
@@ -61,11 +62,14 @@ func Retrieve(query string, discordID string) []RetrievedFact {
 	var facts []RetrievedFact
 	for rows.Next() {
 		var f RetrievedFact
-		if err := rows.Scan(&f.Text, &f.CreatedAt); err != nil {
+		var distance float64
+		if err := rows.Scan(&f.Text, &f.CreatedAt, &distance); err != nil {
 			log.Printf("memory: retrieval scan failed: %v", err)
 			continue
 		}
-		facts = append(facts, f)
+		if distance <= retrievalDistanceThreshold {
+			facts = append(facts, f)
+		}
 	}
 	if err := rows.Err(); err != nil {
 		log.Printf("memory: retrieval rows error: %v", err)
@@ -91,7 +95,7 @@ func RetrieveGeneral(query string, excludeDiscordIDs map[string]bool) []GeneralF
 
 	// Fetch more than we need since we filter out excluded users in Go
 	rows, err := database.Query(`
-		SELECT u.username, u.discord_id, f.fact_text, f.created_at
+		SELECT u.username, u.discord_id, f.fact_text, f.created_at, vf.distance
 		FROM vec_facts vf
 		JOIN facts f ON f.id = vf.fact_id
 		JOIN users u ON u.id = f.user_id
@@ -110,9 +114,13 @@ func RetrieveGeneral(query string, excludeDiscordIDs map[string]bool) []GeneralF
 	for rows.Next() {
 		var gf GeneralFact
 		var discordID string
-		if err := rows.Scan(&gf.Username, &discordID, &gf.Text, &gf.CreatedAt); err != nil {
+		var distance float64
+		if err := rows.Scan(&gf.Username, &discordID, &gf.Text, &gf.CreatedAt, &distance); err != nil {
 			log.Printf("memory: general retrieval scan failed: %v", err)
 			continue
+		}
+		if distance > retrievalDistanceThreshold {
+			break // results are ordered by distance; no point scanning further
 		}
 		if !excludeDiscordIDs[discordID] {
 			facts = append(facts, gf)
@@ -179,6 +187,14 @@ func RetrieveMultiUser(query string, users map[string]string) string {
 	return formatFactsXML(userFacts, generalFacts)
 }
 
+// safeDate returns the YYYY-MM-DD prefix of a datetime string, or the full string if shorter.
+func safeDate(s string) string {
+	if len(s) >= 10 {
+		return s[:10]
+	}
+	return s
+}
+
 // formatFactsXML formats user and general facts into the XML block for system prompt injection.
 // Each fact includes a date prefix so the chat model has temporal context.
 func formatFactsXML(userFacts []UserFacts, generalFacts []GeneralFact) string {
@@ -190,16 +206,14 @@ func formatFactsXML(userFacts []UserFacts, generalFacts []GeneralFact) string {
 	for _, uf := range userFacts {
 		sb.WriteString(fmt.Sprintf("<user name=%q>\n", uf.Username))
 		for _, fact := range uf.Facts {
-			date := fact.CreatedAt[:10]
-			sb.WriteString(fmt.Sprintf("- [%s] %s\n", date, fact.Text))
+			sb.WriteString(fmt.Sprintf("- [%s] %s\n", safeDate(fact.CreatedAt), fact.Text))
 		}
 		sb.WriteString("</user>\n")
 	}
 	if len(generalFacts) > 0 {
 		sb.WriteString("<general>\n")
 		for _, gf := range generalFacts {
-			date := gf.CreatedAt[:10]
-			sb.WriteString(fmt.Sprintf("- [%s] %s\n", date, gf.Text))
+			sb.WriteString(fmt.Sprintf("- [%s] %s\n", safeDate(gf.CreatedAt), gf.Text))
 		}
 		sb.WriteString("</general>\n")
 	}
