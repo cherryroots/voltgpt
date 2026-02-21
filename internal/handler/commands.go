@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log"
 	"math/rand"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -14,6 +15,7 @@ import (
 	"voltgpt/internal/gamble"
 	"voltgpt/internal/hasher"
 	"voltgpt/internal/memory"
+	"voltgpt/internal/reminder"
 	"voltgpt/internal/utility"
 
 	"github.com/bwmarrin/discordgo"
@@ -904,6 +906,63 @@ var Commands = map[string]func(s *discordgo.Session, i *discordgo.InteractionCre
 		}
 
 		_, err = discord.SendFollowup(s, i, message)
+		if err != nil {
+			log.Println(err)
+		}
+	},
+	"reminders": func(s *discordgo.Session, i *discordgo.InteractionCreate) {
+		log.Printf("Received interaction: %s by %s", i.ApplicationCommandData().Name, i.Interaction.Member.User.Username)
+
+		reminders, err := reminder.GetUserReminders(i.Interaction.Member.User.ID)
+		if err != nil || len(reminders) == 0 {
+			s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+				Type: discordgo.InteractionResponseChannelMessageWithSource,
+				Data: &discordgo.InteractionResponseData{
+					Content: "You have no pending reminders!",
+					Flags:   discordgo.MessageFlagsEphemeral,
+				},
+			})
+			return
+		}
+
+		var sb strings.Builder
+		sb.WriteString("**Your reminders:**\n")
+		options := make([]discordgo.SelectMenuOption, 0, len(reminders))
+		for idx, r := range reminders {
+			imageNote := ""
+			if len(r.Images) > 0 {
+				imageNote = fmt.Sprintf(" [%d image(s)]", len(r.Images))
+			}
+			sb.WriteString(fmt.Sprintf("%d. <t:%d:R> — %s%s\n", idx+1, r.FireAt, r.Message, imageNote))
+
+			label := fmt.Sprintf("%d. %s", idx+1, r.Message)
+			if len(label) > 100 {
+				label = label[:97] + "..."
+			}
+			options = append(options, discordgo.SelectMenuOption{
+				Label: label,
+				Value: strconv.FormatInt(r.ID, 10),
+			})
+		}
+
+		err = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+			Type: discordgo.InteractionResponseChannelMessageWithSource,
+			Data: &discordgo.InteractionResponseData{
+				Content: sb.String(),
+				Flags:   discordgo.MessageFlagsEphemeral,
+				Components: []discordgo.MessageComponent{
+					discordgo.ActionsRow{
+						Components: []discordgo.MessageComponent{
+							discordgo.SelectMenu{
+								CustomID:    "reminder",
+								Placeholder: "Delete a reminder…",
+								Options:     options,
+							},
+						},
+					},
+				},
+			},
+		})
 		if err != nil {
 			log.Println(err)
 		}
