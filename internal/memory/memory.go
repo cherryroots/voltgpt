@@ -11,6 +11,7 @@ import (
 	"log"
 	"math"
 	"os"
+	"sort"
 	"strings"
 
 	"google.golang.org/genai"
@@ -340,12 +341,21 @@ func RefreshFactNames(discordID string) (int64, error) {
 		if err := rows.Scan(&f.id, &f.text); err != nil {
 			continue
 		}
-		// Strip old name (everything before the first space)
-		if idx := strings.IndexByte(f.text, ' '); idx != -1 {
-			updated := newName + f.text[idx:]
-			if updated != f.text {
-				toUpdate = append(toUpdate, factRow{id: f.id, text: updated})
+		// Try each known name variant as an exact prefix, longest first
+		candidates := []string{preferredName, displayName, username}
+		sort.Slice(candidates, func(i, j int) bool { return len(candidates[i]) > len(candidates[j]) })
+		var rest string
+		for _, c := range candidates {
+			if c != "" && strings.HasPrefix(f.text, c+" ") {
+				rest = f.text[len(c):]
+				break
 			}
+		}
+		if rest == "" {
+			continue // no prefix matched — skip rather than corrupt
+		}
+		if updated := newName + rest; updated != f.text {
+			toUpdate = append(toUpdate, factRow{id: f.id, text: updated})
 		}
 	}
 
