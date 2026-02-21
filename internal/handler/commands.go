@@ -607,7 +607,7 @@ var Commands = map[string]func(s *discordgo.Session, i *discordgo.InteractionCre
 			log.Println(err)
 		}
 	},
-	"reset_wheel": func(s *discordgo.Session, i *discordgo.InteractionCreate) {
+	"wheel_reset": func(s *discordgo.Session, i *discordgo.InteractionCreate) {
 		log.Printf("Recieved interaction: %s by %s", i.ApplicationCommandData().Name, i.Interaction.Member.User.Username)
 		discord.DeferEphemeralResponse(s, i)
 

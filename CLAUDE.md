@@ -35,9 +35,6 @@ main.go                        # Entry point, Discord session, handler registrat
 internal/
   apis/
     gemini/chat.go             # Gemini streaming chat with tool use
-    openai/chat.go             # OpenRouter/OpenAI chat completions
-    openai/img.go              # Image generation via OpenAI-compatible API
-    openai/tts.go              # Audio transcription (speech-to-text)
     wavespeed/request.go       # Wavespeed image/video generation
     wavespeed/structs.go       # Wavespeed API types
   config/
@@ -52,7 +49,11 @@ internal/
     modals.go                  # Modal submission handlers
   gamble/gamble.go             # Movie wheel game: rounds, bets, players
   hasher/hasher.go             # Perceptual image hashing, duplicate detection
-  transcription/transcription.go  # Transcription cache backed by SQLite
+  memory/                      # Vector-backed long-term memory (fact extraction, RAG via sqlite-vec)
+    consolidate.go             # Deduplicates/merges similar facts via semantic similarity
+    extract.go                 # Extracts facts from Discord messages using Gemini
+    memory.go                  # Init, embedding storage, sqlite-vec queries
+    retrieve.go                # Retrieves relevant facts for RAG context injection
   utility/
     discord.go               # Discord message formatting, content extraction, admin
     messages.go              # Message splitting, sending, and retrieval
@@ -65,13 +66,13 @@ internal/
 ## Architecture
 
 ### Initialization chain
-`init()` in `main.go` loads `.env`, opens SQLite, then calls `Init(db)` on hasher, gamble, and transcription packages. Each loads its data from SQLite into in-memory structures.
+`init()` in `main.go` loads `.env`, opens SQLite, then calls `Init(db)` on hasher, gamble, and memory packages. Each loads its data from SQLite into in-memory structures.
 
 ### Handler dispatch
 Handlers are registered as maps (`handler.Commands`, `handler.Components`, `handler.Modals`) mapping string keys to handler functions. All handlers are dispatched in goroutines from the main Discord event listener. Component and modal custom IDs are split on `-` to extract the handler key.
 
 ### Persistence pattern
-Data lives in memory (protected by `sync.RWMutex`) and is periodically written back to SQLite using `INSERT OR REPLACE` with JSON-serialized payloads. Tables: `image_hashes`, `game_state`, `transcriptions`.
+Data lives in memory (protected by `sync.RWMutex`) and is periodically written back to SQLite using `INSERT OR REPLACE` with JSON-serialized payloads. Tables: `image_hashes`, `game_state`, `users`, `facts`.
 
 ### Multimodal content
 `config.RequestContent` carries text, image URLs, video URLs, PDF URLs, and YouTube URLs through the processing pipeline. The utility package handles downloading, resizing, and format conversion (relies on FFmpeg for video).
@@ -91,8 +92,8 @@ Data lives in memory (protected by `sync.RWMutex`) and is periodically written b
 |---|---|
 | `bwmarrin/discordgo` | Discord API |
 | `google.golang.org/genai` | Google Gemini API |
-| `sashabaranov/go-openai` | OpenAI/OpenRouter API |
 | `mattn/go-sqlite3` | SQLite driver |
+| `asg017/sqlite-vec-go-bindings` | Vector search extension for SQLite (used by memory package) |
 | `u2takey/ffmpeg-go` | FFmpeg media processing |
 | `corona10/goimagehash` | Perceptual image hashing |
 | `joho/godotenv` | .env file loading |

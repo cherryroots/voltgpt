@@ -3,11 +3,11 @@ module voltgpt
 go 1.26.0
 
 require (
+	github.com/asg017/sqlite-vec-go-bindings v0.1.6
 	github.com/bwmarrin/discordgo v0.29.0
 	github.com/corona10/goimagehash v1.1.0
 	github.com/joho/godotenv v1.5.1
 	github.com/mattn/go-sqlite3 v1.14.34
-	github.com/sashabaranov/go-openai v1.41.2
 	github.com/u2takey/ffmpeg-go v0.5.0
 	golang.org/x/image v0.36.0
 	google.golang.org/genai v1.47.0
@@ -17,7 +17,6 @@ require (
 	cloud.google.com/go v0.123.0 // indirect
 	cloud.google.com/go/auth v0.18.2 // indirect
 	cloud.google.com/go/compute/metadata v0.9.0 // indirect
-	github.com/asg017/sqlite-vec-go-bindings v0.1.6 // indirect
 	github.com/aws/aws-sdk-go v1.55.8 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/felixge/httpsnoop v1.0.4 // indirect
