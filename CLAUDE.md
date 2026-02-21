@@ -7,12 +7,19 @@ Go Discord bot ("Volt-仙女") providing multimodal AI chat (Gemini, OpenRouter)
 ## Build & Run
 
 ```bash
-go build -o voltgpt   # build
-./voltgpt             # run (reads .env automatically)
-go vet ./...          # static analysis
+/usr/local/go/bin/go build -o voltgpt   # build
+./voltgpt                               # run (reads .env automatically)
+/usr/local/go/bin/go vet ./...          # static analysis
 ```
 
 SQLite database (`voltgpt.db`) is created automatically on first run with WAL mode enabled.
+
+## Claude Code Automations
+
+- **Hook**: PostToolUse runs `go build ./...` after any `.go` edit; PreToolUse blocks edits to `.env`
+- **Skill**: `/go-check` — runs vet + build and reports results
+- **Subagent**: `memory-reviewer` — auto-triggered when modifying `internal/memory/` files
+- **MCP**: `sqlite` server connected to `voltgpt.db` for direct DB queries during debugging
 
 The `backup/` directory holds legacy `.gob` snapshots from before the SQLite migration; safe to ignore.
 
@@ -23,6 +30,7 @@ Copy `sample.env` to `.env` and add missing tokens manually (sample.env is incom
 
 Optional (features degrade gracefully without these):
 - `GEMINI_TOKEN` — Google Gemini API (message handler chat)
+- `MEMORY_GEMINI_TOKEN` — separate Gemini key for the memory/embedding system (independent of `GEMINI_TOKEN`)
 - `WAVESPEED_TOKEN` — Wavespeed API (image generation, video creation)
 
 ## Project Structure
@@ -70,6 +78,15 @@ Handlers are registered as maps (`handler.Commands`, `handler.Components`, `hand
 
 ### Persistence pattern
 Data lives in memory (protected by `sync.RWMutex`) and is periodically written back to SQLite using `INSERT OR REPLACE` with JSON-serialized payloads. Tables: `image_hashes`, `game_state`, `users`, `facts`.
+
+### System prompt templating
+`config.SystemMessage` uses `{TIME}`, `{CHANNEL}`, and `{BACKGROUND_FACTS}` placeholders replaced at request time in `gemini/chat.go`. Always replace `{BACKGROUND_FACTS}` unconditionally (empty string when no facts) — never leave the placeholder literal in the prompt.
+
+### Memory system
+- `vec_facts` virtual table uses `distance_metric=cosine`; `distanceThreshold=0.35` and `retrievalDistanceThreshold=0.6` are both cosine distance values
+- `config.MemoryBlacklist` and `config.MainServer` gate which channels/guilds get memory extraction
+- Facts are extracted in a 30s sliding buffer per user, then consolidated via Gemini before insert
+- `sqlite-vec` vec0 tables support full-table scans but ANN queries require the `MATCH` + `k=` syntax
 
 ### Multimodal content
 `config.RequestContent` carries text, image URLs, video URLs, PDF URLs, and YouTube URLs through the processing pipeline. The utility package handles downloading, resizing, and format conversion (relies on FFmpeg for video).
