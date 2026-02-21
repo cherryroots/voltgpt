@@ -629,3 +629,82 @@ func TestBetsPercentageNoMoney(t *testing.T) {
 		t.Errorf("betsPercentage() with no money = %d, want 0", pct)
 	}
 }
+
+// TestPlayerTax verifies tax = playerMoney * 3 * (10 - betPct) / 100.
+func TestPlayerTax(t *testing.T) {
+	setupGame()
+	alice := makePlayer("1", "Alice")
+	bob := makePlayer("2", "Bob")
+
+	GameState.AddPlayer(alice)
+	GameState.AddWheelOption(alice)
+	GameState.AddWheelOption(bob)
+
+	GameState.AddRound()
+	GameState.Rounds[0].AddClaim(alice) // alice has 100
+	// Alice bets 0 → betPct = 0, tax = 100 * 3 * 10 / 100 = 30
+	tax := GameState.playerTax(alice, GameState.Rounds[0])
+	if tax != 30 {
+		t.Errorf("playerTax() = %d, want 30", tax)
+	}
+}
+
+// TestPlayerTaxAboveThreshold verifies zero tax when bet% >= 10.
+func TestPlayerTaxAboveThreshold(t *testing.T) {
+	setupGame()
+	alice := makePlayer("1", "Alice")
+	bob := makePlayer("2", "Bob")
+
+	GameState.AddPlayer(alice)
+	GameState.AddWheelOption(alice)
+	GameState.AddWheelOption(bob)
+
+	GameState.AddRound()
+	GameState.Rounds[0].AddClaim(alice) // alice has 100
+	// Alice bets 10 on bob → betPct = 10, (10-10)=0, tax = 0
+	GameState.Rounds[0].Bets = []Bet{{Amount: 10, By: alice, On: bob}}
+	tax := GameState.playerTax(alice, GameState.Rounds[0])
+	if tax != 0 {
+		t.Errorf("playerTax() = %d, want 0 when bet%% >= 10", tax)
+	}
+}
+
+// TestHasBetNotFound verifies false is returned when no matching bet exists.
+func TestHasBetNotFound(t *testing.T) {
+	alice := makePlayer("1", "Alice")
+	bob := makePlayer("2", "Bob")
+	charlie := makePlayer("3", "Charlie")
+
+	r := &round{ID: 0}
+	r.Bets = []Bet{{Amount: 50, By: alice, On: charlie}}
+
+	_, ok := r.HasBet(Bet{By: alice, On: bob}) // different target
+	if ok {
+		t.Error("HasBet() = true, want false for non-matching target")
+	}
+
+	_, ok2 := r.HasBet(Bet{By: bob, On: charlie}) // different bettor
+	if ok2 {
+		t.Error("HasBet() = true, want false for non-matching bettor")
+	}
+}
+
+// TestWheelOptionsFallback verifies fallback to CurrentWheelOptions when round.ID >= len(Rounds).
+func TestWheelOptionsFallback(t *testing.T) {
+	setupGame()
+	alice := makePlayer("1", "Alice")
+	bob := makePlayer("2", "Bob")
+
+	GameState.AddWheelOption(alice)
+	GameState.AddWheelOption(bob)
+	GameState.AddRound() // only 1 round (index 0)
+
+	// Pass a round with ID == len(Rounds) to trigger fallback
+	futureRound := round{ID: 1}
+	opts := GameState.wheelOptions(futureRound)
+	current := GameState.CurrentWheelOptions()
+
+	if len(opts) != len(current) {
+		t.Errorf("wheelOptions fallback len = %d, want %d (CurrentWheelOptions)", len(opts), len(current))
+	}
+}
