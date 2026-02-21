@@ -18,6 +18,7 @@ import (
 	"net/http"
 	"sort"
 	"sync"
+	"time"
 
 	"voltgpt/internal/utility"
 
@@ -32,11 +33,18 @@ import (
 
 var database *sql.DB
 
+// hashEntry holds only the fields needed for in-memory duplicate detection.
+// Full message JSON is kept in SQLite and fetched on demand when a match is found.
+type hashEntry struct {
+	messageID string
+	timestamp time.Time
+}
+
 var hashStore = struct {
 	sync.RWMutex
-	m map[string]*discordgo.Message
+	m map[string]hashEntry
 }{
-	m: make(map[string]*discordgo.Message),
+	m: make(map[string]hashEntry),
 }
 
 type hashResult struct {
@@ -71,12 +79,18 @@ func loadFromDB() {
 			log.Printf("Failed to scan row: %v", err)
 			continue
 		}
-		var message discordgo.Message
-		if err := json.Unmarshal([]byte(msgJSON), &message); err != nil {
+		var msg struct {
+			ID        string    `json:"id"`
+			Timestamp time.Time `json:"timestamp"`
+		}
+		if err := json.Unmarshal([]byte(msgJSON), &msg); err != nil {
 			log.Printf("Failed to unmarshal message for hash %s: %v", hash, err)
 			continue
 		}
-		hashStore.m[hash] = &message
+		hashStore.m[hash] = hashEntry{
+			messageID: msg.ID,
+			timestamp: time.Time(msg.Timestamp),
+		}
 	}
 }
 
@@ -93,6 +107,19 @@ func writeHashToDB(hash string, message *discordgo.Message) {
 	if err != nil {
 		log.Printf("Failed to write hash to DB: %v", err)
 	}
+}
+
+func readHashFromDB(hash string) (*discordgo.Message, error) {
+	var msgJSON string
+	err := database.QueryRow("SELECT message_json FROM image_hashes WHERE hash = ?", hash).Scan(&msgJSON)
+	if err != nil {
+		return nil, err
+	}
+	var msg discordgo.Message
+	if err := json.Unmarshal([]byte(msgJSON), &msg); err != nil {
+		return nil, err
+	}
+	return &msg, nil
 }
 
 func TotalHashes() int {
@@ -145,8 +172,8 @@ func HashAttachments(m *discordgo.Message, options HashOptions) ([]string, int) 
 
 		hashString := hash.ToString()
 
-		if options.Store && (!checkHash(hashString, true) || olderHash(hashString, m)) {
-			writeHash(hashString, m, true)
+		if options.Store && (!checkHash(hashString) || olderHash(hashString, m)) {
+			writeHash(hashString, m)
 			count++
 			log.Printf("Stored hash: %s", hashString)
 		}
@@ -170,62 +197,65 @@ func readFrameAsJpeg(url string, frameNum int) (io.Reader, error) {
 	return outBuf, nil
 }
 
-func readHash(hashString string, locking bool) *discordgo.Message {
-	if locking {
-		hashStore.Lock()
-		defer hashStore.Unlock()
+func writeHash(hash string, message *discordgo.Message) {
+	hashStore.Lock()
+	hashStore.m[hash] = hashEntry{
+		messageID: message.ID,
+		timestamp: time.Time(message.Timestamp),
 	}
-
-	return hashStore.m[hashString]
-}
-
-func writeHash(hash string, message *discordgo.Message, locking bool) {
-	if locking {
-		hashStore.Lock()
-		defer hashStore.Unlock()
-	}
-
-	hashStore.m[hash] = message
+	hashStore.Unlock()
 	writeHashToDB(hash, message)
 }
 
-func checkHash(hash string, locking bool) bool {
-	if locking {
-		hashStore.Lock()
-		defer hashStore.Unlock()
-	}
-
+func checkHash(hash string) bool {
+	hashStore.RLock()
+	defer hashStore.RUnlock()
 	_, ok := hashStore.m[hash]
-
 	return ok
 }
 
 func olderHash(hash string, message *discordgo.Message) bool {
-	if checkHash(hash, true) {
-		oldMessage := readHash(hash, true)
-		if message.Timestamp.Before(oldMessage.Timestamp) {
-			return true
-		}
-		return false
+	hashStore.RLock()
+	entry, ok := hashStore.m[hash]
+	hashStore.RUnlock()
+	if !ok {
+		return true
 	}
-	return true
+	return time.Time(message.Timestamp).Before(entry.timestamp)
 }
 
 func checkInHashes(m *discordgo.Message, options HashOptions) (bool, []hashResult) {
-	var matchedMessages []hashResult
 	messageHashes, _ := HashAttachments(m, options)
+
+	type pending struct {
+		distance int
+		hash     string
+	}
+
 	hashStore.RLock()
-	defer hashStore.RUnlock()
-	for hashes := range hashStore.m {
-		hash1 := stringToHash(hashes)
+	var pendingMatches []pending
+	for storedHash := range hashStore.m {
+		hash1 := stringToHash(storedHash)
 		for _, messageHash := range messageHashes {
 			hash2 := stringToHash(messageHash)
 			distance, _ := hash1.Distance(hash2)
 			if distance <= options.Threshold {
-				matchedMessages = append(matchedMessages, hashResult{distance, readHash(hashes, false)})
+				pendingMatches = append(pendingMatches, pending{distance, storedHash})
 			}
 		}
 	}
+	hashStore.RUnlock()
+
+	var matchedMessages []hashResult
+	for _, p := range pendingMatches {
+		msg, err := readHashFromDB(p.hash)
+		if err != nil {
+			log.Printf("Failed to read hash from DB: %v", err)
+			continue
+		}
+		matchedMessages = append(matchedMessages, hashResult{p.distance, msg})
+	}
+
 	if len(matchedMessages) > 0 {
 		sort.SliceStable(matchedMessages, func(i, j int) bool {
 			return matchedMessages[i].message.Timestamp.Before(matchedMessages[j].message.Timestamp)

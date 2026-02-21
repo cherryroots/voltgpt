@@ -20,7 +20,7 @@ import (
 func resetStore(t *testing.T) {
 	t.Helper()
 	hashStore.Lock()
-	hashStore.m = make(map[string]*discordgo.Message)
+	hashStore.m = make(map[string]hashEntry)
 	hashStore.Unlock()
 }
 
@@ -131,8 +131,8 @@ func TestTotalHashes(t *testing.T) {
 	}
 
 	hashStore.Lock()
-	hashStore.m["h1"] = &discordgo.Message{ID: "1"}
-	hashStore.m["h2"] = &discordgo.Message{ID: "2"}
+	hashStore.m["h1"] = hashEntry{messageID: "1"}
+	hashStore.m["h2"] = hashEntry{messageID: "2"}
 	hashStore.Unlock()
 
 	if n := TotalHashes(); n != 2 {
@@ -143,15 +143,15 @@ func TestTotalHashes(t *testing.T) {
 func TestCheckHash(t *testing.T) {
 	setupHasher(t)
 
-	if checkHash("missing", true) {
+	if checkHash("missing") {
 		t.Error("checkHash on empty store = true, want false")
 	}
 
 	hashStore.Lock()
-	hashStore.m["exists"] = &discordgo.Message{ID: "msg"}
+	hashStore.m["exists"] = hashEntry{messageID: "msg"}
 	hashStore.Unlock()
 
-	if !checkHash("exists", true) {
+	if !checkHash("exists") {
 		t.Error("checkHash for inserted key = false, want true")
 	}
 }
@@ -166,7 +166,7 @@ func TestOlderHash(t *testing.T) {
 
 	base := time.Date(2024, 1, 15, 12, 0, 0, 0, time.UTC)
 	hashStore.Lock()
-	hashStore.m["key"] = &discordgo.Message{ID: "stored", Timestamp: base}
+	hashStore.m["key"] = hashEntry{messageID: "stored", timestamp: base}
 	hashStore.Unlock()
 
 	// New message predates the stored one → should replace it.
@@ -186,11 +186,11 @@ func TestWriteAndReadHash(t *testing.T) {
 	setupHasherWithDB(t)
 
 	msg := &discordgo.Message{ID: "msg1", ChannelID: "ch1"}
-	writeHash("testhash", msg, true)
+	writeHash("testhash", msg)
 
-	got := readHash("testhash", true)
-	if got == nil {
-		t.Fatal("readHash returned nil after writeHash")
+	got, err := readHashFromDB("testhash")
+	if err != nil {
+		t.Fatalf("readHashFromDB: %v", err)
 	}
 	if got.ID != "msg1" {
 		t.Errorf("message ID = %q, want %q", got.ID, "msg1")
@@ -212,9 +212,9 @@ func TestLoadFromDB(t *testing.T) {
 	if n := TotalHashes(); n != 1 {
 		t.Errorf("TotalHashes after loadFromDB = %d, want 1", n)
 	}
-	got := readHash("dbhash", true)
-	if got == nil || got.ID != "preloaded" {
-		t.Errorf("loaded message ID = %v, want %q", got, "preloaded")
+	got, err := readHashFromDB("dbhash")
+	if err != nil || got.ID != "preloaded" {
+		t.Errorf("loaded message ID = %v (err=%v), want %q", got, err, "preloaded")
 	}
 }
 
