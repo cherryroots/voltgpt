@@ -97,6 +97,10 @@ Data lives in memory (protected by `sync.RWMutex`) and is periodically written b
 - **Testing URL-downloading functions** — use `httptest.NewServer` serving in-memory bytes; suffix the URL path with the right extension (e.g., `/test.png`) so `UrlToExt` routes correctly; no real network needed
 - **Testing video functions** — `getVideoDuration` and `extractVideoFrameAtTime` take file paths directly; generate `internal/utility/testdata/test.mp4` via `ffmpeg -f lavfi -i color=c=blue:size=64x64:rate=5 -t 1 -pix_fmt yuv420p -y testdata/test.mp4`
 - **Testing Discord message functions** — `*discordgo.Message` structs can be constructed directly for tests that don't call the Discord API; only `CleanMessage` (reads `s.State.User.ID`) needs a mock session
+- **Testing `GetMessageMediaURL` with attachments** — requires `Width > 0 && Height > 0` on each `*discordgo.MessageAttachment`; zero-value structs are silently skipped, returning no URLs
+- **Testing `formatFactsXML` output** — the `<note>` element contains literal `<user>` and `<general>` text; use `</general>` and `<user name=` as check strings to avoid false-positive substring matches
+- **Testing hasher package** — `hashStore.m` is global; reset with `hashStore.m = make(map[string]*discordgo.Message)` between tests; `writeHash` (and any code path with `Store: true`) panics if `database` is nil, so those tests need an in-memory DB via `db.Open(":memory:")`
+- **Testing memory package** — white-box tests (`package memory`) can set `database = db.DB` directly after `db.Open(":memory:")`; Gemini-backed tests skip cleanly when `MEMORY_GEMINI_TOKEN` is unset; load token for local runs via `export $(grep MEMORY_GEMINI_TOKEN .env | xargs)`
 - **Run tests**: `/usr/local/go/bin/go test ./... -timeout 60s` (video tests need the timeout; they use ffmpeg)
 
 ## Conventions
