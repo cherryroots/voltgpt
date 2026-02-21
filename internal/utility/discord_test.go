@@ -480,3 +480,77 @@ func TestEmbedText(t *testing.T) {
 		}
 	})
 }
+
+func TestMessageToEmbeds(t *testing.T) {
+	m := &discordgo.Message{
+		ID:        "msg1",
+		ChannelID: "chan1",
+		Content:   "hello",
+		Author: &discordgo.User{
+			ID:       "user1",
+			Username: "Alice",
+		},
+	}
+	embeds := MessageToEmbeds("guild1", m, 7)
+
+	if len(embeds) == 0 {
+		t.Fatal("MessageToEmbeds() returned no embeds")
+	}
+	first := embeds[0]
+	if first.Title != "Message link" {
+		t.Errorf("embed Title = %q, want \"Message link\"", first.Title)
+	}
+	if first.Description != "hello" {
+		t.Errorf("embed Description = %q, want \"hello\"", first.Description)
+	}
+	if first.Footer == nil || !strings.Contains(first.Footer.Text, "7bit distance") {
+		t.Errorf("embed Footer = %v, want text containing \"7bit distance\"", first.Footer)
+	}
+	wantURL := "https://discord.com/channels/guild1/chan1/msg1"
+	if first.URL != wantURL {
+		t.Errorf("embed URL = %q, want %q", first.URL, wantURL)
+	}
+}
+
+func TestMessageToEmbedsIncludesMessageEmbeds(t *testing.T) {
+	inner := &discordgo.MessageEmbed{Title: "inner"}
+	m := &discordgo.Message{
+		ID:        "msg2",
+		ChannelID: "chan1",
+		Author:    &discordgo.User{ID: "u1", Username: "Bob"},
+		Embeds:    []*discordgo.MessageEmbed{inner},
+	}
+	embeds := MessageToEmbeds("guild1", m, 0)
+	if len(embeds) != 2 {
+		t.Fatalf("MessageToEmbeds() len = %d, want 2", len(embeds))
+	}
+	if embeds[1].Title != "inner" {
+		t.Errorf("embeds[1].Title = %q, want \"inner\"", embeds[1].Title)
+	}
+}
+
+func TestAttachmentTextEmpty(t *testing.T) {
+	m := &discordgo.Message{}
+	got := AttachmentText(m)
+	if got != "" {
+		t.Errorf("AttachmentText() = %q for no attachments, want \"\"", got)
+	}
+}
+
+func TestHasImageURLFromContent(t *testing.T) {
+	m := &discordgo.Message{
+		Content: "check this out https://example.com/photo.png cool right",
+	}
+	if !HasImageURL(m) {
+		t.Error("HasImageURL() = false for message with image URL in content, want true")
+	}
+}
+
+func TestHasVideoURLFromContent(t *testing.T) {
+	m := &discordgo.Message{
+		Content: "https://example.com/clip.mp4",
+	}
+	if !HasVideoURL(m) {
+		t.Error("HasVideoURL() = false for message with video URL in content, want true")
+	}
+}
