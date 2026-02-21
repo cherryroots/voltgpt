@@ -65,17 +65,22 @@ func loadAndSchedule() {
 			continue
 		}
 		if imagesJSON.Valid && imagesJSON.String != "" {
-			json.Unmarshal([]byte(imagesJSON.String), &r.Images)
+			if err := json.Unmarshal([]byte(imagesJSON.String), &r.Images); err != nil {
+				log.Printf("reminder: unmarshal images for id %d: %v", r.ID, err)
+			}
 		}
 		schedule(r)
+	}
+	if err := rows.Err(); err != nil {
+		log.Printf("reminder: rows error loading reminders: %v", err)
 	}
 }
 
 func schedule(r Reminder) {
 	delay := time.Until(time.Unix(r.FireAt, 0))
 	delay = max(delay, 0)
-	t := time.AfterFunc(delay, func() { fire(r) })
 	mu.Lock()
+	t := time.AfterFunc(delay, func() { fire(r) })
 	timers[r.ID] = t
 	mu.Unlock()
 }
@@ -191,9 +196,14 @@ func GetUserReminders(userID string) ([]Reminder, error) {
 			continue
 		}
 		if imagesJSON.Valid && imagesJSON.String != "" {
-			json.Unmarshal([]byte(imagesJSON.String), &r.Images)
+			if err := json.Unmarshal([]byte(imagesJSON.String), &r.Images); err != nil {
+				log.Printf("reminder: unmarshal images for id %d: %v", r.ID, err)
+			}
 		}
 		reminders = append(reminders, r)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("reminder: rows: %w", err)
 	}
 	return reminders, nil
 }
