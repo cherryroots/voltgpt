@@ -57,13 +57,13 @@ func createTables() {
 			reinforcement_count INTEGER DEFAULT 0
 		)`,
 		`CREATE TABLE IF NOT EXISTS reminders (
-    id         INTEGER PRIMARY KEY AUTOINCREMENT,
-    user_id    TEXT    NOT NULL,
-    channel_id TEXT    NOT NULL,
-    guild_id   TEXT    NOT NULL,
-    message    TEXT    NOT NULL,
-    images     TEXT,
-    fire_at    INTEGER NOT NULL
+	id         INTEGER PRIMARY KEY AUTOINCREMENT,
+	user_id    TEXT    NOT NULL,
+	channel_id TEXT    NOT NULL,
+	guild_id   TEXT    NOT NULL,
+	message    TEXT    NOT NULL,
+	images     TEXT,
+	fire_at    INTEGER NOT NULL
 )`,
 	}
 
