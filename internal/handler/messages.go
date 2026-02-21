@@ -11,6 +11,7 @@ import (
 	"voltgpt/internal/config"
 	"voltgpt/internal/discord"
 	"voltgpt/internal/hasher"
+	"voltgpt/internal/memory"
 	"voltgpt/internal/utility"
 
 	"github.com/bwmarrin/discordgo"
@@ -36,6 +37,12 @@ func HandleMessage(s *discordgo.Session, m *discordgo.MessageCreate) {
 
 	if m.Author.ID == s.State.User.ID || m.Author.Bot {
 		return
+	}
+
+	// Background fact extraction for all non-bot messages
+	if !config.MemoryBlacklist[m.ChannelID] {
+		extractContent := utility.ResolveMentions(m.Content, m.Mentions)
+		go memory.Extract(m.Author.ID, m.Author.Username, m.Author.GlobalName, m.ID, extractContent)
 	}
 
 	apiKey := os.Getenv("GEMINI_TOKEN")
@@ -78,6 +85,7 @@ func HandleMessage(s *discordgo.Session, m *discordgo.MessageCreate) {
 	}
 
 	m.Message = utility.CleanMessage(s, m.Message)
+	m.Message.Content = utility.ResolveMentions(m.Message.Content, m.Mentions)
 	images, videos, pdfs, ytURLs := utility.GetMessageMediaURL(m.Message)
 
 	content := config.RequestContent{
@@ -99,7 +107,24 @@ func HandleMessage(s *discordgo.Session, m *discordgo.MessageCreate) {
 		gemini.PrependReplyMessages(s, c, m.Message.Member, m.Message, cache, &chatMessages)
 	}
 
-	err = gemini.StreamMessageResponse(s, c, m.Message, chatMessages)
+	// Retrieve memory facts for users in the reply chain (not the whole channel)
+	users := map[string]string{m.Author.ID: m.Author.Username}
+	if isReply {
+		ref := utility.GetReferencedMessage(s, m.Message, cache)
+		for ref != nil {
+			if ref.Author != nil && !ref.Author.Bot && ref.Author.ID != s.State.User.ID {
+				users[ref.Author.ID] = ref.Author.Username
+			}
+			if ref.Type == discordgo.MessageTypeReply {
+				ref = utility.GetReferencedMessage(s, ref, cache)
+			} else {
+				break
+			}
+		}
+	}
+	backgroundFacts := memory.RetrieveMultiUser(m.Content, users)
+
+	err = gemini.StreamMessageResponse(s, c, m.Message, chatMessages, backgroundFacts)
 	if err != nil {
 		discord.LogSendErrorMessage(s, m.Message, err.Error())
 	}

@@ -57,6 +57,19 @@ func CleanMessage(s *discordgo.Session, message *discordgo.Message) *discordgo.M
 	return message
 }
 
+// ResolveMentions replaces raw Discord mentions (<@ID>) with human-readable names.
+// Uses GlobalName (display name) if available, falls back to Username.
+func ResolveMentions(content string, mentions []*discordgo.User) string {
+	for _, mention := range mentions {
+		name := mention.GlobalName
+		if name == "" {
+			name = mention.Username
+		}
+		content = strings.ReplaceAll(content, "<@"+mention.ID+">", name)
+	}
+	return content
+}
+
 func CleanName(name string) string {
 	if len(name) > 64 {
 		name = name[:64]

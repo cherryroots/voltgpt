@@ -210,5 +210,79 @@ var (
 			Name: "Hash",
 			Type: discordgo.MessageApplicationCommand,
 		},
+		{
+			Name:                     "memory_admin_view",
+			Description:              "View stored facts about a user (admin only)",
+			DefaultMemberPermissions: &writePermission,
+			DMPermission:             &dmPermission,
+			Options: []*discordgo.ApplicationCommandOption{
+				{
+					Type:        discordgo.ApplicationCommandOptionUser,
+					Name:        "user",
+					Description: "User to view facts for",
+					Required:    true,
+				},
+			},
+		},
+		{
+			Name:                     "memory_admin_delete",
+			Description:              "Delete stored facts (admin only)",
+			DefaultMemberPermissions: &writePermission,
+			DMPermission:             &dmPermission,
+			Options: []*discordgo.ApplicationCommandOption{
+				{
+					Type:        discordgo.ApplicationCommandOptionUser,
+					Name:        "user",
+					Description: "User to delete facts for (omit for all)",
+					Required:    false,
+				},
+			},
+		},
+		{
+			Name:                     "memory_self",
+			Description:              "See what the bot remembers about you",
+			DefaultMemberPermissions: &writePermission,
+			DMPermission:             &dmPermission,
+		},
+		{
+			Name:                     "memory_admin_digest",
+			Description:              "Post a summary of recently learned facts (admin only)",
+			DefaultMemberPermissions: &writePermission,
+			DMPermission:             &dmPermission,
+		},
+		{
+			Name:                     "memory_setname",
+			Description:              "Set a preferred name for how the bot remembers you",
+			DefaultMemberPermissions: &writePermission,
+			DMPermission:             &dmPermission,
+			Options: []*discordgo.ApplicationCommandOption{
+				{
+					Type:        discordgo.ApplicationCommandOptionString,
+					Name:        "name",
+					Description: "Your preferred name (leave empty to clear)",
+					Required:    false,
+				},
+				{
+					Type:        discordgo.ApplicationCommandOptionUser,
+					Name:        "user",
+					Description: "Target user (admin only)",
+					Required:    false,
+				},
+			},
+		},
+		{
+			Name:                     "memory_admin_refreshnames",
+			Description:              "Refresh the name prefix in all stored facts (admin only)",
+			DefaultMemberPermissions: &writePermission,
+			DMPermission:             &dmPermission,
+			Options: []*discordgo.ApplicationCommandOption{
+				{
+					Type:        discordgo.ApplicationCommandOptionUser,
+					Name:        "user",
+					Description: "User whose facts to refresh (omit for all users)",
+					Required:    false,
+				},
+			},
+		},
 	}
 )
