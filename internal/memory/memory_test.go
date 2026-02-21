@@ -439,7 +439,7 @@ func TestDecideAction(t *testing.T) {
 		newFact    string
 		wantAction string
 	}{
-		// REINFORCE vs KEEP boundary: same tool rephrased vs two unrelated facts.
+		// Clear cases — close to prompt examples, should always pass.
 		{
 			name:       "reinforce: same tool rephrased",
 			oldFact:    "Alice uses VSCode.",
@@ -452,7 +452,6 @@ func TestDecideAction(t *testing.T) {
 			newFact:    "Alice owns a dog.",
 			wantAction: "KEEP",
 		},
-		// INVALIDATE vs MERGE boundary: city move vs complementary gaming consoles.
 		{
 			name:       "invalidate: city move",
 			oldFact:    "Alice lives in Tokyo.",
@@ -464,6 +463,35 @@ func TestDecideAction(t *testing.T) {
 			oldFact:    "Alice owns a PS5.",
 			newFact:    "Alice bought an Xbox.",
 			wantAction: "MERGE",
+		},
+		// Edge cases — boundaries the prompt explicitly calls out.
+		{
+			// Visiting is temporary; the permanent residence is still valid.
+			name:       "keep not invalidate: temporary visit",
+			oldFact:    "Alice lives in Tokyo.",
+			newFact:    "Alice is visiting Paris this week.",
+			wantAction: "KEEP",
+		},
+		{
+			// Same domain (programming languages) — should combine, not coexist.
+			name:       "merge not keep: same domain skills",
+			oldFact:    "Alice uses Python.",
+			newFact:    "Alice knows JavaScript.",
+			wantAction: "MERGE",
+		},
+		{
+			// Different wording for the same role — no new information to merge.
+			name:       "reinforce not merge: same role rephrased",
+			oldFact:    "Alice is a software engineer.",
+			newFact:    "Alice works as a developer.",
+			wantAction: "REINFORCE",
+		},
+		{
+			// Pet ownership and employer are genuinely independent facts.
+			name:       "keep not merge: unrelated domains",
+			oldFact:    "Alice owns a cat.",
+			newFact:    "Alice works at Dell.",
+			wantAction: "KEEP",
 		},
 	}
 
