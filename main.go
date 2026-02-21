@@ -17,7 +17,6 @@ import (
 	"voltgpt/internal/handler"
 	"voltgpt/internal/hasher"
 	"voltgpt/internal/memory"
-	"voltgpt/internal/transcription"
 )
 
 func init() {
@@ -29,7 +28,6 @@ func init() {
 
 	hasher.Init(db.DB)
 	gamble.Init(db.DB)
-	transcription.Init(db.DB)
 	memory.Init(db.DB)
 }
 
@@ -76,7 +74,6 @@ func main() {
 		log.Printf("Logged in as: %v#%v", s.State.User.Username, s.State.User.Discriminator)
 		log.Printf("Hashes: %d", hasher.TotalHashes())
 		log.Printf("Rounds: %d", gamble.GameState.TotalRounds())
-		log.Printf("Transcripts in cache: %d", transcription.TotalTranscripts())
 		log.Printf("Active facts: %d", memory.TotalFacts())
 	})
 

@@ -11,6 +11,7 @@ import (
 	"log"
 	"math"
 	"os"
+	"strings"
 
 	"google.golang.org/genai"
 )
@@ -259,6 +260,153 @@ func DeleteAllFacts() (int64, error) {
 		return 0, err
 	}
 	return res.RowsAffected()
+}
+
+// SetPreferredName sets the preferred display name for a user.
+// If the user doesn't exist yet, they are created with the given discordID and username.
+func SetPreferredName(discordID, username, preferredName string) error {
+	if database == nil {
+		return fmt.Errorf("memory system not initialized")
+	}
+
+	var id int64
+	err := database.QueryRow("SELECT id FROM users WHERE discord_id = ?", discordID).Scan(&id)
+	if err == sql.ErrNoRows {
+		_, err = database.Exec(
+			"INSERT INTO users (discord_id, username, preferred_name) VALUES (?, ?, ?)",
+			discordID, username, preferredName,
+		)
+		return err
+	}
+	if err != nil {
+		return err
+	}
+
+	_, err = database.Exec("UPDATE users SET preferred_name = ? WHERE id = ?", preferredName, id)
+	return err
+}
+
+// GetPreferredName returns the current preferred name for a user, or empty string if unset.
+func GetPreferredName(discordID string) string {
+	if database == nil {
+		return ""
+	}
+	var name string
+	database.QueryRow("SELECT preferred_name FROM users WHERE discord_id = ?", discordID).Scan(&name)
+	return name
+}
+
+// RefreshFactNames replaces the name prefix in all active facts for a user
+// with their current effective name. Strips text up to the first space and
+// prepends the new name. Embeddings are not recomputed since the semantic
+// meaning is nearly identical with only a name change.
+func RefreshFactNames(discordID string) (int64, error) {
+	if database == nil {
+		return 0, fmt.Errorf("memory system not initialized")
+	}
+
+	var userID int64
+	var username, displayName, preferredName string
+	err := database.QueryRow(
+		"SELECT id, username, display_name, preferred_name FROM users WHERE discord_id = ?",
+		discordID,
+	).Scan(&userID, &username, &displayName, &preferredName)
+	if err != nil {
+		return 0, fmt.Errorf("user not found: %w", err)
+	}
+
+	newName := effectiveName(preferredName, displayName, username)
+
+	rows, err := database.Query(
+		"SELECT id, fact_text FROM facts WHERE user_id = ? AND is_active = 1",
+		userID,
+	)
+	if err != nil {
+		return 0, err
+	}
+	defer rows.Close()
+
+	type factRow struct {
+		id   int64
+		text string
+	}
+	var toUpdate []factRow
+	for rows.Next() {
+		var f factRow
+		if err := rows.Scan(&f.id, &f.text); err != nil {
+			continue
+		}
+		// Strip old name (everything before the first space)
+		if idx := strings.IndexByte(f.text, ' '); idx != -1 {
+			updated := newName + f.text[idx:]
+			if updated != f.text {
+				toUpdate = append(toUpdate, factRow{id: f.id, text: updated})
+			}
+		}
+	}
+
+	if len(toUpdate) == 0 {
+		return 0, nil
+	}
+
+	tx, err := database.Begin()
+	if err != nil {
+		return 0, err
+	}
+	defer tx.Rollback()
+
+	stmt, err := tx.Prepare("UPDATE facts SET fact_text = ? WHERE id = ?")
+	if err != nil {
+		return 0, err
+	}
+	defer stmt.Close()
+
+	var count int64
+	for _, f := range toUpdate {
+		if _, err := stmt.Exec(f.text, f.id); err != nil {
+			log.Printf("memory: failed to update fact %d: %v", f.id, err)
+			continue
+		}
+		count++
+	}
+
+	if err := tx.Commit(); err != nil {
+		return 0, err
+	}
+	return count, nil
+}
+
+// RefreshAllFactNames refreshes fact name prefixes for every user that has active facts.
+func RefreshAllFactNames() (int64, error) {
+	if database == nil {
+		return 0, fmt.Errorf("memory system not initialized")
+	}
+
+	rows, err := database.Query("SELECT discord_id FROM users WHERE id IN (SELECT DISTINCT user_id FROM facts WHERE is_active = 1)")
+	if err != nil {
+		return 0, err
+	}
+	defer rows.Close()
+
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			continue
+		}
+		ids = append(ids, id)
+	}
+
+	var total int64
+	for _, id := range ids {
+		count, err := RefreshFactNames(id)
+		if err != nil {
+			log.Printf("memory: failed to refresh names for %s: %v", id, err)
+			continue
+		}
+		total += count
+	}
+	return total, nil
 }
 
 // reinforceFact increments the reinforcement counter for a fact.

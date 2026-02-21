@@ -628,7 +628,7 @@ var Commands = map[string]func(s *discordgo.Session, i *discordgo.InteractionCre
 			log.Println(err)
 		}
 	},
-	"memory_view": func(s *discordgo.Session, i *discordgo.InteractionCreate) {
+	"memory_admin_view": func(s *discordgo.Session, i *discordgo.InteractionCreate) {
 		log.Printf("Received interaction: %s by %s", i.ApplicationCommandData().Name, i.Interaction.Member.User.Username)
 		discord.DeferEphemeralResponse(s, i)
 
@@ -684,7 +684,7 @@ var Commands = map[string]func(s *discordgo.Session, i *discordgo.InteractionCre
 			log.Println(err)
 		}
 	},
-	"memory_delete": func(s *discordgo.Session, i *discordgo.InteractionCreate) {
+	"memory_admin_delete": func(s *discordgo.Session, i *discordgo.InteractionCreate) {
 		log.Printf("Received interaction: %s by %s", i.ApplicationCommandData().Name, i.Interaction.Member.User.Username)
 		discord.DeferEphemeralResponse(s, i)
 
@@ -757,7 +757,7 @@ var Commands = map[string]func(s *discordgo.Session, i *discordgo.InteractionCre
 			log.Println(err)
 		}
 	},
-	"memory_digest": func(s *discordgo.Session, i *discordgo.InteractionCreate) {
+	"memory_admin_digest": func(s *discordgo.Session, i *discordgo.InteractionCreate) {
 		log.Printf("Received interaction: %s by %s", i.ApplicationCommandData().Name, i.Interaction.Member.User.Username)
 		discord.DeferResponse(s, i)
 
@@ -800,6 +800,110 @@ var Commands = map[string]func(s *discordgo.Session, i *discordgo.InteractionCre
 		}
 
 		_, err := discord.SendFollowup(s, i, message)
+		if err != nil {
+			log.Println(err)
+		}
+	},
+	"memory_setname": func(s *discordgo.Session, i *discordgo.InteractionCreate) {
+		log.Printf("Received interaction: %s by %s", i.ApplicationCommandData().Name, i.Interaction.Member.User.Username)
+		discord.DeferEphemeralResponse(s, i)
+
+		var name string
+		var targetUser *discordgo.User
+		for _, option := range i.ApplicationCommandData().Options {
+			if option.Name == "name" {
+				name = strings.TrimSpace(option.StringValue())
+			}
+			if option.Name == "user" {
+				targetUser = option.UserValue(s)
+			}
+		}
+
+		// Non-admins cannot target other users
+		if targetUser != nil && targetUser.ID != i.Interaction.Member.User.ID && !utility.IsAdmin(i.Interaction.Member.User.ID) {
+			_, err := discord.SendFollowup(s, i, "Only admins can set names for other users!")
+			if err != nil {
+				log.Println(err)
+			}
+			return
+		}
+
+		// Default to the invoking user
+		if targetUser == nil {
+			targetUser = i.Interaction.Member.User
+		}
+
+		// Clear preferred name when no name is provided
+		if name == "" {
+			if err := memory.SetPreferredName(targetUser.ID, targetUser.Username, ""); err != nil {
+				_, err := discord.SendFollowup(s, i, fmt.Sprintf("Error: %v", err))
+				if err != nil {
+					log.Println(err)
+				}
+				return
+			}
+			msg := fmt.Sprintf("Cleared preferred name for %s.", targetUser.Username)
+			_, err := discord.SendFollowup(s, i, msg)
+			if err != nil {
+				log.Println(err)
+			}
+			return
+		}
+
+		if err := memory.SetPreferredName(targetUser.ID, targetUser.Username, name); err != nil {
+			_, err := discord.SendFollowup(s, i, fmt.Sprintf("Error: %v", err))
+			if err != nil {
+				log.Println(err)
+			}
+			return
+		}
+
+		msg := fmt.Sprintf("Set preferred name for %s to **%s**.", targetUser.Username, name)
+		_, err := discord.SendFollowup(s, i, msg)
+		if err != nil {
+			log.Println(err)
+		}
+	},
+	"memory_admin_refreshnames": func(s *discordgo.Session, i *discordgo.InteractionCreate) {
+		log.Printf("Received interaction: %s by %s", i.ApplicationCommandData().Name, i.Interaction.Member.User.Username)
+		discord.DeferEphemeralResponse(s, i)
+
+		if !utility.IsAdmin(i.Interaction.Member.User.ID) {
+			_, err := discord.SendFollowup(s, i, "Only admins can use this command!")
+			if err != nil {
+				log.Println(err)
+			}
+			return
+		}
+
+		var user *discordgo.User
+		for _, option := range i.ApplicationCommandData().Options {
+			if option.Name == "user" {
+				user = option.UserValue(s)
+			}
+		}
+
+		var count int64
+		var err error
+		var message string
+
+		if user != nil {
+			count, err = memory.RefreshFactNames(user.ID)
+			message = fmt.Sprintf("Updated %d facts for %s.", count, user.Username)
+		} else {
+			count, err = memory.RefreshAllFactNames()
+			message = fmt.Sprintf("Updated %d facts across all users.", count)
+		}
+
+		if err != nil {
+			_, err := discord.SendFollowup(s, i, fmt.Sprintf("Error: %v", err))
+			if err != nil {
+				log.Println(err)
+			}
+			return
+		}
+
+		_, err = discord.SendFollowup(s, i, message)
 		if err != nil {
 			log.Println(err)
 		}
