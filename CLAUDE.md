@@ -91,6 +91,14 @@ Data lives in memory (protected by `sync.RWMutex`) and is periodically written b
 ### Multimodal content
 `config.RequestContent` carries text, image URLs, video URLs, PDF URLs, and YouTube URLs through the processing pipeline. The utility package handles downloading, resizing, and format conversion (relies on FFmpeg for video).
 
+## Testing
+
+- **`go mod tidy` drops unreferenced deps** — a test-only `go get` won't survive tidy until at least one `_test.go` file imports it; add the import first, then tidy
+- **Testing URL-downloading functions** — use `httptest.NewServer` serving in-memory bytes; suffix the URL path with the right extension (e.g., `/test.png`) so `UrlToExt` routes correctly; no real network needed
+- **Testing video functions** — `getVideoDuration` and `extractVideoFrameAtTime` take file paths directly; generate `internal/utility/testdata/test.mp4` via `ffmpeg -f lavfi -i color=c=blue:size=64x64:rate=5 -t 1 -pix_fmt yuv420p -y testdata/test.mp4`
+- **Testing Discord message functions** — `*discordgo.Message` structs can be constructed directly for tests that don't call the Discord API; only `CleanMessage` (reads `s.State.User.ID`) needs a mock session
+- **Run tests**: `/usr/local/go/bin/go test ./... -timeout 60s` (video tests need the timeout; they use ffmpeg)
+
 ## Conventions
 
 - **Package organization**: one package per feature domain under `internal/`
@@ -111,3 +119,4 @@ Data lives in memory (protected by `sync.RWMutex`) and is periodically written b
 | `u2takey/ffmpeg-go` | FFmpeg media processing |
 | `corona10/goimagehash` | Perceptual image hashing |
 | `joho/godotenv` | .env file loading |
+| `ewohltman/discordgo-mock` | Mock Discord sessions for unit tests (import as `.../mocksession`, `.../mockstate`, `.../mockuser` — no `/pkg/` segment) |
