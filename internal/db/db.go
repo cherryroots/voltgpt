@@ -4,7 +4,6 @@ package db
 import (
 	"database/sql"
 	"log"
-	"strings"
 
 	sqlite_vec "github.com/asg017/sqlite-vec-go-bindings/cgo"
 	_ "github.com/mattn/go-sqlite3"
@@ -74,24 +73,14 @@ func createTables() {
 		DB.Exec(m) // ignore "duplicate column name" errors
 	}
 
-	var vecFactsSQL string
-	err := DB.QueryRow("SELECT sql FROM sqlite_master WHERE type='table' AND name='vec_facts'").Scan(&vecFactsSQL)
+	var name string
+	err := DB.QueryRow("SELECT name FROM sqlite_master WHERE type='table' AND name='vec_facts'").Scan(&name)
 	if err == sql.ErrNoRows {
 		_, err = DB.Exec(`CREATE VIRTUAL TABLE vec_facts USING vec0(fact_id INTEGER PRIMARY KEY, embedding float[768] distance_metric=cosine)`)
 		if err != nil {
 			log.Fatalf("Failed to create vec_facts table: %v", err)
 		}
-	} else if err == nil && !strings.Contains(vecFactsSQL, "cosine") {
-		// Existing table uses L2 distance — drop and recreate with cosine.
-		// Embeddings will be re-inserted by the memory package at startup.
-		if _, err = DB.Exec("DROP TABLE vec_facts"); err != nil {
-			log.Fatalf("Failed to drop vec_facts for migration: %v", err)
-		}
-		if _, err = DB.Exec(`CREATE VIRTUAL TABLE vec_facts USING vec0(fact_id INTEGER PRIMARY KEY, embedding float[768] distance_metric=cosine)`); err != nil {
-			log.Fatalf("Failed to recreate vec_facts with cosine metric: %v", err)
-		}
-		log.Println("db: migrated vec_facts to cosine distance metric; embeddings will be re-inserted at startup")
 	} else if err != nil {
-		log.Fatalf("Failed to check vec_facts schema: %v", err)
+		log.Fatalf("Failed to check vec_facts table: %v", err)
 	}
 }

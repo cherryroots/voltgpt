@@ -56,12 +56,6 @@ func Init(db *sql.DB) {
 
 	enabled = true
 	log.Println("Memory system initialized")
-
-	go func() {
-		if n := reembedMissingFacts(ctx); n > 0 {
-			log.Printf("memory: re-embedded %d facts after schema migration", n)
-		}
-	}()
 }
 
 // embed calls the Gemini embedding API and returns a float32 vector
@@ -417,52 +411,6 @@ func RefreshAllFactNames() (int64, error) {
 		total += count
 	}
 	return total, nil
-}
-
-// reembedMissingFacts finds active facts that have no entry in vec_facts and re-embeds them.
-// Called at startup to recover from vec_facts schema migrations.
-func reembedMissingFacts(ctx context.Context) int {
-	rows, err := database.Query(`
-		SELECT f.id, f.fact_text FROM facts f
-		WHERE f.is_active = 1
-		AND NOT EXISTS (SELECT 1 FROM vec_facts WHERE fact_id = f.id)
-	`)
-	if err != nil {
-		log.Printf("memory: failed to query facts needing re-embedding: %v", err)
-		return 0
-	}
-	defer rows.Close()
-
-	type factRow struct {
-		id   int64
-		text string
-	}
-	var toEmbed []factRow
-	for rows.Next() {
-		var f factRow
-		if err := rows.Scan(&f.id, &f.text); err != nil {
-			continue
-		}
-		toEmbed = append(toEmbed, f)
-	}
-
-	var count int
-	for _, f := range toEmbed {
-		embedding, err := embed(ctx, f.text)
-		if err != nil {
-			log.Printf("memory: failed to re-embed fact %d: %v", f.id, err)
-			continue
-		}
-		if _, err = database.Exec(
-			"INSERT OR REPLACE INTO vec_facts (fact_id, embedding) VALUES (?, ?)",
-			f.id, serializeFloat32(embedding),
-		); err != nil {
-			log.Printf("memory: failed to insert re-embedding for fact %d: %v", f.id, err)
-			continue
-		}
-		count++
-	}
-	return count
 }
 
 // reinforceFact increments the reinforcement counter for a fact.
