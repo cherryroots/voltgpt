@@ -661,3 +661,105 @@ func TestFindSimilarFacts(t *testing.T) {
 		t.Errorf("orthogonal vector: expected 0 results, got %d", len(dissimilar))
 	}
 }
+
+func TestConsolidateAndStore_NoSimilar(t *testing.T) {
+	setupTestDB(t)
+	setupGemini(t)
+
+	id, _, err := upsertUser("cs1", "alice", "Alice")
+	if err != nil {
+		t.Fatalf("upsertUser: %v", err)
+	}
+	ctx := context.Background()
+
+	if err := consolidateAndStore(ctx, id, "m1", "Alice likes hiking."); err != nil {
+		t.Fatalf("consolidateAndStore: %v", err)
+	}
+
+	facts := GetUserFacts("cs1")
+	if len(facts) != 1 {
+		t.Fatalf("len = %d, want 1", len(facts))
+	}
+	if facts[0].FactText != "Alice likes hiking." {
+		t.Errorf("FactText = %q, want %q", facts[0].FactText, "Alice likes hiking.")
+	}
+}
+
+func TestConsolidateAndStore_Reinforce(t *testing.T) {
+	setupTestDB(t)
+	setupGemini(t)
+
+	id, _, err := upsertUser("cs2", "alice", "Alice")
+	if err != nil {
+		t.Fatalf("upsertUser: %v", err)
+	}
+	ctx := context.Background()
+
+	if err := consolidateAndStore(ctx, id, "m1", "Alice uses VSCode."); err != nil {
+		t.Fatalf("first store: %v", err)
+	}
+	if err := consolidateAndStore(ctx, id, "m2", "Alice codes in VSCode."); err != nil {
+		t.Fatalf("reinforce store: %v", err)
+	}
+
+	facts := GetUserFacts("cs2")
+	if len(facts) != 1 {
+		t.Fatalf("after reinforce: len = %d, want 1", len(facts))
+	}
+	if facts[0].ReinforcementCount != 1 {
+		t.Errorf("reinforcement_count = %d, want 1", facts[0].ReinforcementCount)
+	}
+}
+
+func TestConsolidateAndStore_Invalidate(t *testing.T) {
+	setupTestDB(t)
+	setupGemini(t)
+
+	id, _, err := upsertUser("cs3", "alice", "Alice")
+	if err != nil {
+		t.Fatalf("upsertUser: %v", err)
+	}
+	ctx := context.Background()
+
+	if err := consolidateAndStore(ctx, id, "m1", "Alice lives in Tokyo."); err != nil {
+		t.Fatalf("first store: %v", err)
+	}
+	if err := consolidateAndStore(ctx, id, "m2", "Alice moved to Berlin."); err != nil {
+		t.Fatalf("invalidate store: %v", err)
+	}
+
+	facts := GetUserFacts("cs3")
+	if len(facts) != 1 {
+		t.Fatalf("after invalidate: len = %d, want 1", len(facts))
+	}
+	if !strings.Contains(facts[0].FactText, "Berlin") {
+		t.Errorf("expected new fact mentioning Berlin, got %q", facts[0].FactText)
+	}
+}
+
+func TestConsolidateAndStore_Merge(t *testing.T) {
+	setupTestDB(t)
+	setupGemini(t)
+
+	id, _, err := upsertUser("cs4", "alice", "Alice")
+	if err != nil {
+		t.Fatalf("upsertUser: %v", err)
+	}
+	ctx := context.Background()
+
+	if err := consolidateAndStore(ctx, id, "m1", "Alice owns a PS5."); err != nil {
+		t.Fatalf("first store: %v", err)
+	}
+	if err := consolidateAndStore(ctx, id, "m2", "Alice bought an Xbox."); err != nil {
+		t.Fatalf("merge store: %v", err)
+	}
+
+	facts := GetUserFacts("cs4")
+	if len(facts) != 1 {
+		t.Fatalf("after merge: len = %d, want 1", len(facts))
+	}
+	merged := facts[0].FactText
+	if !strings.Contains(merged, "PS5") || !strings.Contains(merged, "Xbox") {
+		t.Errorf("merged fact should mention both consoles: %q", merged)
+	}
+}
