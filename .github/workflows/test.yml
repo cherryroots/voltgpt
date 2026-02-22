@@ -22,4 +22,5 @@ jobs:
         run: go test ./... -timeout 60s
         env:
           MEMORY_GEMINI_TOKEN: ${{ secrets.MEMORY_GEMINI_TOKEN }}
+          GEMINI_TOKEN: ${{ secrets.GEMINI_TOKEN }}
           CGO_ENABLED: "1"

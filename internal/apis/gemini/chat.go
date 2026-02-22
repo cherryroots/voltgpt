@@ -220,9 +220,9 @@ func contentToString(c *genai.Content) string {
 }
 
 func SummarizeCleanText(text string) string {
-	apiKey := os.Getenv("GEMINI_API_KEY")
+	apiKey := os.Getenv("GEMINI_TOKEN")
 	if apiKey == "" {
-		log.Println("GEMINI_API_KEY is not set")
+		log.Println("GEMINI_TOKEN is not set")
 		return ""
 	}
 
