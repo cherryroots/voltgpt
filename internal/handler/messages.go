@@ -158,7 +158,7 @@ func handleReminder(s *discordgo.Session, m *discordgo.Message, triggerLen int) 
 	after := strings.TrimSpace(m.Content[triggerLen:])
 	fireAt, msg, err := reminder.ParseTime(after, time.Now().UTC())
 	if err != nil {
-		discord.LogSendErrorMessage(s, m, "Couldn't parse reminder time — try: remind me in 2h30m do the thing")
+		discord.LogSendErrorMessage(s, m, "Couldn't parse reminder time — try:\n- remind me in 2h30m do the thing\n- remind me at 16:30 CET do the thing")
 		return
 	}
 

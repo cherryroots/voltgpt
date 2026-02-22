@@ -48,8 +48,7 @@ func Init(db *sql.DB, s *discordgo.Session) {
 
 func loadAndSchedule() {
 	rows, err := database.Query(
-		"SELECT id, user_id, channel_id, guild_id, message, images, fire_at FROM reminders WHERE fire_at > ?",
-		time.Now().Unix(),
+		"SELECT id, user_id, channel_id, guild_id, message, images, fire_at FROM reminders",
 	)
 	if err != nil {
 		log.Printf("reminder: failed to load pending reminders: %v", err)
