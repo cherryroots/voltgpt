@@ -284,5 +284,11 @@ var (
 				},
 			},
 		},
+		{
+			Name:                     "reminders",
+			Description:              "List your pending reminders",
+			DefaultMemberPermissions: &writePermission,
+			DMPermission:             &dmPermission,
+		},
 	}
 )

@@ -2,7 +2,11 @@ package handler
 
 import (
 	"context"
+	"encoding/base64"
 	"fmt"
+	"io"
+	"log"
+	"net/http"
 	"os"
 	"strings"
 	"time"
@@ -12,6 +16,7 @@ import (
 	"voltgpt/internal/discord"
 	"voltgpt/internal/hasher"
 	"voltgpt/internal/memory"
+	"voltgpt/internal/reminder"
 	"voltgpt/internal/utility"
 
 	"github.com/bwmarrin/discordgo"
@@ -86,6 +91,12 @@ func HandleMessage(s *discordgo.Session, m *discordgo.MessageCreate) {
 
 	m.Message = utility.CleanMessage(s, m.Message)
 	m.Message.Content = utility.ResolveMentions(m.Message.Content, m.Mentions)
+
+	if triggerLen, ok := reminderTrigger(m.Message.Content); ok {
+		handleReminder(s, m.Message, triggerLen)
+		return
+	}
+
 	images, videos, pdfs, ytURLs := utility.GetMessageMediaURL(m.Message)
 
 	content := config.RequestContent{
@@ -128,4 +139,64 @@ func HandleMessage(s *discordgo.Session, m *discordgo.MessageCreate) {
 	if err != nil {
 		discord.LogSendErrorMessage(s, m.Message, err.Error())
 	}
+}
+
+// reminderTrigger reports whether content starts with a reminder trigger phrase.
+// Returns the byte length of the trigger prefix so the caller can slice past it.
+func reminderTrigger(content string) (int, bool) {
+	lower := strings.ToLower(strings.TrimSpace(content))
+	for _, trigger := range []string{"remind me ", "reminder ", "remind "} {
+		if strings.HasPrefix(lower, trigger) {
+			return len(trigger), true
+		}
+	}
+	return 0, false
+}
+
+// handleReminder parses and stores a reminder from a Discord message.
+func handleReminder(s *discordgo.Session, m *discordgo.Message, triggerLen int) {
+	after := strings.TrimSpace(m.Content[triggerLen:])
+	fireAt, msg, err := reminder.ParseTime(after, time.Now().UTC())
+	if err != nil {
+		discord.LogSendErrorMessage(s, m, "Couldn't parse reminder time — try: remind me in 2h30m do the thing")
+		return
+	}
+
+	var images []reminder.Image
+	for _, att := range m.Attachments {
+		if att.Width > 0 && att.Height > 0 {
+			data, err := downloadBytes(att.URL)
+			if err != nil {
+				log.Printf("reminder: download attachment %s: %v", att.URL, err)
+				continue
+			}
+			images = append(images, reminder.Image{
+				Filename: att.Filename,
+				Data:     base64.StdEncoding.EncodeToString(data),
+			})
+		}
+	}
+
+	if err := reminder.Add(m.Author.ID, m.ChannelID, m.GuildID, msg, images, fireAt); err != nil {
+		discord.LogSendErrorMessage(s, m, fmt.Sprintf("Couldn't save reminder: %v", err))
+		return
+	}
+
+	reply := fmt.Sprintf("⏰ <@%s> I'll remind you <t:%d:R>: %s", m.Author.ID, fireAt.Unix(), msg)
+	if _, err := discord.SendMessage(s, m, reply); err != nil {
+		log.Println(err)
+	}
+}
+
+// downloadBytes fetches the raw bytes at url.
+func downloadBytes(url string) ([]byte, error) {
+	resp, err := http.Get(url)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("bad status: %s", resp.Status)
+	}
+	return io.ReadAll(resp.Body)
 }
