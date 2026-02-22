@@ -914,21 +914,43 @@ var Commands = map[string]func(s *discordgo.Session, i *discordgo.InteractionCre
 		log.Printf("Received interaction: %s by %s", i.ApplicationCommandData().Name, i.Interaction.Member.User.Username)
 
 		reminders, err := reminder.GetUserReminders(i.Interaction.Member.User.ID)
-		if err != nil || len(reminders) == 0 {
-			s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+		if err != nil {
+			log.Println(err)
+			err = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+				Type: discordgo.InteractionResponseChannelMessageWithSource,
+				Data: &discordgo.InteractionResponseData{
+					Content: "Failed to retrieve your reminders. Please try again later.",
+					Flags:   discordgo.MessageFlagsEphemeral,
+				},
+			})
+			if err != nil {
+				log.Println(err)
+			}
+			return
+		}
+		if len(reminders) == 0 {
+			err = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 				Type: discordgo.InteractionResponseChannelMessageWithSource,
 				Data: &discordgo.InteractionResponseData{
 					Content: "You have no pending reminders!",
 					Flags:   discordgo.MessageFlagsEphemeral,
 				},
 			})
+			if err != nil {
+				log.Println(err)
+			}
 			return
 		}
 
+		const maxOptions = 25
 		var sb strings.Builder
 		sb.WriteString("**Your reminders:**\n")
-		options := make([]discordgo.SelectMenuOption, 0, len(reminders))
-		for idx, r := range reminders {
+		displayed := reminders
+		if len(reminders) > maxOptions {
+			displayed = reminders[:maxOptions]
+		}
+		options := make([]discordgo.SelectMenuOption, 0, len(displayed))
+		for idx, r := range displayed {
 			imageNote := ""
 			if len(r.Images) > 0 {
 				imageNote = fmt.Sprintf(" [%d image(s)]", len(r.Images))
@@ -943,6 +965,9 @@ var Commands = map[string]func(s *discordgo.Session, i *discordgo.InteractionCre
 				Label: label,
 				Value: strconv.FormatInt(r.ID, 10),
 			})
+		}
+		if len(reminders) > maxOptions {
+			sb.WriteString(fmt.Sprintf("\n*(showing first 25 of %d reminders)*", len(reminders)))
 		}
 
 		err = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
