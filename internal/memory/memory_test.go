@@ -43,7 +43,8 @@ func setupGemini(t *testing.T) {
 	if err != nil {
 		t.Fatalf("setupGemini: failed to create client: %v", err)
 	}
-	t.Cleanup(func() { client = nil })
+	enabled = true
+	t.Cleanup(func() { client = nil; enabled = false })
 }
 
 // ── Pure functions ────────────────────────────────────────────────────────────
@@ -761,5 +762,88 @@ func TestConsolidateAndStore_Merge(t *testing.T) {
 	merged := facts[0].FactText
 	if !strings.Contains(merged, "PS5") || !strings.Contains(merged, "Xbox") {
 		t.Errorf("merged fact should mention both consoles: %q", merged)
+	}
+}
+
+func TestRetrieve_Disabled(t *testing.T) {
+	// No setupGemini — enabled stays false.
+	if got := Retrieve("anything", "discord1"); got != nil {
+		t.Errorf("Retrieve when disabled = %v, want nil", got)
+	}
+}
+
+func TestRetrieveMultiUser_Disabled(t *testing.T) {
+	result := RetrieveMultiUser("anything", map[string]string{"d1": "user"})
+	if result != "" {
+		t.Errorf("RetrieveMultiUser when disabled = %q, want empty", result)
+	}
+}
+
+func TestRetrieve(t *testing.T) {
+	setupTestDB(t)
+	setupGemini(t)
+
+	id, _, err := upsertUser("rv1", "alice", "Alice")
+	if err != nil {
+		t.Fatalf("upsertUser: %v", err)
+	}
+	ctx := context.Background()
+	if err := consolidateAndStore(ctx, id, "m1", "Alice loves hiking in the mountains."); err != nil {
+		t.Fatalf("consolidateAndStore: %v", err)
+	}
+
+	facts := Retrieve("outdoor activities", "rv1")
+	if len(facts) == 0 {
+		t.Error("expected at least one fact, got none")
+	}
+}
+
+func TestRetrieveGeneral(t *testing.T) {
+	setupTestDB(t)
+	setupGemini(t)
+
+	ctx := context.Background()
+	idA, _, err := upsertUser("rg1", "alice", "Alice")
+	if err != nil {
+		t.Fatalf("upsertUser A: %v", err)
+	}
+
+	if err := consolidateAndStore(ctx, idA, "m1", "Alice loves mountain hiking."); err != nil {
+		t.Fatalf("store A: %v", err)
+	}
+
+	// Exclude A — only B's facts eligible (B has none, so result may be empty).
+	// The important thing is it doesn't panic and returns a slice.
+	_ = RetrieveGeneral("outdoor activities", map[string]bool{"rg1": true})
+
+	// Now retrieve without any exclusion — should find Alice's fact.
+	facts := RetrieveGeneral("outdoor activities", map[string]bool{})
+	if len(facts) == 0 {
+		t.Error("expected at least one general fact, got none")
+	}
+}
+
+func TestRetrieveMultiUser(t *testing.T) {
+	setupTestDB(t)
+	setupGemini(t)
+
+	ctx := context.Background()
+	idA, _, err := upsertUser("rm1", "alice", "Alice")
+	if err != nil {
+		t.Fatalf("upsertUser A: %v", err)
+	}
+
+	if err := consolidateAndStore(ctx, idA, "m1", "Alice plays piano."); err != nil {
+		t.Fatalf("store A: %v", err)
+	}
+
+	users := map[string]string{"rm1": "Alice", "rm2": "Bob"}
+	result := RetrieveMultiUser("musical instruments", users)
+
+	if result == "" {
+		t.Error("expected non-empty XML output, got empty string")
+	}
+	if !strings.HasPrefix(result, "<background_facts>") {
+		t.Errorf("expected XML wrapper, got: %s", result)
 	}
 }
