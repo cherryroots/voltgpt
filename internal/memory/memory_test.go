@@ -617,3 +617,47 @@ func TestGetRecentFacts(t *testing.T) {
 		}
 	}
 }
+
+func TestFindSimilarFacts(t *testing.T) {
+	setupTestDB(t)
+
+	id, _, err := upsertUser("fs1", "alice", "Alice")
+	if err != nil {
+		t.Fatalf("upsertUser: %v", err)
+	}
+
+	// Unit vector in dimension 0.
+	stored := make([]float32, embeddingDimensions)
+	stored[0] = 1.0
+	if err := insertFact(id, "m1", "Alice likes hiking.", stored); err != nil {
+		t.Fatalf("insertFact: %v", err)
+	}
+
+	// Identical vector → distance ~0, should be returned.
+	same := make([]float32, embeddingDimensions)
+	same[0] = 1.0
+	similar, err := findSimilarFacts(id, same)
+	if err != nil {
+		t.Fatalf("findSimilarFacts (identical): %v", err)
+	}
+	if len(similar) != 1 {
+		t.Fatalf("identical vector: len = %d, want 1", len(similar))
+	}
+	if similar[0].FactText != "Alice likes hiking." {
+		t.Errorf("FactText = %q, want %q", similar[0].FactText, "Alice likes hiking.")
+	}
+	if similar[0].Distance > 0.01 {
+		t.Errorf("distance = %f, want ~0", similar[0].Distance)
+	}
+
+	// Orthogonal vector (dim 1) → cosine distance = 1.0, above threshold, filtered out.
+	ortho := make([]float32, embeddingDimensions)
+	ortho[1] = 1.0
+	dissimilar, err := findSimilarFacts(id, ortho)
+	if err != nil {
+		t.Fatalf("findSimilarFacts (orthogonal): %v", err)
+	}
+	if len(dissimilar) != 0 {
+		t.Errorf("orthogonal vector: expected 0 results, got %d", len(dissimilar))
+	}
+}
