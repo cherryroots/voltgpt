@@ -473,10 +473,10 @@ func TestDecideAction(t *testing.T) {
 			wantAction: "KEEP",
 		},
 		{
-			// Same domain (programming languages) — should combine, not coexist.
+			// Same domain (musical instruments) — should combine, not coexist.
 			name:       "merge not keep: same domain skills",
-			oldFact:    "Alice uses Python.",
-			newFact:    "Alice knows JavaScript.",
+			oldFact:    "Alice plays guitar.",
+			newFact:    "Alice plays piano.",
 			wantAction: "MERGE",
 		},
 		{

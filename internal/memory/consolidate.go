@@ -42,6 +42,7 @@ Actions:
    - OLD: "Owns an Xbox" / NEW: "Bought a PS5" → MERGE: "Owns both an Xbox and a PS5"
    - OLD: "Studies computer science" / NEW: "Studies at MIT" → MERGE: "Studies computer science at MIT"
    - OLD: "Has a dog" / NEW: "Dog's name is Bento" → MERGE: "Has a dog named Bento"
+   - OLD: "Uses Python" / NEW: "Knows JavaScript" → MERGE: "Knows Python and JavaScript" (same domain: programming languages)
 
 4. KEEP — The facts are about different topics and should both exist independently.
    Examples:
