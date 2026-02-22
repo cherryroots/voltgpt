@@ -509,3 +509,111 @@ func TestDecideAction(t *testing.T) {
 		})
 	}
 }
+
+func TestDeleteAllFacts(t *testing.T) {
+	setupTestDB(t)
+
+	id1, _, err := upsertUser("da1", "u1", "U1")
+	if err != nil {
+		t.Fatalf("upsertUser: %v", err)
+	}
+	id2, _, err := upsertUser("da2", "u2", "U2")
+	if err != nil {
+		t.Fatalf("upsertUser: %v", err)
+	}
+	embedding := make([]float32, embeddingDimensions)
+	if err := insertFact(id1, "m1", "fact one", embedding); err != nil {
+		t.Fatalf("insertFact: %v", err)
+	}
+	if err := insertFact(id2, "m2", "fact two", embedding); err != nil {
+		t.Fatalf("insertFact: %v", err)
+	}
+
+	if n := TotalFacts(); n != 2 {
+		t.Fatalf("before delete: TotalFacts = %d, want 2", n)
+	}
+
+	n, err := DeleteAllFacts()
+	if err != nil {
+		t.Fatalf("DeleteAllFacts: %v", err)
+	}
+	if n != 2 {
+		t.Errorf("rows affected = %d, want 2", n)
+	}
+	if n := TotalFacts(); n != 0 {
+		t.Errorf("after delete: TotalFacts = %d, want 0", n)
+	}
+}
+
+func TestRefreshAllFactNames(t *testing.T) {
+	setupTestDB(t)
+
+	id1, _, err := upsertUser("rb1", "alice", "Alice")
+	if err != nil {
+		t.Fatalf("upsertUser: %v", err)
+	}
+	id2, _, err := upsertUser("rb2", "bob", "Bob")
+	if err != nil {
+		t.Fatalf("upsertUser: %v", err)
+	}
+	embedding := make([]float32, embeddingDimensions)
+	if err := insertFact(id1, "m1", "Alice likes tea.", embedding); err != nil {
+		t.Fatalf("insertFact: %v", err)
+	}
+	if err := insertFact(id2, "m2", "Bob plays chess.", embedding); err != nil {
+		t.Fatalf("insertFact: %v", err)
+	}
+
+	database.Exec("UPDATE users SET preferred_name = 'Ali' WHERE id = ?", id1)
+	database.Exec("UPDATE users SET preferred_name = 'Robert' WHERE id = ?", id2)
+
+	n, err := RefreshAllFactNames()
+	if err != nil {
+		t.Fatalf("RefreshAllFactNames: %v", err)
+	}
+	if n != 2 {
+		t.Errorf("updated count = %d, want 2", n)
+	}
+
+	facts1 := GetUserFacts("rb1")
+	if len(facts1) != 1 || !strings.HasPrefix(facts1[0].FactText, "Ali ") {
+		t.Errorf("user 1 fact not renamed: %q", facts1[0].FactText)
+	}
+	facts2 := GetUserFacts("rb2")
+	if len(facts2) != 1 || !strings.HasPrefix(facts2[0].FactText, "Robert ") {
+		t.Errorf("user 2 fact not renamed: %q", facts2[0].FactText)
+	}
+}
+
+func TestGetRecentFacts(t *testing.T) {
+	setupTestDB(t)
+
+	if got := GetRecentFacts(5); len(got) != 0 {
+		t.Errorf("empty DB: GetRecentFacts len = %d, want 0", len(got))
+	}
+
+	id, _, err := upsertUser("gr1", "alice", "Alice")
+	if err != nil {
+		t.Fatalf("upsertUser: %v", err)
+	}
+	embedding := make([]float32, embeddingDimensions)
+	if err := insertFact(id, "m1", "Alice likes coffee.", embedding); err != nil {
+		t.Fatalf("insertFact: %v", err)
+	}
+	if err := insertFact(id, "m2", "Alice plays piano.", embedding); err != nil {
+		t.Fatalf("insertFact: %v", err)
+	}
+	if err := insertFact(id, "m3", "Alice lives in Paris.", embedding); err != nil {
+		t.Fatalf("insertFact: %v", err)
+	}
+
+	got := GetRecentFacts(2)
+	if len(got) != 2 {
+		t.Errorf("GetRecentFacts(2) len = %d, want 2", len(got))
+	}
+	for _, f := range got {
+		if f.Username == "" || f.FactText == "" {
+			t.Errorf("incomplete recent fact: %+v", f)
+		}
+	}
+}
