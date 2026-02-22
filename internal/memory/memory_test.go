@@ -847,3 +847,25 @@ func TestRetrieveMultiUser(t *testing.T) {
 		t.Errorf("expected XML wrapper, got: %s", result)
 	}
 }
+
+func TestFlushBuffer(t *testing.T) {
+	setupTestDB(t)
+	setupGemini(t)
+
+	buffersMu.Lock()
+	buffers["fb1"] = &messageBuffer{
+		discordID:   "fb1",
+		username:    "frank",
+		displayName: "Frank",
+		messageID:   "mfb1",
+		messages:    []string{"I just moved to Austin and started working at Dell."},
+	}
+	buffersMu.Unlock()
+
+	flushBuffer("fb1")
+
+	facts := GetUserFacts("fb1")
+	if len(facts) == 0 {
+		t.Error("expected facts after flush, got none")
+	}
+}
