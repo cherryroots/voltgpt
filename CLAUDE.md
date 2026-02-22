@@ -2,7 +2,7 @@
 
 ## Overview
 
-Go Discord bot ("Volt-仙女") providing multimodal AI chat (Gemini, OpenRouter), image generation/editing (Wavespeed), video creation, audio transcription, perceptual image hashing for duplicate detection, and a movie wheel betting game.
+Go Discord bot ("Vivy") providing multimodal AI chat (Gemini, OpenRouter), image generation/editing (Wavespeed), video creation, audio transcription, perceptual image hashing for duplicate detection, and a movie wheel betting game.
 
 ## Build & Run
 

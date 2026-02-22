@@ -63,7 +63,8 @@ func createTables() {
 	guild_id   TEXT    NOT NULL,
 	message    TEXT    NOT NULL,
 	images     TEXT,
-	fire_at    INTEGER NOT NULL
+	fire_at    INTEGER NOT NULL,
+	created_at INTEGER NOT NULL DEFAULT (unixepoch())
 )`,
 	}
 

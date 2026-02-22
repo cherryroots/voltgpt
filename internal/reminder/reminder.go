@@ -36,6 +36,7 @@ type Reminder struct {
 	Message   string
 	Images    []Image
 	FireAt    int64 // Unix timestamp (seconds)
+	CreatedAt int64 // Unix timestamp (seconds)
 }
 
 // Init loads all pending reminders from SQLite and schedules them.
@@ -48,7 +49,7 @@ func Init(db *sql.DB, s *discordgo.Session) {
 
 func loadAndSchedule() {
 	rows, err := database.Query(
-		"SELECT id, user_id, channel_id, guild_id, message, images, fire_at FROM reminders",
+		"SELECT id, user_id, channel_id, guild_id, message, images, fire_at, created_at FROM reminders",
 	)
 	if err != nil {
 		log.Printf("reminder: failed to load pending reminders: %v", err)
@@ -59,7 +60,7 @@ func loadAndSchedule() {
 	for rows.Next() {
 		var r Reminder
 		var imagesJSON sql.NullString
-		if err := rows.Scan(&r.ID, &r.UserID, &r.ChannelID, &r.GuildID, &r.Message, &imagesJSON, &r.FireAt); err != nil {
+		if err := rows.Scan(&r.ID, &r.UserID, &r.ChannelID, &r.GuildID, &r.Message, &imagesJSON, &r.FireAt, &r.CreatedAt); err != nil {
 			log.Printf("reminder: scan error: %v", err)
 			continue
 		}
@@ -89,7 +90,7 @@ func fire(r Reminder) {
 	delete(timers, r.ID)
 	mu.Unlock()
 
-	msg := fmt.Sprintf("<@%s> Reminder: %s", r.UserID, r.Message)
+	msg := fmt.Sprintf("<@%s> Reminder set <t:%d:f>: %s", r.UserID, r.CreatedAt, r.Message)
 
 	var sendErr error
 	if len(r.Images) == 0 {
@@ -132,9 +133,10 @@ func Add(userID, channelID, guildID, message string, images []Image, fireAt time
 		imagesJSON = sql.NullString{String: string(b), Valid: true}
 	}
 
+	createdAt := time.Now().Unix()
 	result, err := database.Exec(
-		"INSERT INTO reminders (user_id, channel_id, guild_id, message, images, fire_at) VALUES (?, ?, ?, ?, ?, ?)",
-		userID, channelID, guildID, message, imagesJSON, fireAt.Unix(),
+		"INSERT INTO reminders (user_id, channel_id, guild_id, message, images, fire_at, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+		userID, channelID, guildID, message, imagesJSON, fireAt.Unix(), createdAt,
 	)
 	if err != nil {
 		return fmt.Errorf("insert reminder: %w", err)
@@ -153,6 +155,7 @@ func Add(userID, channelID, guildID, message string, images []Image, fireAt time
 		Message:   message,
 		Images:    images,
 		FireAt:    fireAt.Unix(),
+		CreatedAt: createdAt,
 	})
 	return nil
 }
@@ -178,7 +181,7 @@ func Delete(id int64) bool {
 // GetUserReminders returns all future reminders for userID, ordered by fire time.
 func GetUserReminders(userID string) ([]Reminder, error) {
 	rows, err := database.Query(
-		"SELECT id, user_id, channel_id, guild_id, message, images, fire_at FROM reminders WHERE user_id = ? AND fire_at > ? ORDER BY fire_at ASC",
+		"SELECT id, user_id, channel_id, guild_id, message, images, fire_at, created_at FROM reminders WHERE user_id = ? AND fire_at > ? ORDER BY fire_at ASC",
 		userID, time.Now().Unix(),
 	)
 	if err != nil {
@@ -190,7 +193,7 @@ func GetUserReminders(userID string) ([]Reminder, error) {
 	for rows.Next() {
 		var r Reminder
 		var imagesJSON sql.NullString
-		if err := rows.Scan(&r.ID, &r.UserID, &r.ChannelID, &r.GuildID, &r.Message, &imagesJSON, &r.FireAt); err != nil {
+		if err := rows.Scan(&r.ID, &r.UserID, &r.ChannelID, &r.GuildID, &r.Message, &imagesJSON, &r.FireAt, &r.CreatedAt); err != nil {
 			log.Printf("reminder: scan: %v", err)
 			continue
 		}
