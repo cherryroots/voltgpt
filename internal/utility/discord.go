@@ -227,13 +227,13 @@ func AttachmentText(m *discordgo.Message) (text string) {
 		}
 	}
 	for i, u := range urls {
-		byteData, err := DownloadURL(u)
+		byteData, err := DownloadBytes(u)
 		if err != nil {
 			log.Printf("Error downloading attachment: %v", err)
 			continue
 		}
 
-		ext, err := UrlToExt(u)
+		ext, err := URLToExt(u)
 		if err != nil {
 			log.Printf("Error getting extension: %v", err)
 			continue

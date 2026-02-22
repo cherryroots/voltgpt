@@ -67,7 +67,7 @@ func TestUrlToExt(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := UrlToExt(tt.urlStr)
+			got, err := URLToExt(tt.urlStr)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("UrlToExt(%q) error = %v, wantErr %v", tt.urlStr, err, tt.wantErr)
 				return
@@ -317,7 +317,7 @@ func TestDownloadURL(t *testing.T) {
 	defer server.Close()
 
 	t.Run("successful download", func(t *testing.T) {
-		data, err := DownloadURL(server.URL + "/ok")
+		data, err := DownloadBytes(server.URL + "/ok")
 		if err != nil {
 			t.Fatalf("DownloadURL() unexpected error: %v", err)
 		}
@@ -327,14 +327,14 @@ func TestDownloadURL(t *testing.T) {
 	})
 
 	t.Run("non-200 status returns error", func(t *testing.T) {
-		_, err := DownloadURL(server.URL + "/notfound")
+		_, err := DownloadBytes(server.URL + "/notfound")
 		if err == nil {
 			t.Error("DownloadURL() expected error for 404 status, got nil")
 		}
 	})
 
 	t.Run("invalid URL returns error", func(t *testing.T) {
-		_, err := DownloadURL("http://127.0.0.1:0/invalid")
+		_, err := DownloadBytes("http://127.0.0.1:0/invalid")
 		if err == nil {
 			t.Error("DownloadURL() expected error for unreachable URL, got nil")
 		}
@@ -342,7 +342,7 @@ func TestDownloadURL(t *testing.T) {
 }
 
 func TestUrlToExtInvalidURL(t *testing.T) {
-	_, err := UrlToExt("://bad url")
+	_, err := URLToExt("://bad url")
 	if err == nil {
 		t.Error("UrlToExt() expected error for invalid URL, got nil")
 	}

@@ -208,11 +208,11 @@ func WaitForComplete(id string) (*WaveSpeedResponse, error) {
 func DownloadResult(resp *WaveSpeedResponse) ([]*discordgo.File, error) {
 	files := make([]*discordgo.File, len(resp.Data.Outputs))
 	for i, output := range resp.Data.Outputs {
-		data, err := utility.DownloadURL(output)
+		data, err := utility.DownloadBytes(output)
 		if err != nil {
 			return nil, err
 		}
-		ext, err := utility.UrlToExt(output)
+		ext, err := utility.URLToExt(output)
 		if err != nil {
 			return nil, err
 		}
@@ -226,7 +226,7 @@ func DownloadResult(resp *WaveSpeedResponse) ([]*discordgo.File, error) {
 }
 
 func IsImageURL(urlStr string) bool {
-	fileExt, err := utility.UrlToExt(urlStr)
+	fileExt, err := utility.URLToExt(urlStr)
 	if err != nil {
 		return false
 	}

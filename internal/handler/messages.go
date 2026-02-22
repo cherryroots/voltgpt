@@ -4,9 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"fmt"
-	"io"
 	"log"
-	"net/http"
 	"os"
 	"strings"
 	"time"
@@ -165,7 +163,7 @@ func handleReminder(s *discordgo.Session, m *discordgo.Message, triggerLen int) 
 	var images []reminder.Image
 	for _, att := range m.Attachments {
 		if att.Width > 0 && att.Height > 0 {
-			data, err := downloadBytes(att.URL)
+			data, err := utility.DownloadBytes(att.URL)
 			if err != nil {
 				log.Printf("reminder: download attachment %s: %v", att.URL, err)
 				continue
@@ -186,17 +184,4 @@ func handleReminder(s *discordgo.Session, m *discordgo.Message, triggerLen int) 
 	if _, err := discord.SendMessage(s, m, reply); err != nil {
 		log.Println(err)
 	}
-}
-
-// downloadBytes fetches the raw bytes at url.
-func downloadBytes(url string) ([]byte, error) {
-	resp, err := http.Get(url)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("bad status: %s", resp.Status)
-	}
-	return io.ReadAll(resp.Body)
 }

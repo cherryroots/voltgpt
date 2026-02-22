@@ -17,7 +17,7 @@ import (
 )
 
 func VideoToBase64Images(urlStr string) ([]string, error) {
-	data, err := DownloadURL(urlStr)
+	data, err := DownloadBytes(urlStr)
 	if err != nil {
 		return nil, err
 	}

@@ -309,7 +309,7 @@ func CreateContent(c *genai.Client, role string, content config.RequestContent) 
 
 	for _, imageURL := range content.Images {
 		if strings.Contains(imageURL, "thought_signature.png") && role == "model" {
-			data, err := utility.DownloadURL(imageURL)
+			data, err := utility.DownloadBytes(imageURL)
 			if err != nil {
 				continue
 			}
@@ -327,7 +327,7 @@ func CreateContent(c *genai.Client, role string, content config.RequestContent) 
 		if mime == "" {
 			continue
 		}
-		data, err := utility.DownloadURL(imageURL)
+		data, err := utility.DownloadBytes(imageURL)
 		if err != nil {
 			continue
 		}
@@ -340,7 +340,7 @@ func CreateContent(c *genai.Client, role string, content config.RequestContent) 
 	}
 
 	for _, videoURL := range content.Videos {
-		data, err := utility.DownloadURL(videoURL)
+		data, err := utility.DownloadBytes(videoURL)
 		if err != nil {
 			continue
 		}
@@ -357,7 +357,7 @@ func CreateContent(c *genai.Client, role string, content config.RequestContent) 
 	}
 
 	for _, pdfURL := range content.PDFs {
-		data, err := utility.DownloadURL(pdfURL)
+		data, err := utility.DownloadBytes(pdfURL)
 		if err != nil {
 			continue
 		}

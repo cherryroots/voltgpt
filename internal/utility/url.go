@@ -10,7 +10,7 @@ import (
 	"strings"
 )
 
-func DownloadURL(url string) ([]byte, error) {
+func DownloadBytes(url string) ([]byte, error) {
 	resp, err := http.Get(url)
 	if err != nil {
 		return nil, err
@@ -21,15 +21,10 @@ func DownloadURL(url string) ([]byte, error) {
 		return nil, fmt.Errorf("bad status: %s", resp.Status)
 	}
 
-	data, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, err
-	}
-
-	return data, nil
+	return io.ReadAll(resp.Body)
 }
 
-func UrlToExt(urlStr string) (string, error) {
+func URLToExt(urlStr string) (string, error) {
 	parsedURL, err := url.Parse(urlStr)
 	if err != nil {
 		return "", err
@@ -41,7 +36,7 @@ func UrlToExt(urlStr string) (string, error) {
 }
 
 func IsImageURL(urlStr string) bool {
-	fileExt, err := UrlToExt(urlStr)
+	fileExt, err := URLToExt(urlStr)
 	if err != nil {
 		return false
 	}
@@ -55,7 +50,7 @@ func IsImageURL(urlStr string) bool {
 }
 
 func IsVideoURL(urlStr string) bool {
-	fileExt, err := UrlToExt(urlStr)
+	fileExt, err := URLToExt(urlStr)
 	if err != nil {
 		return false
 	}
@@ -69,7 +64,7 @@ func IsVideoURL(urlStr string) bool {
 }
 
 func IsPDFURL(urlStr string) bool {
-	fileExt, err := UrlToExt(urlStr)
+	fileExt, err := URLToExt(urlStr)
 	if err != nil {
 		return false
 	}
@@ -87,7 +82,7 @@ func IsYTURL(urlStr string) bool {
 }
 
 func MediaType(urlStr string) string {
-	fileExt, err := UrlToExt(urlStr)
+	fileExt, err := URLToExt(urlStr)
 	if err != nil {
 		return ""
 	}
@@ -119,7 +114,7 @@ func HasExtension(URL string, extensions []string) bool {
 		return false
 	}
 	for _, extension := range extensions {
-		urlExt, _ := UrlToExt(URL)
+		urlExt, _ := URLToExt(URL)
 		if urlExt == extension {
 			return true
 		}

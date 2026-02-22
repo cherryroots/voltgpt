@@ -14,7 +14,7 @@ import (
 )
 
 func Base64ImageDownload(urlStr string) ([]string, error) {
-	fileExt, err := UrlToExt(urlStr)
+	fileExt, err := URLToExt(urlStr)
 	if err != nil {
 		return nil, err
 	}
@@ -70,7 +70,7 @@ func Base64ImageDownload(urlStr string) ([]string, error) {
 }
 
 func GetAspectRatio(url string) (float64, error) {
-	data, err := DownloadURL(url)
+	data, err := DownloadBytes(url)
 	if err != nil {
 		return 0, err
 	}
@@ -82,7 +82,7 @@ func GetAspectRatio(url string) (float64, error) {
 }
 
 func Base64Image(url string) ([]string, error) {
-	data, err := DownloadURL(url)
+	data, err := DownloadBytes(url)
 	if err != nil {
 		return nil, err
 	}
@@ -90,7 +90,7 @@ func Base64Image(url string) ([]string, error) {
 }
 
 func GifToBase64Images(url string) ([]string, error) {
-	data, err := DownloadURL(url)
+	data, err := DownloadBytes(url)
 	if err != nil {
 		return nil, err
 	}
