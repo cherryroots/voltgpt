@@ -2,7 +2,7 @@
 
 ## Overview
 
-Go Discord bot ("Vivy") providing multimodal AI chat (Gemini, OpenRouter), image generation/editing (Wavespeed), video creation, audio transcription, perceptual image hashing for duplicate detection, and a movie wheel betting game.
+Go Discord bot ("Vivy") providing multimodal AI chat (Gemini), image generation/editing (Wavespeed), video creation, perceptual image hashing for duplicate detection, scheduled reminders, and a movie wheel betting game.
 
 ## Build & Run
 
@@ -59,6 +59,9 @@ internal/
     extract.go                 # Extracts facts from Discord messages using Gemini
     memory.go                  # Init, embedding storage, sqlite-vec queries
     retrieve.go                # Retrieves relevant facts for RAG context injection
+  reminder/
+    reminder.go                # Scheduled reminder management, SQLite-backed, in-memory timers
+    parse.go                   # Natural language reminder time parsing
   utility/
     discord.go               # Discord message formatting, content extraction, admin
     messages.go              # Message splitting, sending, and retrieval
@@ -71,7 +74,7 @@ internal/
 ## Architecture
 
 ### Initialization chain
-`init()` in `main.go` loads `.env`, opens SQLite, then calls `Init(db)` on hasher, gamble, and memory packages. Each loads its data from SQLite into in-memory structures.
+`init()` in `main.go` loads `.env`, opens SQLite, then calls `Init(db)` on hasher, gamble, and memory packages, and `reminder.Init(db.DB, dg)` (also takes the Discord session). Each loads its data from SQLite into in-memory structures.
 
 ### Handler dispatch
 Handlers are registered as maps (`handler.Commands`, `handler.Components`, `handler.Modals`) mapping string keys to handler functions. All handlers are dispatched in goroutines from the main Discord event listener. Component and modal custom IDs are split on `-` to extract the handler key.
@@ -94,7 +97,7 @@ Data lives in memory (protected by `sync.RWMutex`) and is periodically written b
 ## Testing
 
 - **`go mod tidy` drops unreferenced deps** — a test-only `go get` won't survive tidy until at least one `_test.go` file imports it; add the import first, then tidy
-- **Testing URL-downloading functions** — use `httptest.NewServer` serving in-memory bytes; suffix the URL path with the right extension (e.g., `/test.png`) so `UrlToExt` routes correctly; no real network needed
+- **Testing URL-downloading functions** — use `httptest.NewServer` serving in-memory bytes; suffix the URL path with the right extension (e.g., `/test.png`) so `URLToExt` routes correctly; no real network needed
 - **Testing video functions** — `getVideoDuration` and `extractVideoFrameAtTime` take file paths directly; generate `internal/utility/testdata/test.mp4` via `ffmpeg -f lavfi -i color=c=blue:size=64x64:rate=5 -t 1 -pix_fmt yuv420p -y testdata/test.mp4`
 - **Testing Discord message functions** — `*discordgo.Message` structs can be constructed directly for tests that don't call the Discord API; only `CleanMessage` (reads `s.State.User.ID`) needs a mock session
 - **Testing `GetMessageMediaURL` with attachments** — requires `Width > 0 && Height > 0` on each `*discordgo.MessageAttachment`; zero-value structs are silently skipped, returning no URLs
