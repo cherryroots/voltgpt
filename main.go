@@ -17,6 +17,7 @@ import (
 	"voltgpt/internal/handler"
 	"voltgpt/internal/hasher"
 	"voltgpt/internal/memory"
+	"voltgpt/internal/reminder"
 )
 
 func init() {
@@ -75,6 +76,7 @@ func main() {
 		log.Printf("Hashes: %d", hasher.TotalHashes())
 		log.Printf("Rounds: %d", gamble.GameState.TotalRounds())
 		log.Printf("Active facts: %d", memory.TotalFacts())
+		log.Printf("Active reminders: %d", reminder.TotalActive())
 	})
 
 	err = dg.Open()
@@ -82,6 +84,8 @@ func main() {
 		log.Fatal("error opening connection,", err)
 		return
 	}
+
+	reminder.Init(db.DB, dg)
 
 	for _, guild := range dg.State.Guilds {
 		log.Printf("Loading commands for %s", guild.ID)
