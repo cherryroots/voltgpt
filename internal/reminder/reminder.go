@@ -89,7 +89,7 @@ func fire(r Reminder) {
 	delete(timers, r.ID)
 	mu.Unlock()
 
-	msg := fmt.Sprintf("⏰ <@%s> Reminder: %s", r.UserID, r.Message)
+	msg := fmt.Sprintf("<@%s> Reminder: %s", r.UserID, r.Message)
 
 	var sendErr error
 	if len(r.Images) == 0 {

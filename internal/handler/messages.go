@@ -158,7 +158,7 @@ func handleReminder(s *discordgo.Session, m *discordgo.Message, triggerLen int) 
 	after := strings.TrimSpace(m.Content[triggerLen:])
 	fireAt, msg, err := reminder.ParseTime(after, time.Now().UTC())
 	if err != nil {
-		discord.LogSendErrorMessage(s, m, "Couldn't parse reminder time — try:\n- remind me in 2h30m do the thing\n- remind me at 16:30 CET do the thing")
+		discord.SendMessage(s, m, "Couldn't parse reminder time - try:\n- remind me in 2h30m do the thing\n- remind me at 16:30 CET do the thing")
 		return
 	}
 
@@ -178,11 +178,11 @@ func handleReminder(s *discordgo.Session, m *discordgo.Message, triggerLen int) 
 	}
 
 	if err := reminder.Add(m.Author.ID, m.ChannelID, m.GuildID, msg, images, fireAt); err != nil {
-		discord.LogSendErrorMessage(s, m, fmt.Sprintf("Couldn't save reminder: %v", err))
+		discord.SendMessage(s, m, fmt.Sprintf("Couldn't save reminder: %v", err))
 		return
 	}
 
-	reply := fmt.Sprintf("⏰ <@%s> I'll remind you <t:%d:R>: %s", m.Author.ID, fireAt.Unix(), msg)
+	reply := fmt.Sprintf("<@%s> I'll remind you <t:%d:R>: %s", m.Author.ID, fireAt.Unix(), msg)
 	if _, err := discord.SendMessage(s, m, reply); err != nil {
 		log.Println(err)
 	}
