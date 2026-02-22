@@ -141,3 +141,26 @@ func TestCreateContent_BadImageURL_Skipped(t *testing.T) {
 		t.Errorf("parts: got %d, want 0 for bad URL", len(got.Parts))
 	}
 }
+
+func TestStreamer_Update(t *testing.T) {
+	s := NewStreamer(nil, nil)
+	s.Update("hello")
+	s.Update(" world")
+	if s.Buffer != "hello world" {
+		t.Errorf("buffer: got %q, want %q", s.Buffer, "hello world")
+	}
+}
+
+func TestStreamer_Flush_EmptyBuffer(t *testing.T) {
+	// Flush on an empty buffer should be a no-op — no panic with nil Session/Message.
+	s := NewStreamer(nil, nil)
+	s.Flush() // must not panic
+}
+
+func TestStreamer_Flush_OnlyXMLTags(t *testing.T) {
+	// Buffer containing only replacement-map strings cleans to empty → early return.
+	// replacementMap: "<username>", "</username>", "<attachments>", "</attachments>", "..."
+	s := NewStreamer(nil, nil)
+	s.Buffer = "<username></username><attachments></attachments>..."
+	s.Flush() // must not panic or call Discord
+}
