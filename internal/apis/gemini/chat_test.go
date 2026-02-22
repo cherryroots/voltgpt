@@ -6,8 +6,10 @@ import (
 	"image/png"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"testing"
 
+	"github.com/joho/godotenv"
 	"google.golang.org/genai"
 
 	"voltgpt/internal/config"
@@ -163,4 +165,39 @@ func TestStreamer_Flush_OnlyXMLTags(t *testing.T) {
 	s := NewStreamer(nil, nil)
 	s.Buffer = "<username></username><attachments></attachments>..."
 	s.Flush() // must not panic or call Discord
+}
+
+func TestSummarizeCleanText_Integration(t *testing.T) {
+	godotenv.Load("../../../.env") // no-op if already set or file absent
+	if os.Getenv("GEMINI_TOKEN") == "" {
+		t.Skip("GEMINI_TOKEN not set")
+	}
+	input := `# Go 1.22 Release Notes
+
+## Range Over Integers
+
+Go 1.22 adds support for ranging over integers. You can now write:
+
+    for i := range 10 {
+        fmt.Println(i)
+    }
+
+This simplifies many common loop patterns and reduces boilerplate.
+
+## HTTP Routing Enhancements
+
+The standard library ` + "`net/http`" + ` package gains improved routing with method-based
+patterns and wildcard path segments. See the full details at
+https://go.dev/blog/routing-enhancements for examples and migration guidance.
+
+## Memory Model Clarifications
+
+The Go memory model documentation has been updated to clarify the behaviour of
+` + "`sync/atomic`" + ` operations. These changes bring Go into alignment with the C++
+memory model for atomic loads and stores.`
+
+	result := SummarizeCleanText(input)
+	if result == "" {
+		t.Error("expected non-empty summary from Gemini")
+	}
 }
