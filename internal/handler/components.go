@@ -3,10 +3,12 @@ package handler
 
 import (
 	"log"
+	"strconv"
 	"strings"
 
 	"voltgpt/internal/discord"
 	"voltgpt/internal/gamble"
+	"voltgpt/internal/reminder"
 	"voltgpt/internal/utility"
 
 	"github.com/bwmarrin/discordgo"
@@ -175,5 +177,26 @@ var Components = map[string]func(s *discordgo.Session, i *discordgo.InteractionC
 		}
 
 		gamble.GameState.SendModal(s, i, selectedUser[0])
+	},
+	"reminder": func(s *discordgo.Session, i *discordgo.InteractionCreate) {
+		log.Printf("Received interaction: %s by %s", i.MessageComponentData().CustomID, i.Interaction.Member.User.Username)
+
+		values := i.MessageComponentData().Values
+		if len(values) == 0 {
+			discord.UpdateResponse(s, i, "No reminder selected.")
+			return
+		}
+
+		id, err := strconv.ParseInt(values[0], 10, 64)
+		if err != nil {
+			discord.UpdateResponse(s, i, "Invalid reminder ID.")
+			return
+		}
+
+		if reminder.Delete(id) {
+			discord.UpdateResponse(s, i, "✅ Reminder deleted!")
+		} else {
+			discord.UpdateResponse(s, i, "Reminder not found (it may have already fired).")
+		}
 	},
 }
