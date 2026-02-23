@@ -1,20 +1,20 @@
 package wavespeed
 
+import "fmt"
+
 const (
 	baseURL string = "https://api.wavespeed.ai/api/v3"
 )
 
 const (
-	BytedanceModels    ModelFamily   = "bytedance"
-	WaveSpeedModels    ModelFamily   = "wavespeed-ai"
-	AlibabaModels      ModelFamily   = "alibaba"
-	WanT2V             ModelType     = "wan-2.5/text-to-video"
-	WanI2V             ModelType     = "wan-2.5/image-to-video"
-	SeedDreamModel     ModelType     = "seedream-v4"
-	SeedDreamEditModel ModelType     = "seedream-v4/edit"
-	SeedDanceV1_5Pro   ModelType     = "seedance-v1.5-pro"
-	SeedDanceTemplate  ModelTemplate = "seedance-v1-%1-%2-%3"
-	HunyuanVideoFoley  ModelType     = "hunyuan-video-foley"
+	BytedanceModels    ModelFamily = "bytedance"
+	WaveSpeedModels    ModelFamily = "wavespeed-ai"
+	AlibabaModels      ModelFamily = "alibaba"
+	WanT2V             ModelType   = "wan-2.5/text-to-video"
+	WanI2V             ModelType   = "wan-2.5/image-to-video"
+	SeedDreamModel     ModelType   = "seedream-v4"
+	SeedDreamEditModel ModelType   = "seedream-v4/edit"
+	HunyuanVideoFoley  ModelType   = "hunyuan-video-foley"
 )
 
 const (
@@ -36,11 +36,33 @@ const (
 type (
 	ModelFamily         string
 	ModelType           string
-	ModelTemplate       string
 	SeedDanceVersion    string
 	SeedDanceType       string
 	SeedDanceResolution string
 )
+
+// Model identifies a Wavespeed API endpoint as a (family, modelType) pair.
+// Use the predefined vars (SeedDream, WanText2Video, etc.) or SeedDance() to construct one.
+type Model struct {
+	family    ModelFamily
+	modelType ModelType
+}
+
+var (
+	SeedDream      = Model{BytedanceModels, SeedDreamModel}
+	SeedDreamEdit  = Model{BytedanceModels, SeedDreamEditModel}
+	WanText2Video  = Model{AlibabaModels, WanT2V}
+	WanImage2Video = Model{AlibabaModels, WanI2V}
+	HunyuanFoley   = Model{BytedanceModels, HunyuanVideoFoley}
+)
+
+// SeedDance constructs a Model for the SeedDance family.
+// Version: SeedDancePro or SeedDanceLite
+// T: SeedDanceT2V or SeedDanceI2V
+// Resolution: SeedDance480p, SeedDance720p, or SeedDance1080p
+func SeedDance(version SeedDanceVersion, t SeedDanceType, resolution SeedDanceResolution) Model {
+	return Model{BytedanceModels, ModelType(fmt.Sprintf("seedance-v1-%s-%s-%s", version, t, resolution))}
+}
 
 type SeedDreamSubmissionRequest struct {
 	Prompt       string  `json:"prompt"`

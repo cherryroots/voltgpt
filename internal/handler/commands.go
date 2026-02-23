@@ -135,7 +135,7 @@ var Commands = map[string]func(s *discordgo.Session, i *discordgo.InteractionCre
 						Images:   base64Images,
 						SyncMode: &syncMode,
 					}
-					resp, err = wave.SendSeedDreamEditRequest(req)
+					resp, err = wave.Send(wave.SeedDreamEdit, req)
 					if err != nil {
 						log.Println(err)
 						_, err = discord.SendFollowup(s, i, err.Error())
@@ -151,7 +151,7 @@ var Commands = map[string]func(s *discordgo.Session, i *discordgo.InteractionCre
 						SyncMode: &syncMode,
 					}
 
-					resp, err = wave.SendSeedDreamRequest(req)
+					resp, err = wave.Send(wave.SeedDream, req)
 					if err != nil {
 						log.Println(err)
 						_, err = discord.SendFollowup(s, i, err.Error())
@@ -271,7 +271,7 @@ var Commands = map[string]func(s *discordgo.Session, i *discordgo.InteractionCre
 				Seed:           &seed,
 				Resolution:     &i2vSize,
 			}
-			resp, err = wave.SendWanI2VRequest(req)
+			resp, err = wave.Send(wave.WanImage2Video, req)
 			if err != nil {
 				_, err := discord.SendFollowup(s, i, err.Error())
 				if err != nil {
@@ -287,7 +287,7 @@ var Commands = map[string]func(s *discordgo.Session, i *discordgo.InteractionCre
 				Seed:           &seed,
 				Size:           &t2vSize,
 			}
-			resp, err = wave.SendWanT2VRequest(req)
+			resp, err = wave.Send(wave.WanText2Video, req)
 			if err != nil {
 				_, err := discord.SendFollowup(s, i, err.Error())
 				if err != nil {

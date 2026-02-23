@@ -7,24 +7,12 @@ import (
 	"io"
 	"net/http"
 	"os"
-	"strings"
 	"time"
 
 	"voltgpt/internal/utility"
 
 	"github.com/bwmarrin/discordgo"
 )
-
-// generateSeedDanceModelType generates a modeltype for seeddance using the template
-// and the provided version, type, and resolution
-func generateSeedDanceModelType(version SeedDanceVersion, dreamType SeedDanceType, resolution SeedDanceResolution) ModelType {
-	template := string(SeedDanceTemplate)
-	// Replace placeholders in template: "seedance-v1-%1-%2-%3"
-	modelTypeStr := strings.ReplaceAll(template, "%1", string(version))
-	modelTypeStr = strings.ReplaceAll(modelTypeStr, "%2", string(dreamType))
-	modelTypeStr = strings.ReplaceAll(modelTypeStr, "%3", string(resolution))
-	return ModelType(modelTypeStr)
-}
 
 // sendWaveSpeedRequest sends a request to the wavespeed API
 // using the base URL, model family, and modeltype
@@ -90,41 +78,9 @@ func sendWaveSpeedRequest(family ModelFamily, modelType ModelType, payload inter
 	return &waveSpeedResp, nil
 }
 
-// SendSeedDreamRequest sends a request for SeedDream image generation
-func SendSeedDreamRequest(request SeedDreamSubmissionRequest) (*WaveSpeedResponse, error) {
-	return sendWaveSpeedRequest(BytedanceModels, SeedDreamModel, request)
-}
-
-// SendSeedDreamEditRequest sends a request for SeedDream image editing
-func SendSeedDreamEditRequest(request SeedDreamEditSubmissionRequest) (*WaveSpeedResponse, error) {
-	return sendWaveSpeedRequest(BytedanceModels, SeedDreamEditModel, request)
-}
-
-// SendSeedDanceT2VRequest sends a request for SeedDance Text-to-Video generation
-func SendSeedDanceT2VRequest(request SeedDanceT2VSubmissionRequest, version SeedDanceVersion, dreamType SeedDanceType, resolution SeedDanceResolution) (*WaveSpeedResponse, error) {
-	modelType := generateSeedDanceModelType(version, dreamType, resolution)
-	return sendWaveSpeedRequest(BytedanceModels, modelType, request)
-}
-
-// SendSeedDanceI2VRequest sends a request for SeedDance Image-to-Video generation
-// The request.Image should contain a base64 encoded image
-func SendSeedDanceI2VRequest(request SeedDanceI2VSubmissionRequest, version SeedDanceVersion, dreamType SeedDanceType, resolution SeedDanceResolution) (*WaveSpeedResponse, error) {
-	modelType := generateSeedDanceModelType(version, dreamType, resolution)
-	return sendWaveSpeedRequest(BytedanceModels, modelType, request)
-}
-
-// SendWanT2VRequest sends a request for Wan Text-to-Video generation
-func SendWanT2VRequest(request WanT2VSubmissionRequest) (*WaveSpeedResponse, error) {
-	return sendWaveSpeedRequest(AlibabaModels, WanT2V, request)
-}
-
-// SendWanI2VRequest sends a request for Wan Image-to-Video generation
-func SendWanI2VRequest(request WanI2VSubmissionRequest) (*WaveSpeedResponse, error) {
-	return sendWaveSpeedRequest(AlibabaModels, WanI2V, request)
-}
-
-func SendHunyuanVideoFoleyRequest(request HunyuanVideoFoleySubmissionRequest) (*WaveSpeedResponse, error) {
-	return sendWaveSpeedRequest(WaveSpeedModels, HunyuanVideoFoley, request)
+// Send submits a request to the Wavespeed API for the given model.
+func Send(model Model, payload any) (*WaveSpeedResponse, error) {
+	return sendWaveSpeedRequest(model.family, model.modelType, payload)
 }
 
 // QueryWaveSpeedResult queries the result of a wavespeed request by ID
