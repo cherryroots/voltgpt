@@ -32,7 +32,11 @@ func SplitParagraph(message string) (firstPart string, lastPart string) {
 	if strings.Count(firstPart, "```")%2 != 0 {
 		lastCodeBlockIndex := strings.LastIndex(firstPart, "```")
 		lastCodeBlock := firstPart[lastCodeBlockIndex:]
-		languageCode := lastCodeBlock[:strings.Index(lastCodeBlock, "\n")]
+		newlineIdx := strings.Index(lastCodeBlock, "\n")
+		if newlineIdx < 0 {
+			newlineIdx = len(lastCodeBlock)
+		}
+		languageCode := lastCodeBlock[:newlineIdx]
 
 		firstPart = firstPart + "```"
 		lastPart = languageCode + "\n" + lastPart
