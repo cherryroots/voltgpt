@@ -14,7 +14,6 @@ const (
 	WanI2V             ModelType   = "wan-2.5/image-to-video"
 	SeedDreamModel     ModelType   = "seedream-v4"
 	SeedDreamEditModel ModelType   = "seedream-v4/edit"
-	HunyuanVideoFoley  ModelType   = "hunyuan-video-foley"
 )
 
 const (
@@ -53,13 +52,12 @@ var (
 	SeedDreamEdit  = Model{BytedanceModels, SeedDreamEditModel}
 	WanText2Video  = Model{AlibabaModels, WanT2V}
 	WanImage2Video = Model{AlibabaModels, WanI2V}
-	HunyuanFoley   = Model{BytedanceModels, HunyuanVideoFoley}
 )
 
 // SeedDance constructs a Model for the SeedDance family.
-// Version: SeedDancePro or SeedDanceLite
-// T: SeedDanceT2V or SeedDanceI2V
-// Resolution: SeedDance480p, SeedDance720p, or SeedDance1080p
+// Version: pro or lite
+// T: T2V or I2V
+// Resolution: 480p, 720p, or 1080p
 func SeedDance(version SeedDanceVersion, t SeedDanceType, resolution SeedDanceResolution) Model {
 	return Model{BytedanceModels, ModelType(fmt.Sprintf("seedance-v1-%s-%s-%s", version, t, resolution))}
 }
@@ -112,12 +110,6 @@ type WanI2VSubmissionRequest struct {
 	Resolution     *string `json:"resolution,omitempty"`
 	Duration       *int    `json:"duration,omitempty"`
 	Seed           *int    `json:"seed,omitempty"`
-}
-
-type HunyuanVideoFoleySubmissionRequest struct {
-	Prompt *string `json:"prompt,omitempty"` // Text prompt for video generation; Positive text prompt; Cannot exceed 2000 characters
-	Video  string  `json:"video"`            // Input image for video generation; Supported image formats include .jpg/.jpeg/.png; The image file size cannot exceed 10MB, and the image resolution should not be less than 300*300px
-	Seed   *int    `json:"seed,omitempty"`   // The seed for random number generation.
 }
 
 type WaveSpeedQueryResult struct {

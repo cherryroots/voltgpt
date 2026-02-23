@@ -14,9 +14,8 @@ import (
 	"github.com/bwmarrin/discordgo"
 )
 
-// sendWaveSpeedRequest sends a request to the wavespeed API
-// using the base URL, model family, and modeltype
-func sendWaveSpeedRequest(family ModelFamily, modelType ModelType, payload interface{}) (*WaveSpeedResponse, error) {
+// Send sends a request to the wavespeed API
+func Send(model Model, payload any) (*WaveSpeedResponse, error) {
 	// Get API key from environment
 	apiKey := os.Getenv("WAVESPEED_TOKEN")
 	if apiKey == "" {
@@ -24,7 +23,7 @@ func sendWaveSpeedRequest(family ModelFamily, modelType ModelType, payload inter
 	}
 
 	// Construct the full URL
-	url := fmt.Sprintf("%s/%s/%s", baseURL, string(family), string(modelType))
+	url := fmt.Sprintf("%s/%s/%s", baseURL, string(model.family), string(model.modelType))
 
 	// Marshal the payload to JSON
 	jsonData, err := json.Marshal(payload)
@@ -76,11 +75,6 @@ func sendWaveSpeedRequest(family ModelFamily, modelType ModelType, payload inter
 	}
 
 	return &waveSpeedResp, nil
-}
-
-// Send submits a request to the Wavespeed API for the given model.
-func Send(model Model, payload any) (*WaveSpeedResponse, error) {
-	return sendWaveSpeedRequest(model.family, model.modelType, payload)
 }
 
 // QueryWaveSpeedResult queries the result of a wavespeed request by ID
