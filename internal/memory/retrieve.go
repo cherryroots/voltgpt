@@ -43,16 +43,15 @@ func Retrieve(query string, discordID string) []RetrievedFact {
 	}
 
 	rows, err := database.Query(`
-		SELECT f.fact_text, f.created_at, vf.distance
+		SELECT f.fact_text, f.created_at, vec_distance_cosine(vf.embedding, ?) AS distance
 		FROM vec_facts vf
 		JOIN facts f ON f.id = vf.fact_id
 		JOIN users u ON u.id = f.user_id
-		WHERE vf.embedding MATCH ?
-		  AND k = ?
-		  AND u.discord_id = ?
+		WHERE u.discord_id = ?
 		  AND f.is_active = 1
-		ORDER BY vf.distance
-	`, serializeFloat32(embedding), retrievalLimit, discordID)
+		ORDER BY distance
+		LIMIT ?
+	`, serializeFloat32(embedding), discordID, retrievalLimit*10)
 	if err != nil {
 		log.Printf("memory: retrieval query failed: %v", err)
 		return nil

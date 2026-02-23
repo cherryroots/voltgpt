@@ -201,3 +201,15 @@ memory model for atomic loads and stores.`
 		t.Error("expected non-empty summary from Gemini")
 	}
 }
+
+func TestStreamer_DoneChannelIsBuffered(t *testing.T) {
+	// An unbuffered done channel would block Stop() if the goroutine is gone.
+	// Verify the channel can accept a send without a receiver (capacity >= 1).
+	s := NewStreamer(nil, nil)
+	select {
+	case s.done <- true:
+		// good: channel is buffered
+	default:
+		t.Fatal("done channel is unbuffered: send would block without a receiver")
+	}
+}

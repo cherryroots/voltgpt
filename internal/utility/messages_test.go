@@ -33,6 +33,14 @@ func TestSplitParagraph(t *testing.T) {
 			wantFirstPart: strings.Repeat("a", 1990),
 			wantLastPart:  strings.Repeat("a", 510),
 		},
+		{
+			// Code fence with no newline after it ends up as firstPart when split on \n\n.
+			// Without the fix, strings.Index returns -1 and lastCodeBlock[:-1] panics.
+			name:          "code block no trailing newline",
+			message:       "```" + "\n\n" + strings.Repeat("b", 100),
+			wantFirstPart: "``````",
+			wantLastPart:  "```\n" + strings.Repeat("b", 100),
+		},
 	}
 
 	for _, tt := range tests {

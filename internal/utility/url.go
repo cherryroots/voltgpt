@@ -49,6 +49,20 @@ func IsImageURL(urlStr string) bool {
 	}
 }
 
+func IsWavespeedImageURL(urlStr string) bool {
+	fileExt, err := URLToExt(urlStr)
+	if err != nil {
+		return false
+	}
+
+	switch fileExt {
+	case ".jpg", ".jpeg", ".png":
+		return true
+	default:
+		return false
+	}
+}
+
 func IsVideoURL(urlStr string) bool {
 	fileExt, err := URLToExt(urlStr)
 	if err != nil {

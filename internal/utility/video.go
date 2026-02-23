@@ -54,9 +54,13 @@ func VideoToBase64Images(urlStr string) ([]string, error) {
 	}
 
 	var timestamps []float64
-	for i := range totalFrames {
-		timestamp := (float64(i) / float64(totalFrames-1)) * usableDuration
-		timestamps = append(timestamps, timestamp)
+	if totalFrames == 1 {
+		timestamps = []float64{usableDuration / 2}
+	} else {
+		for i := range totalFrames {
+			timestamp := (float64(i) / float64(totalFrames-1)) * usableDuration
+			timestamps = append(timestamps, timestamp)
+		}
 	}
 
 	log.Printf("Video duration: %.2f seconds, extracting %d frames at ~3fps", duration, totalFrames)
@@ -128,7 +132,7 @@ func VideoToBase64Images(urlStr string) ([]string, error) {
 			continue
 		}
 
-		if i%81 == 0 {
+		if len(b) == 0 || i%81 == 0 {
 			b = append(b, [81]*bytes.Buffer{})
 		}
 		chunkIndex := len(b) - 1

@@ -8,6 +8,7 @@ import (
 	"image/png"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -317,5 +318,21 @@ func TestHashAttachmentsWithStore(t *testing.T) {
 	}
 	if TotalHashes() != 1 {
 		t.Errorf("TotalHashes after store = %d, want 1", TotalHashes())
+	}
+}
+
+func TestGetFile_NonOKStatusClosesBody(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+		w.Write([]byte("not found"))
+	}))
+	defer srv.Close()
+
+	_, err := getFile(srv.URL)
+	if err == nil {
+		t.Fatal("expected error for 404 response, got nil")
+	}
+	if !strings.Contains(err.Error(), "bad status") {
+		t.Errorf("unexpected error: %v", err)
 	}
 }

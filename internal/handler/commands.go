@@ -52,7 +52,7 @@ var Commands = map[string]func(s *discordgo.Session, i *discordgo.InteractionCre
 			if option.Name == "urls" {
 				urls := option.StringValue()
 				for _, url := range strings.Split(urls, " ") {
-					if !wave.IsImageURL(url) {
+					if !utility.IsWavespeedImageURL(url) {
 						_, err := discord.SendFollowup(s, i, "Please provide a valid image URL [jpg, jpeg, png]")
 						if err != nil {
 							log.Println(err)
@@ -72,6 +72,37 @@ var Commands = map[string]func(s *discordgo.Session, i *discordgo.InteractionCre
 		if resolution == "" {
 			resolution = "2048*2048"
 		}
+
+		// Compute resolution from the first image's aspect ratio before spawning goroutines
+		// to avoid a data race on the resolution variable.
+		if imgFilled && len(imgs) > 0 {
+			aspectRatio, err := utility.GetAspectRatio(*imgs[0])
+			if err != nil {
+				_, err = discord.SendFollowup(s, i, err.Error())
+				if err != nil {
+					log.Println(err)
+				}
+				return
+			}
+			if aspectRatio >= 1 {
+				H := 2048
+				W := int(float64(H) * aspectRatio)
+				if W > 4096 {
+					W = 4096
+					H = max(int(float64(W)/aspectRatio), 1024)
+				}
+				resolution = fmt.Sprintf("%d*%d", W, H)
+			} else {
+				W := 2048
+				H := int(float64(W) / aspectRatio)
+				if H > 4096 {
+					H = 4096
+					W = max(int(float64(H)*aspectRatio), 1024)
+				}
+				resolution = fmt.Sprintf("%d*%d", W, H)
+			}
+		}
+
 		var images []*discordgo.File
 		var imgMu sync.Mutex
 
@@ -84,21 +115,13 @@ var Commands = map[string]func(s *discordgo.Session, i *discordgo.InteractionCre
 				var err error
 				if imgFilled {
 					for _, img := range imgs {
-						if !wave.IsImageURL(*img) {
+						if !utility.IsWavespeedImageURL(*img) {
 							_, err := discord.SendFollowup(s, i, "Please provide a valid image URL [jpg, jpeg, png]")
 							if err != nil {
 								log.Println(err)
 							}
 							return
 						}
-					}
-					aspectRatio, err := utility.GetAspectRatio(*imgs[0])
-					if err != nil {
-						_, err := discord.SendFollowup(s, i, err.Error())
-						if err != nil {
-							log.Println(err)
-						}
-						return
 					}
 					var base64Images []*string
 					for _, img := range imgs {
@@ -111,23 +134,6 @@ var Commands = map[string]func(s *discordgo.Session, i *discordgo.InteractionCre
 							return
 						}
 						base64Images = append(base64Images, &base64Image[0])
-					}
-					if aspectRatio >= 1 {
-						H := 2048
-						W := int(float64(H) * aspectRatio)
-						if W > 4096 {
-							W = 4096
-							H = max(int(float64(W)/aspectRatio), 1024)
-						}
-						resolution = fmt.Sprintf("%d*%d", W, H)
-					} else {
-						W := 2048
-						H := int(float64(W) / aspectRatio)
-						if H > 4096 {
-							H = 4096
-							W = max(int(float64(H)*aspectRatio), 1024)
-						}
-						resolution = fmt.Sprintf("%d*%d", W, H)
 					}
 					req := wave.SeedDreamEditSubmissionRequest{
 						Prompt:   prompt.Text,
@@ -248,7 +254,7 @@ var Commands = map[string]func(s *discordgo.Session, i *discordgo.InteractionCre
 		var resp *wave.WaveSpeedResponse
 		var err error
 		if imgFilled {
-			if !wave.IsImageURL(img) {
+			if !utility.IsWavespeedImageURL(img) {
 				_, err := discord.SendFollowup(s, i, "Please provide a valid image URL [jpg, jpeg, png]")
 				if err != nil {
 					log.Println(err)
@@ -391,20 +397,28 @@ var Commands = map[string]func(s *discordgo.Session, i *discordgo.InteractionCre
 		go utility.GetAllServerMessages(s, fetchedStatus, channels, threads, endDate, messageChannel)
 
 		var wg sync.WaitGroup
+		var countMu sync.Mutex
 		for messages := range messageChannel {
 			wg.Add(1)
 			go func(messages []*discordgo.Message) {
 				defer wg.Done()
-				msgCount += len(messages)
+				localMsg := len(messages)
+				localHash := 0
 				for _, message := range messages {
 					if utility.HasImageURL(message) || utility.HasVideoURL(message) {
 						options := hasher.HashOptions{Store: true}
 						_, count := hasher.HashAttachments(message, options)
-						hashCount += count
+						localHash += count
 					}
 				}
+				countMu.Lock()
+				msgCount += localMsg
+				hashCount += localHash
+				currentMsg := msgCount
+				currentHash := hashCount
+				countMu.Unlock()
 				// format time to yyyy/mm/dd
-				_, err := discord.EditMessage(s, hashedStatus, fmt.Sprintf("Status: ongoing\nThreads included: %t\nHashing until: %s\nMessages processed: %d\nHashes: %d", threads, endDate.Format("2006/01/02"), msgCount, hashCount))
+				_, err := discord.EditMessage(s, hashedStatus, fmt.Sprintf("Status: ongoing\nThreads included: %t\nHashing until: %s\nMessages processed: %d\nHashes: %d", threads, endDate.Format("2006/01/02"), currentMsg, currentHash))
 				if err != nil {
 					log.Println(err)
 				}

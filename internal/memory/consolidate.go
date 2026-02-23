@@ -70,6 +70,7 @@ func consolidateAndStore(ctx context.Context, userID int64, messageID, factText 
 	}
 
 	// Check each similar fact for consolidation
+	reinforced := false
 	for _, sf := range similar {
 		action, err := decideAction(ctx, sf.FactText, factText)
 		if err != nil {
@@ -79,11 +80,12 @@ func consolidateAndStore(ctx context.Context, userID int64, messageID, factText 
 
 		switch action.Action {
 		case "REINFORCE":
-			// Same info restated — bump confidence, don't insert
+			// Same info restated — bump confidence, don't insert.
+			// Continue loop to check remaining facts for contradictions.
 			if err := reinforceFact(sf.ID); err != nil {
 				log.Printf("memory: failed to reinforce fact %d: %v", sf.ID, err)
 			}
-			return nil
+			reinforced = true
 
 		case "INVALIDATE":
 			return replaceFact(sf.ID, userID, messageID, factText, embedding)
@@ -105,6 +107,9 @@ func consolidateAndStore(ctx context.Context, userID int64, messageID, factText 
 		}
 	}
 
+	if reinforced {
+		return nil
+	}
 	// No similar fact claimed this knowledge — insert as new
 	return insertFact(userID, messageID, factText, embedding)
 }
@@ -113,15 +118,14 @@ func consolidateAndStore(ctx context.Context, userID int64, messageID, factText 
 // that are within the distance threshold.
 func findSimilarFacts(userID int64, embedding []float32) ([]similarFact, error) {
 	rows, err := database.Query(`
-		SELECT f.id, f.fact_text, vf.distance
+		SELECT f.id, f.fact_text, vec_distance_cosine(vf.embedding, ?) AS distance
 		FROM vec_facts vf
 		JOIN facts f ON f.id = vf.fact_id
-		WHERE vf.embedding MATCH ?
-		  AND k = ?
-		  AND f.user_id = ?
+		WHERE f.user_id = ?
 		  AND f.is_active = 1
-		ORDER BY vf.distance
-	`, serializeFloat32(embedding), similarityLimit, userID)
+		ORDER BY distance
+		LIMIT ?
+	`, serializeFloat32(embedding), userID, similarityLimit*10)
 	if err != nil {
 		return nil, err
 	}
