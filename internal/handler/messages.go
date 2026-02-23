@@ -131,7 +131,10 @@ func HandleMessage(s *discordgo.Session, m *discordgo.MessageCreate) {
 			}
 		}
 	}
-	backgroundFacts := memory.RetrieveMultiUser(m.Content, users)
+	var backgroundFacts string
+	if !strings.Contains(m.Content, "🚫") {
+		backgroundFacts = memory.RetrieveMultiUser(m.Content, users)
+	}
 
 	err = gemini.StreamMessageResponse(s, c, m.Message, chatMessages, backgroundFacts)
 	if err != nil {
