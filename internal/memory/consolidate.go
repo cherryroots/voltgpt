@@ -70,6 +70,7 @@ func consolidateAndStore(ctx context.Context, userID int64, messageID, factText 
 	}
 
 	// Check each similar fact for consolidation
+	reinforced := false
 	for _, sf := range similar {
 		action, err := decideAction(ctx, sf.FactText, factText)
 		if err != nil {
@@ -79,11 +80,12 @@ func consolidateAndStore(ctx context.Context, userID int64, messageID, factText 
 
 		switch action.Action {
 		case "REINFORCE":
-			// Same info restated — bump confidence, don't insert
+			// Same info restated — bump confidence, don't insert.
+			// Continue loop to check remaining facts for contradictions.
 			if err := reinforceFact(sf.ID); err != nil {
 				log.Printf("memory: failed to reinforce fact %d: %v", sf.ID, err)
 			}
-			return nil
+			reinforced = true
 
 		case "INVALIDATE":
 			return replaceFact(sf.ID, userID, messageID, factText, embedding)
@@ -105,6 +107,9 @@ func consolidateAndStore(ctx context.Context, userID int64, messageID, factText 
 		}
 	}
 
+	if reinforced {
+		return nil
+	}
 	// No similar fact claimed this knowledge — insert as new
 	return insertFact(userID, messageID, factText, embedding)
 }
