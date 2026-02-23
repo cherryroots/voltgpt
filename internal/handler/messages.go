@@ -1,11 +1,10 @@
 package handler
 
 import (
-	"context"
 	"encoding/base64"
 	"fmt"
 	"log"
-	"os"
+	"maps"
 	"strings"
 	"time"
 
@@ -48,20 +47,9 @@ func HandleMessage(s *discordgo.Session, m *discordgo.MessageCreate) {
 		go memory.Extract(m.Author.ID, m.Author.Username, m.Author.GlobalName, m.ID, extractContent)
 	}
 
-	apiKey := os.Getenv("GEMINI_TOKEN")
-	if apiKey == "" {
-		discord.LogSendErrorMessage(s, m.Message, "GEMINI_TOKEN is not set")
-		return
-	}
-
-	ctx := context.Background()
-	// Initialize the Gemini client
-	c, err := genai.NewClient(ctx, &genai.ClientConfig{
-		APIKey:  apiKey,
-		Backend: genai.BackendGeminiAPI,
-	})
+	c, err := gemini.GetClient()
 	if err != nil {
-		discord.LogSendErrorMessage(s, m.Message, fmt.Sprintf("Failed to create Gemini client: %v", err))
+		discord.LogSendErrorMessage(s, m.Message, err.Error())
 		return
 	}
 
@@ -76,11 +64,9 @@ func HandleMessage(s *discordgo.Session, m *discordgo.MessageCreate) {
 		}
 	}
 
-	if m.Type == discordgo.MessageTypeReply {
-		if (m.ReferencedMessage.Author.ID == s.State.User.ID && isMentioned) || isMentioned {
-			cache, _ = utility.GetMessagesBefore(s, m.ChannelID, 100, m.ID)
-			isReply = true
-		}
+	if m.Type == discordgo.MessageTypeReply && isMentioned {
+		cache, _ = utility.GetMessagesBefore(s, m.ChannelID, 100, m.ID)
+		isReply = true
 	}
 
 	if !isMentioned {
@@ -119,20 +105,10 @@ func HandleMessage(s *discordgo.Session, m *discordgo.MessageCreate) {
 	// Retrieve memory facts for users in the reply chain (not the whole channel)
 	users := map[string]string{m.Author.ID: m.Author.Username}
 	if isReply {
-		ref := utility.GetReferencedMessage(s, m.Message, cache)
-		for ref != nil {
-			if ref.Author != nil && !ref.Author.Bot && ref.Author.ID != s.State.User.ID {
-				users[ref.Author.ID] = ref.Author.Username
-			}
-			if ref.Type == discordgo.MessageTypeReply {
-				ref = utility.GetReferencedMessage(s, ref, cache)
-			} else {
-				break
-			}
-		}
+		maps.Copy(users, utility.ReplyChainUsers(s, m.Message, cache))
 	}
 	var backgroundFacts string
-	if !shouldSkipMemory(m.Content) {
+	if !utility.ShouldSkipMemory(m.Content) {
 		backgroundFacts = memory.RetrieveMultiUser(m.Content, users)
 	}
 
@@ -175,10 +151,4 @@ func handleReminder(s *discordgo.Session, m *discordgo.Message, triggerLen int) 
 	if _, err := discord.SendMessage(s, m, reply); err != nil {
 		log.Println(err)
 	}
-}
-
-// shouldSkipMemory reports whether background fact retrieval should be skipped
-// for the given message content. Users can include 🚫 to opt out of memory context.
-func shouldSkipMemory(content string) bool {
-	return strings.Contains(content, "🚫")
 }

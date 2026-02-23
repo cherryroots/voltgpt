@@ -19,6 +19,28 @@ import (
 	"voltgpt/internal/utility"
 )
 
+var (
+	sharedClient     *genai.Client
+	sharedClientErr  error
+	sharedClientOnce sync.Once
+)
+
+// GetClient returns a shared Gemini client, initializing it once on first call.
+func GetClient() (*genai.Client, error) {
+	sharedClientOnce.Do(func() {
+		apiKey := os.Getenv("GEMINI_TOKEN")
+		if apiKey == "" {
+			sharedClientErr = fmt.Errorf("GEMINI_TOKEN is not set")
+			return
+		}
+		sharedClient, sharedClientErr = genai.NewClient(context.Background(), &genai.ClientConfig{
+			APIKey:  apiKey,
+			Backend: genai.BackendGeminiAPI,
+		})
+	})
+	return sharedClient, sharedClientErr
+}
+
 // Streamer handles streaming responses to Discord.
 type Streamer struct {
 	Session          *discordgo.Session
@@ -124,6 +146,7 @@ func (s *Streamer) Flush() {
 }
 
 // StreamMessageResponse streams the response from Gemini to Discord.
+// TODO: accept a context.Context from the caller to support cancellation (shutdown, message deletion).
 func StreamMessageResponse(s *discordgo.Session, c *genai.Client, m *discordgo.Message, history []*genai.Content, backgroundFacts string) error {
 	ctx := context.Background()
 
@@ -211,20 +234,13 @@ func contentToString(c *genai.Content) string {
 }
 
 func SummarizeCleanText(text string) string {
-	apiKey := os.Getenv("GEMINI_TOKEN")
-	if apiKey == "" {
-		log.Println("GEMINI_TOKEN is not set")
+	client, err := GetClient()
+	if err != nil {
+		log.Printf("failed to get gemini client: %v", err)
 		return ""
 	}
 
 	ctx := context.Background()
-	client, err := genai.NewClient(ctx, &genai.ClientConfig{
-		APIKey: apiKey,
-	})
-	if err != nil {
-		log.Printf("failed to create gemini client: %v", err)
-		return ""
-	}
 
 	instructions := `
 	You are a helpful assistant. 

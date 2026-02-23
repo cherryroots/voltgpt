@@ -37,3 +37,9 @@ func ExtractPairText(text string, lookup string) string {
 func containsPair(text string, lookup string) bool {
 	return strings.Contains(text, lookup) && strings.Count(text, lookup)%2 == 0
 }
+
+// shouldSkipMemory reports whether background fact retrieval should be skipped
+// for the given message content. Users can include 🚫 to opt out of memory context.
+func ShouldSkipMemory(content string) bool {
+	return strings.Contains(content, "🚫")
+}

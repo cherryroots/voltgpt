@@ -310,3 +310,20 @@ func checkCache(cache []*discordgo.Message, messageID string) *discordgo.Message
 	}
 	return nil
 }
+
+// ReplyChainUsers walks the reply chain and returns a map of non-bot user IDs to usernames.
+func ReplyChainUsers(s *discordgo.Session, m *discordgo.Message, cache []*discordgo.Message) map[string]string {
+	users := map[string]string{}
+	ref := GetReferencedMessage(s, m, cache)
+	for ref != nil {
+		if ref.Author != nil && !ref.Author.Bot && ref.Author.ID != s.State.User.ID {
+			users[ref.Author.ID] = ref.Author.Username
+		}
+		if ref.Type == discordgo.MessageTypeReply {
+			ref = GetReferencedMessage(s, ref, cache)
+		} else {
+			break
+		}
+	}
+	return users
+}
