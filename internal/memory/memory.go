@@ -62,6 +62,9 @@ func Init(db *sql.DB) {
 // embed calls the Gemini embedding API and returns a float32 vector
 // truncated to embeddingDimensions via the API's OutputDimensionality param.
 func embed(ctx context.Context, text string) ([]float32, error) {
+	if strings.TrimSpace(text) == "" {
+		return nil, fmt.Errorf("embed: empty text")
+	}
 	dim := int32(embeddingDimensions)
 	resp, err := client.Models.EmbedContent(ctx, embeddingModel, genai.Text(text), &genai.EmbedContentConfig{
 		OutputDimensionality: &dim,

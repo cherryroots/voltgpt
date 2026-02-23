@@ -138,7 +138,7 @@ func RetrieveGeneral(query string, excludeDiscordIDs map[string]bool) []GeneralF
 // RetrieveMultiUser fetches facts for multiple users concurrently and formats
 // them into an XML block for injection into the system prompt.
 func RetrieveMultiUser(query string, users map[string]string) string {
-	if !enabled || len(users) == 0 {
+	if !enabled || len(users) == 0 || strings.TrimSpace(query) == "" {
 		return ""
 	}
 
