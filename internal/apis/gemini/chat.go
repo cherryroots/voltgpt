@@ -156,16 +156,7 @@ func StreamMessageResponse(s *discordgo.Session, c *genai.Client, m *discordgo.M
 	// Create system content
 	systemInstruction := genai.NewContentFromText(systemMessageText, genai.RoleModel)
 
-	// Prepare the request — drop leading model message if present,
-	// as the Gemini API requires history to start with a user turn.
-	var chatHistory []*genai.Content
-	if len(history) > 0 && history[0].Role == "model" {
-		chatHistory = history[1:]
-	} else {
-		chatHistory = history
-	}
-
-	if len(chatHistory) == 0 {
+	if len(history) == 0 {
 		return fmt.Errorf("no messages to send")
 	}
 
@@ -183,7 +174,7 @@ func StreamMessageResponse(s *discordgo.Session, c *genai.Client, m *discordgo.M
 	}
 
 	// Call the API
-	stream := c.Models.GenerateContentStream(ctx, modelName, chatHistory, config)
+	stream := c.Models.GenerateContentStream(ctx, modelName, history, config)
 
 	// Consume stream
 	for resp, err := range stream {
