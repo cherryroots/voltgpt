@@ -91,13 +91,8 @@ func flushBuffer(discordID string) {
 
 	facts, err := extractFacts(ctx, name, combined)
 	if err != nil {
-		log.Printf("memory: extraction attempt 1 failed for %s: %v — retrying in 5s", username, err)
-		time.Sleep(5 * time.Second)
-		facts, err = extractFacts(ctx, name, combined)
-		if err != nil {
-			log.Printf("memory: extraction failed after retry for %s, messages lost: %v", username, err)
-			return
-		}
+		log.Printf("memory: extraction failed for %s, messages lost: %v", username, err)
+		return
 	}
 
 	for _, fact := range facts {
