@@ -236,7 +236,7 @@ func (g *game) playerMoney(player Player, toRound round) int {
 
 func (g *game) playerTax(player Player, r round) int {
 	playerMoney := g.playerMoney(player, r)
-	betPercentage := 10 - g.betsPercentage(player, r)
+	betPercentage := max(0, 10-g.betsPercentage(player, r))
 	taxAmount := (playerMoney * 3 * betPercentage) / 100
 	return taxAmount
 }

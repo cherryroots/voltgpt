@@ -671,7 +671,7 @@ func TestPlayerTaxAtAndAboveThreshold(t *testing.T) {
 		}
 	})
 
-	t.Run("above 10 percent bet tax is negative (bonus)", func(t *testing.T) {
+	t.Run("above 10 percent bet tax is zero (clamped)", func(t *testing.T) {
 		setupGame()
 		alice := makePlayer("1", "Alice")
 		bob := makePlayer("2", "Bob")
@@ -682,11 +682,11 @@ func TestPlayerTaxAtAndAboveThreshold(t *testing.T) {
 
 		GameState.AddRound()
 		GameState.Rounds[0].AddClaim(alice) // alice has 100
-		// Alice bets 20 on bob → betPct = 20, (10-20)=-10, tax = (100*3*-10)/100 = -30
+		// Alice bets 20 on bob → betPct = 20, max(0, 10-20)=0, tax = 0
 		GameState.Rounds[0].Bets = []Bet{{Amount: 20, By: alice, On: bob}}
 		tax := GameState.playerTax(alice, GameState.Rounds[0])
-		if tax != -30 {
-			t.Errorf("playerTax() = %d, want -30 when bet%% == 20", tax)
+		if tax != 0 {
+			t.Errorf("playerTax() = %d, want 0 when bet%% > 10", tax)
 		}
 	})
 }
@@ -728,5 +728,25 @@ func TestWheelOptionsFallback(t *testing.T) {
 
 	if len(opts) != len(current) {
 		t.Errorf("wheelOptions fallback len = %d, want %d (CurrentWheelOptions)", len(opts), len(current))
+	}
+}
+
+// TestPlayerTax_OverBetIsZeroNotNegative verifies playerTax never returns a negative value.
+func TestPlayerTax_OverBetIsZeroNotNegative(t *testing.T) {
+	setupGame()
+	alice := makePlayer("1", "Alice")
+	bob := makePlayer("2", "Bob")
+
+	GameState.AddPlayer(alice)
+	GameState.AddWheelOption(alice)
+	GameState.AddWheelOption(bob)
+
+	GameState.AddRound()
+	GameState.Rounds[0].AddClaim(alice) // alice has 100
+	// Alice bets 20 → betPct = 20, exceeds 10% threshold
+	GameState.Rounds[0].Bets = []Bet{{Amount: 20, By: alice, On: bob}}
+	tax := GameState.playerTax(alice, GameState.Rounds[0])
+	if tax < 0 {
+		t.Errorf("playerTax returned negative value %d, want >= 0", tax)
 	}
 }
