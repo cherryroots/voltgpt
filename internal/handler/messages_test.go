@@ -1,9 +1,6 @@
 package handler
 
-import (
-	"strings"
-	"testing"
-)
+import "testing"
 
 func TestSkipMemoryEmoji(t *testing.T) {
 	cases := []struct {
@@ -16,7 +13,7 @@ func TestSkipMemoryEmoji(t *testing.T) {
 		{"just a normal message", false},
 	}
 	for _, tc := range cases {
-		got := strings.Contains(tc.content, "🚫")
+		got := shouldSkipMemory(tc.content)
 		if got != tc.skip {
 			t.Errorf("content=%q: want skip=%v, got %v", tc.content, tc.skip, got)
 		}

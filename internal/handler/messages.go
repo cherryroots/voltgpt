@@ -132,7 +132,7 @@ func HandleMessage(s *discordgo.Session, m *discordgo.MessageCreate) {
 		}
 	}
 	var backgroundFacts string
-	if !strings.Contains(m.Content, "🚫") {
+	if !shouldSkipMemory(m.Content) {
 		backgroundFacts = memory.RetrieveMultiUser(m.Content, users)
 	}
 
@@ -175,4 +175,10 @@ func handleReminder(s *discordgo.Session, m *discordgo.Message, triggerLen int) 
 	if _, err := discord.SendMessage(s, m, reply); err != nil {
 		log.Println(err)
 	}
+}
+
+// shouldSkipMemory reports whether background fact retrieval should be skipped
+// for the given message content. Users can include 🚫 to opt out of memory context.
+func shouldSkipMemory(content string) bool {
+	return strings.Contains(content, "🚫")
 }
