@@ -37,7 +37,7 @@ func NewStreamer(s *discordgo.Session, m *discordgo.Message) *Streamer {
 		Session:        s,
 		Message:        m,
 		replacementMap: []string{"<username>", "</username>", "<attachments>", "</attachments>", "..."},
-		done:           make(chan bool),
+		done:           make(chan bool, 1),
 	}
 }
 
