@@ -96,6 +96,35 @@ func TestParseTimeTimeOnly(t *testing.T) {
 	}
 }
 
+func TestTrigger(t *testing.T) {
+	tests := []struct {
+		input     string
+		wantMatch bool
+		wantLen   int
+	}{
+		{"remind me in 2h do the thing", true, len("remind me ")},
+		{"reminder in 30m meeting", true, len("reminder ")},
+		{"remind in 1h call dad", true, len("remind ")},
+		{"REMIND ME in 2h uppercase", true, len("remind me ")},
+		{"Reminder in 1h mixed case", true, len("reminder ")},
+		{"  remind me leading space", true, len("remind me ")},
+		{"what time is it", false, 0},
+		{"", false, 0},
+		{"remindme no space", false, 0},
+	}
+	for _, tt := range tests {
+		t.Run(tt.input, func(t *testing.T) {
+			gotLen, gotMatch := Trigger(tt.input)
+			if gotMatch != tt.wantMatch {
+				t.Errorf("match: got %v, want %v", gotMatch, tt.wantMatch)
+			}
+			if gotLen != tt.wantLen {
+				t.Errorf("len: got %d, want %d", gotLen, tt.wantLen)
+			}
+		})
+	}
+}
+
 func TestParseTimeErrors(t *testing.T) {
 	if _, _, err := ParseTime("remind me something", testNow); err == nil {
 		t.Error("expected error for missing 'in'/'at' prefix")

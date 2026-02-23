@@ -90,7 +90,7 @@ func HandleMessage(s *discordgo.Session, m *discordgo.MessageCreate) {
 	m.Message = utility.CleanMessage(s, m.Message)
 	m.Message.Content = utility.ResolveMentions(m.Message.Content, m.Mentions)
 
-	if triggerLen, ok := reminderTrigger(m.Message.Content); ok {
+	if triggerLen, ok := reminder.Trigger(m.Message.Content); ok {
 		handleReminder(s, m.Message, triggerLen)
 		return
 	}
@@ -137,18 +137,6 @@ func HandleMessage(s *discordgo.Session, m *discordgo.MessageCreate) {
 	if err != nil {
 		discord.LogSendErrorMessage(s, m.Message, err.Error())
 	}
-}
-
-// reminderTrigger reports whether content starts with a reminder trigger phrase.
-// Returns the byte length of the trigger prefix so the caller can slice past it.
-func reminderTrigger(content string) (int, bool) {
-	lower := strings.ToLower(strings.TrimSpace(content))
-	for _, trigger := range []string{"remind me ", "reminder ", "remind "} {
-		if strings.HasPrefix(lower, trigger) {
-			return len(trigger), true
-		}
-	}
-	return 0, false
 }
 
 // handleReminder parses and stores a reminder from a Discord message.

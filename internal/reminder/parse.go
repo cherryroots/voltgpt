@@ -37,6 +37,18 @@ var tzAbbrevs = map[string]*time.Location{
 	"AEST": time.FixedZone("AEST", 10*3600),
 }
 
+// Trigger reports whether content starts with a reminder trigger phrase.
+// Returns the byte length of the trigger prefix so the caller can slice past it.
+func Trigger(content string) (int, bool) {
+	lower := strings.ToLower(strings.TrimSpace(content))
+	for _, trigger := range []string{"remind me ", "reminder ", "remind "} {
+		if strings.HasPrefix(lower, trigger) {
+			return len(trigger), true
+		}
+	}
+	return 0, false
+}
+
 // ParseTime parses a time expression from the start of s.
 // s must begin with "in " (relative offset) or "at " (absolute datetime).
 // Returns the resolved fire time, the remainder of s as the reminder message,
