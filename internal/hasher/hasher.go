@@ -326,10 +326,10 @@ func getFile(url string) (bytes.Buffer, error) {
 	if err != nil {
 		return buf, err
 	}
+	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		return buf, fmt.Errorf("bad status: %s", resp.Status)
 	}
-	defer resp.Body.Close()
 
 	_, err = io.Copy(&buf, resp.Body)
 	if err != nil {
