@@ -52,7 +52,7 @@ var Commands = map[string]func(s *discordgo.Session, i *discordgo.InteractionCre
 			if option.Name == "urls" {
 				urls := option.StringValue()
 				for _, url := range strings.Split(urls, " ") {
-					if !wave.IsImageURL(url) {
+					if !utility.IsWavespeedImageURL(url) {
 						_, err := discord.SendFollowup(s, i, "Please provide a valid image URL [jpg, jpeg, png]")
 						if err != nil {
 							log.Println(err)
@@ -84,7 +84,7 @@ var Commands = map[string]func(s *discordgo.Session, i *discordgo.InteractionCre
 				var err error
 				if imgFilled {
 					for _, img := range imgs {
-						if !wave.IsImageURL(*img) {
+						if !utility.IsWavespeedImageURL(*img) {
 							_, err := discord.SendFollowup(s, i, "Please provide a valid image URL [jpg, jpeg, png]")
 							if err != nil {
 								log.Println(err)
@@ -248,7 +248,7 @@ var Commands = map[string]func(s *discordgo.Session, i *discordgo.InteractionCre
 		var resp *wave.WaveSpeedResponse
 		var err error
 		if imgFilled {
-			if !wave.IsImageURL(img) {
+			if !utility.IsWavespeedImageURL(img) {
 				_, err := discord.SendFollowup(s, i, "Please provide a valid image URL [jpg, jpeg, png]")
 				if err != nil {
 					log.Println(err)

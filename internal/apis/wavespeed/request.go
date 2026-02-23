@@ -174,17 +174,3 @@ func DownloadResult(resp *WaveSpeedResponse) ([]*discordgo.File, error) {
 	}
 	return files, nil
 }
-
-func IsImageURL(urlStr string) bool {
-	fileExt, err := utility.URLToExt(urlStr)
-	if err != nil {
-		return false
-	}
-
-	switch fileExt {
-	case ".jpg", ".jpeg", ".png":
-		return true
-	default:
-		return false
-	}
-}
