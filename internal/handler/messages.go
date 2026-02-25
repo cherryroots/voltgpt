@@ -110,6 +110,8 @@ func HandleMessage(s *discordgo.Session, m *discordgo.MessageCreate) {
 	var backgroundFacts string
 	if !utility.ShouldSkipMemory(m.Content) {
 		backgroundFacts = memory.RetrieveMultiUser(m.Content, users)
+	} else {
+		chatMessages[0].Parts[0].Text = strings.ReplaceAll(chatMessages[0].Parts[0].Text, "🚫", "")
 	}
 
 	err = gemini.StreamMessageResponse(s, c, m.Message, chatMessages, backgroundFacts)
