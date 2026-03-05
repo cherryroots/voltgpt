@@ -21,7 +21,7 @@ import (
 const (
 	embeddingModel             = "gemini-embedding-001"
 	embeddingDimensions        = 768
-	generationModel            = "gemini-2.5-flash"
+	generationModel            = "gemini-3-flash-preview"
 	similarityLimit            = 3
 	retrievalLimit             = 5
 	generalRetrievalLimit      = 10
