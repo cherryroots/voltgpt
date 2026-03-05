@@ -6,7 +6,6 @@ import (
 	"context"
 	"fmt"
 	"log"
-	"os"
 	"strings"
 	"sync"
 	"time"
@@ -28,15 +27,7 @@ var (
 // GetClient returns a shared Gemini client, initializing it once on first call.
 func GetClient() (*genai.Client, error) {
 	sharedClientOnce.Do(func() {
-		apiKey := os.Getenv("GEMINI_TOKEN")
-		if apiKey == "" {
-			sharedClientErr = fmt.Errorf("GEMINI_TOKEN is not set")
-			return
-		}
-		sharedClient, sharedClientErr = genai.NewClient(context.Background(), &genai.ClientConfig{
-			APIKey:  apiKey,
-			Backend: genai.BackendGeminiAPI,
-		})
+		sharedClient, sharedClientErr = genai.NewClient(context.Background(), &genai.ClientConfig{})
 	})
 	return sharedClient, sharedClientErr
 }
@@ -151,7 +142,7 @@ func StreamMessageResponse(s *discordgo.Session, c *genai.Client, m *discordgo.M
 	ctx := context.Background()
 
 	// Configure the model
-	modelName := "gemini-3-flash-preview"
+	modelName := "gemini-3.1-pro-preview"
 
 	// Handle "Thinking..." message
 	msg, err := discord.SendMessage(s, m, "Thinking...")
@@ -187,13 +178,6 @@ func StreamMessageResponse(s *discordgo.Session, c *genai.Client, m *discordgo.M
 	config := &genai.GenerateContentConfig{
 		SystemInstruction: systemInstruction,
 		Temperature:       &t,
-		Tools: []*genai.Tool{
-			{
-				GoogleSearch: &genai.GoogleSearch{},
-				URLContext:   &genai.URLContext{},
-				// CodeExecution: &genai.ToolCodeExecution{},
-			},
-		},
 	}
 
 	// Call the API
@@ -231,42 +215,6 @@ func contentToString(c *genai.Content) string {
 		}
 	}
 	return sb.String()
-}
-
-func SummarizeCleanText(text string) string {
-	client, err := GetClient()
-	if err != nil {
-		log.Printf("failed to get gemini client: %v", err)
-		return ""
-	}
-
-	ctx := context.Background()
-
-	instructions := `
-	You are a helpful assistant. 
-	You are given text from websites in a markdown format.
-	Cut down on the amount of text but keep it filling.
-	Keep links in the text for further browsing and reference.`
-
-	modelName := "gemini-3-flash-preview"
-
-	resp, err := client.Models.GenerateContent(ctx, modelName,
-		genai.Text(text),
-		&genai.GenerateContentConfig{
-			SystemInstruction: genai.NewContentFromText(instructions, genai.RoleModel),
-			Temperature:       genai.Ptr(float32(0.1)), // Low temp for summarization
-		},
-	)
-	if err != nil {
-		log.Printf("GenerateContent error: %v\n", err)
-		return ""
-	}
-
-	if len(resp.Candidates) > 0 && resp.Candidates[0].Content != nil {
-		return contentToString(resp.Candidates[0].Content)
-	}
-
-	return ""
 }
 
 func PrependReplyMessages(s *discordgo.Session, c *genai.Client, originMember *discordgo.Member, message *discordgo.Message, cache []*discordgo.Message, chatMessages *[]*genai.Content) {

@@ -10,22 +10,23 @@ import (
 	"fmt"
 	"log"
 	"math"
-	"os"
 	"sort"
 	"strings"
 
 	"google.golang.org/genai"
+
+	"voltgpt/internal/apis/gemini"
 )
 
 const (
-	embeddingModel           = "gemini-embedding-001"
-	embeddingDimensions      = 768
-	generationModel          = "gemini-3-flash-preview"
-	similarityLimit          = 3
-	retrievalLimit           = 5
-	generalRetrievalLimit    = 10
-	minMessageLength         = 10
-	distanceThreshold        = float64(0.35) // cosine distance; vec_facts uses distance_metric=cosine
+	embeddingModel             = "gemini-embedding-001"
+	embeddingDimensions        = 768
+	generationModel            = "gemini-2.5-flash"
+	similarityLimit            = 3
+	retrievalLimit             = 5
+	generalRetrievalLimit      = 10
+	minMessageLength           = 10
+	distanceThreshold          = float64(0.35) // cosine distance; vec_facts uses distance_metric=cosine
 	retrievalDistanceThreshold = float64(0.6)  // more permissive than deduplication threshold
 )
 
@@ -38,20 +39,10 @@ var (
 func Init(db *sql.DB) {
 	database = db
 
-	apiKey := os.Getenv("MEMORY_GEMINI_TOKEN")
-	if apiKey == "" {
-		log.Println("MEMORY_GEMINI_TOKEN is not set — memory system disabled")
-		return
-	}
-
-	ctx := context.Background()
 	var err error
-	client, err = genai.NewClient(ctx, &genai.ClientConfig{
-		APIKey:  apiKey,
-		Backend: genai.BackendGeminiAPI,
-	})
+	client, err = gemini.GetClient()
 	if err != nil {
-		log.Printf("Failed to create memory Gemini client: %v", err)
+		log.Printf("Memory system disabled: %v", err)
 		return
 	}
 

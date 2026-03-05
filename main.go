@@ -11,6 +11,7 @@ import (
 	"github.com/bwmarrin/discordgo"
 	"github.com/joho/godotenv"
 
+	"voltgpt/internal/apis/gemini"
 	"voltgpt/internal/config"
 	"voltgpt/internal/db"
 	"voltgpt/internal/gamble"
@@ -30,6 +31,9 @@ func init() {
 	hasher.Init(db.DB)
 	gamble.Init(db.DB)
 	memory.Init(db.DB)
+	if _, err := gemini.GetClient(); err != nil {
+		log.Printf("Warning: Gemini client init failed: %v", err)
+	}
 }
 
 func main() {
