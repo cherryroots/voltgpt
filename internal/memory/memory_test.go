@@ -4,13 +4,13 @@ import (
 	"context"
 	"encoding/binary"
 	"math"
-	"os"
 	"strings"
 	"testing"
 
+	"voltgpt/internal/db"
+
 	"github.com/joho/godotenv"
 	"google.golang.org/genai"
-	"voltgpt/internal/db"
 )
 
 // setupTestDB opens a fresh in-memory SQLite database and wires it to the
@@ -30,14 +30,9 @@ func setupTestDB(t *testing.T) {
 func setupGemini(t *testing.T) {
 	t.Helper()
 	godotenv.Load("../../.env") // no-op if already set or file absent
-	apiKey := os.Getenv("MEMORY_GEMINI_TOKEN")
-	if apiKey == "" {
-		t.Skip("MEMORY_GEMINI_TOKEN not set")
-	}
 	ctx := context.Background()
 	var err error
 	client, err = genai.NewClient(ctx, &genai.ClientConfig{
-		APIKey:  apiKey,
 		Backend: genai.BackendGeminiAPI,
 	})
 	if err != nil {

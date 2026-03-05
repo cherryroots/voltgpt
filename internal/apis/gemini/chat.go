@@ -178,6 +178,10 @@ func StreamMessageResponse(s *discordgo.Session, c *genai.Client, m *discordgo.M
 	config := &genai.GenerateContentConfig{
 		SystemInstruction: systemInstruction,
 		Temperature:       &t,
+		Tools:             []*genai.Tool{
+			//{GoogleSearch: &genai.GoogleSearch{}},
+			//{URLContext: &genai.URLContext{}},
+		},
 	}
 
 	// Call the API
