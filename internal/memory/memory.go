@@ -10,63 +10,199 @@ import (
 	"fmt"
 	"log"
 	"math"
+	"os"
 	"sort"
 	"strings"
 
-	"google.golang.org/genai"
-
-	"voltgpt/internal/apis/gemini"
+	oa "github.com/openai/openai-go"
+	"github.com/openai/openai-go/option"
+	"github.com/openai/openai-go/shared"
 )
 
 const (
-	embeddingModel             = "gemini-embedding-001"
-	embeddingDimensions        = 768
-	generationModel            = "gemini-3-flash-preview"
-	similarityLimit            = 3
-	retrievalLimit             = 5
-	generalRetrievalLimit      = 10
-	minMessageLength           = 10
-	distanceThreshold          = float64(0.35) // cosine distance; vec_facts uses distance_metric=cosine
-	retrievalDistanceThreshold = float64(0.6)  // more permissive than deduplication threshold
+	embeddingModel                   = oa.EmbeddingModelTextEmbedding3Small
+	embeddingDimensions        int64 = 1536
+	generationModel                  = "gpt-5-mini"
+	reembedBatchSize                 = 25
+	similarityLimit                  = 3
+	retrievalLimit                   = 5
+	generalRetrievalLimit            = 10
+	minMessageLength                 = 10
+	distanceThreshold                = float64(0.35) // cosine distance; vec_facts uses distance_metric=cosine
+	retrievalDistanceThreshold       = float64(0.6)  // more permissive than deduplication threshold
 )
 
 var (
 	database *sql.DB
-	client   *genai.Client
+	client   *oa.Client
 	enabled  bool
 )
 
 func Init(db *sql.DB) {
 	database = db
+	enabled = false
+	client = nil
 
-	var err error
-	client, err = gemini.GetClient()
-	if err != nil {
-		log.Printf("Memory system disabled: %v", err)
+	token := strings.TrimSpace(os.Getenv("MEMORY_OPENAI_TOKEN"))
+	if token == "" {
+		log.Printf("Memory system disabled: MEMORY_OPENAI_TOKEN is not set")
 		return
 	}
 
+	c := oa.NewClient(option.WithAPIKey(token))
+	client = &c
 	enabled = true
 	log.Println("Memory system initialized")
+
+	go backfillMissingEmbeddings()
 }
 
-// embed calls the Gemini embedding API and returns a float32 vector
-// truncated to embeddingDimensions via the API's OutputDimensionality param.
+// embed calls the OpenAI embedding API and returns a float32 vector.
 func embed(ctx context.Context, text string) ([]float32, error) {
 	if strings.TrimSpace(text) == "" {
 		return nil, fmt.Errorf("embed: empty text")
 	}
-	dim := int32(embeddingDimensions)
-	resp, err := client.Models.EmbedContent(ctx, embeddingModel, genai.Text(text), &genai.EmbedContentConfig{
-		OutputDimensionality: &dim,
+	if client == nil {
+		return nil, fmt.Errorf("embed: OpenAI client is not initialized")
+	}
+	resp, err := client.Embeddings.New(ctx, oa.EmbeddingNewParams{
+		Input: oa.EmbeddingNewParamsInputUnion{
+			OfString: oa.String(text),
+		},
+		Model:          embeddingModel,
+		Dimensions:     oa.Int(embeddingDimensions),
+		EncodingFormat: oa.EmbeddingNewParamsEncodingFormatFloat,
 	})
 	if err != nil {
 		return nil, err
 	}
-	if len(resp.Embeddings) == 0 {
+	if len(resp.Data) == 0 {
 		return nil, fmt.Errorf("embedding API returned no embeddings")
 	}
-	return resp.Embeddings[0].Values, nil
+
+	values := make([]float32, len(resp.Data[0].Embedding))
+	for i, value := range resp.Data[0].Embedding {
+		values[i] = float32(value)
+	}
+	return values, nil
+}
+
+func generateJSON(ctx context.Context, systemPrompt, userPrompt string, schema shared.ResponseFormatJSONSchemaJSONSchemaParam) (string, error) {
+	if client == nil {
+		return "", fmt.Errorf("chat completion: OpenAI client is not initialized")
+	}
+
+	resp, err := client.Chat.Completions.New(ctx, oa.ChatCompletionNewParams{
+		Messages: []oa.ChatCompletionMessageParamUnion{
+			oa.DeveloperMessage(systemPrompt),
+			oa.UserMessage(userPrompt),
+		},
+		Model: oa.ChatModel(generationModel),
+		ResponseFormat: oa.ChatCompletionNewParamsResponseFormatUnion{
+			OfJSONSchema: &shared.ResponseFormatJSONSchemaParam{
+				JSONSchema: schema,
+			},
+		},
+	})
+	if err != nil {
+		return "", err
+	}
+	if len(resp.Choices) == 0 {
+		return "", fmt.Errorf("chat completion returned no choices")
+	}
+
+	content := strings.TrimSpace(resp.Choices[0].Message.Content)
+	if content == "" {
+		return "", fmt.Errorf("chat completion returned empty content")
+	}
+	return content, nil
+}
+
+type factToEmbed struct {
+	ID       int64
+	FactText string
+}
+
+func backfillMissingEmbeddings() {
+	if database == nil || client == nil {
+		return
+	}
+
+	ctx := context.Background()
+	var (
+		lastID    int64
+		processed int
+		inserted  int
+		failed    int
+	)
+
+	for {
+		batch, err := listFactsMissingEmbeddings(lastID, reembedBatchSize)
+		if err != nil {
+			log.Printf("memory: backfill query failed: %v", err)
+			return
+		}
+		if len(batch) == 0 {
+			if processed > 0 {
+				log.Printf("memory: embedding backfill finished: processed=%d inserted=%d failed=%d", processed, inserted, failed)
+			}
+			return
+		}
+
+		for _, fact := range batch {
+			lastID = fact.ID
+			processed++
+
+			embedding, err := embed(ctx, fact.FactText)
+			if err != nil {
+				failed++
+				log.Printf("memory: backfill embed failed for fact %d: %v", fact.ID, err)
+				continue
+			}
+			if err := insertMissingEmbedding(fact.ID, embedding); err != nil {
+				failed++
+				log.Printf("memory: backfill insert failed for fact %d: %v", fact.ID, err)
+				continue
+			}
+			inserted++
+		}
+	}
+}
+
+func listFactsMissingEmbeddings(afterID int64, limit int) ([]factToEmbed, error) {
+	rows, err := database.Query(`
+		SELECT f.id, f.fact_text
+		FROM facts f
+		LEFT JOIN vec_facts vf ON vf.fact_id = f.id
+		WHERE f.is_active = 1
+		  AND vf.fact_id IS NULL
+		  AND f.id > ?
+		ORDER BY f.id
+		LIMIT ?
+	`, afterID, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var facts []factToEmbed
+	for rows.Next() {
+		var fact factToEmbed
+		if err := rows.Scan(&fact.ID, &fact.FactText); err != nil {
+			return nil, err
+		}
+		facts = append(facts, fact)
+	}
+	return facts, rows.Err()
+}
+
+func insertMissingEmbedding(factID int64, embedding []float32) error {
+	_, err := database.Exec(
+		"INSERT INTO vec_facts (fact_id, embedding) VALUES (?, ?)",
+		factID,
+		serializeFloat32(embedding),
+	)
+	return err
 }
 
 // serializeFloat32 converts a float32 slice to a little-endian byte slice

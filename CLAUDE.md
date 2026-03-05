@@ -2,7 +2,7 @@
 
 ## Overview
 
-Go Discord bot ("Vivy") providing multimodal AI chat (Gemini), image generation/editing (Wavespeed), video creation, perceptual image hashing for duplicate detection, scheduled reminders, and a movie wheel betting game.
+Go Discord bot ("Vivy") providing multimodal AI chat (OpenAI), image generation/editing (Wavespeed), video creation, perceptual image hashing for duplicate detection, scheduled reminders, and a movie wheel betting game.
 
 ## Build & Run
 
@@ -29,8 +29,8 @@ Copy `sample.env` to `.env` and add missing tokens manually (sample.env is incom
 - `DISCORD_TOKEN` — bot authentication
 
 Optional (features degrade gracefully without these):
-- `GEMINI_TOKEN` — Google Gemini API (message handler chat)
-- `MEMORY_GEMINI_TOKEN` — separate Gemini key for the memory/embedding system (independent of `GEMINI_TOKEN`)
+- `OPENAI_TOKEN` — OpenAI API (message handler chat)
+- `MEMORY_OPENAI_TOKEN` — separate OpenAI key for the memory/embedding system (independent of `OPENAI_TOKEN`)
 - `WAVESPEED_TOKEN` — Wavespeed API (image generation, video creation)
 
 ## Project Structure
@@ -40,6 +40,7 @@ main.go                        # Entry point, Discord session, handler registrat
 internal/
   apis/
     gemini/chat.go             # Gemini streaming chat with tool use
+    openai/chat.go             # OpenAI Responses API chat with stored response IDs
     wavespeed/request.go       # Wavespeed image/video generation
     wavespeed/structs.go       # Wavespeed API types
   config/
@@ -50,13 +51,13 @@ internal/
   handler/
     commands.go                # Slash command handlers
     components.go              # Button/select menu handlers
-    messages.go                # Message event handler (Gemini chat)
+    messages.go                # Message event handler (OpenAI chat)
     modals.go                  # Modal submission handlers
   gamble/gamble.go             # Movie wheel game: rounds, bets, players
   hasher/hasher.go             # Perceptual image hashing, duplicate detection
   memory/                      # Vector-backed long-term memory (fact extraction, RAG via sqlite-vec)
     consolidate.go             # Deduplicates/merges similar facts via semantic similarity
-    extract.go                 # Extracts facts from Discord messages using Gemini
+    extract.go                 # Extracts facts from Discord messages using OpenAI
     memory.go                  # Init, embedding storage, sqlite-vec queries
     retrieve.go                # Retrieves relevant facts for RAG context injection
   reminder/
@@ -103,7 +104,7 @@ Data lives in memory (protected by `sync.RWMutex`) and is periodically written b
 - **Testing `GetMessageMediaURL` with attachments** — requires `Width > 0 && Height > 0` on each `*discordgo.MessageAttachment`; zero-value structs are silently skipped, returning no URLs
 - **Testing `formatFactsXML` output** — the `<note>` element contains literal `<user>` and `<general>` text; use `</general>` and `<user name=` as check strings to avoid false-positive substring matches
 - **Testing hasher package** — `hashStore.m` is global; reset with `hashStore.m = make(map[string]*discordgo.Message)` between tests; `writeHash` (and any code path with `Store: true`) panics if `database` is nil, so those tests need an in-memory DB via `db.Open(":memory:")`
-- **Testing memory package** — white-box tests (`package memory`) can set `database = db.DB` directly after `db.Open(":memory:")`; Gemini-backed tests skip cleanly when `MEMORY_GEMINI_TOKEN` is unset; load token for local runs via `export $(grep MEMORY_GEMINI_TOKEN .env | xargs)`
+- **Testing memory package** — white-box tests (`package memory`) can set `database = db.DB` directly after `db.Open(":memory:")`; OpenAI-backed tests skip cleanly when `MEMORY_OPENAI_TOKEN` is unset; load token for local runs via `export $(grep MEMORY_OPENAI_TOKEN .env | xargs)`
 - **Run tests**: `/usr/local/go/bin/go test ./... -timeout 60s` (video tests need the timeout; they use ffmpeg)
 
 ## Conventions

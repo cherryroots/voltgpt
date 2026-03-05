@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	gemini "voltgpt/internal/apis/gemini"
+	openaiapi "voltgpt/internal/apis/openai"
 	"voltgpt/internal/config"
 	"voltgpt/internal/discord"
 	"voltgpt/internal/hasher"
@@ -17,7 +17,7 @@ import (
 	"voltgpt/internal/utility"
 
 	"github.com/bwmarrin/discordgo"
-	"google.golang.org/genai"
+	"github.com/openai/openai-go/responses"
 )
 
 func HandleMessage(s *discordgo.Session, m *discordgo.MessageCreate) {
@@ -47,14 +47,15 @@ func HandleMessage(s *discordgo.Session, m *discordgo.MessageCreate) {
 		go memory.Extract(m.Author.ID, m.Author.Username, m.Author.GlobalName, m.ID, extractContent)
 	}
 
-	c, err := gemini.GetClient()
+	c, err := openaiapi.GetClient()
 	if err != nil {
 		discord.LogSendErrorMessage(s, m.Message, err.Error())
 		return
 	}
 
-	var chatMessages []*genai.Content
+	var chatMessages []responses.ResponseInputItemUnionParam
 	var cache []*discordgo.Message
+	var previousResponseID string
 	var isMentioned, isReply bool
 
 	for _, mention := range m.Mentions {
@@ -81,7 +82,7 @@ func HandleMessage(s *discordgo.Session, m *discordgo.MessageCreate) {
 		return
 	}
 
-	images, videos, pdfs, ytURLs := utility.GetMessageMediaURL(m.Message)
+	images, videos, pdfs, _ := utility.GetMessageMediaURL(m.Message)
 
 	content := config.RequestContent{
 		Text: strings.TrimSpace(fmt.Sprintf("<user name=\"%s\"> %s %s %s </user>",
@@ -93,13 +94,25 @@ func HandleMessage(s *discordgo.Session, m *discordgo.MessageCreate) {
 		Images: images,
 		Videos: videos,
 		PDFs:   pdfs,
-		YTURLs: ytURLs,
 	}
 
-	chatMessages = append(chatMessages, gemini.CreateContent(c, "user", content))
+	skipMemory := utility.ShouldSkipMemory(m.Content)
+	if skipMemory {
+		content.Text = strings.ReplaceAll(content.Text, "🚫", "")
+	}
+
+	chatMessages = append(chatMessages, openaiapi.CreateContent("user", content))
 
 	if isReply {
-		gemini.PrependReplyMessages(s, c, m.Message.Member, m.Message, cache, &chatMessages)
+		if m.Message.MessageReference != nil {
+			previousResponseID, err = openaiapi.LookupResponseID(m.Message.MessageReference.MessageID)
+			if err != nil {
+				log.Printf("openai: lookup response id for %s: %v", m.Message.MessageReference.MessageID, err)
+			}
+		}
+		if previousResponseID == "" {
+			openaiapi.PrependReplyMessages(s, m.Message.Member, m.Message, cache, &chatMessages)
+		}
 	}
 
 	// Retrieve memory facts for users in the reply chain (not the whole channel)
@@ -108,13 +121,11 @@ func HandleMessage(s *discordgo.Session, m *discordgo.MessageCreate) {
 		maps.Copy(users, utility.ReplyChainUsers(s, m.Message, cache))
 	}
 	var backgroundFacts string
-	if !utility.ShouldSkipMemory(m.Content) {
+	if !skipMemory {
 		backgroundFacts = memory.RetrieveMultiUser(m.Content, users)
-	} else {
-		chatMessages[0].Parts[0].Text = strings.ReplaceAll(chatMessages[0].Parts[0].Text, "🚫", "")
 	}
 
-	err = gemini.StreamMessageResponse(s, c, m.Message, chatMessages, backgroundFacts)
+	err = openaiapi.StreamMessageResponse(s, c, m.Message, chatMessages, previousResponseID, backgroundFacts)
 	if err != nil {
 		discord.LogSendErrorMessage(s, m.Message, err.Error())
 	}

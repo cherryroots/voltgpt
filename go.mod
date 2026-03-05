@@ -9,6 +9,7 @@ require (
 	github.com/ewohltman/discordgo-mock v0.0.11
 	github.com/joho/godotenv v1.5.1
 	github.com/mattn/go-sqlite3 v1.14.34
+	github.com/openai/openai-go v1.12.0
 	github.com/u2takey/ffmpeg-go v0.5.0
 	golang.org/x/image v0.36.0
 	google.golang.org/genai v1.47.0
@@ -30,6 +31,10 @@ require (
 	github.com/gorilla/websocket v1.5.3 // indirect
 	github.com/jmespath/go-jmespath v0.4.0 // indirect
 	github.com/nfnt/resize v0.0.0-20180221191011-83c6a9932646 // indirect
+	github.com/tidwall/gjson v1.14.4 // indirect
+	github.com/tidwall/match v1.1.1 // indirect
+	github.com/tidwall/pretty v1.2.1 // indirect
+	github.com/tidwall/sjson v1.2.5 // indirect
 	github.com/u2takey/go-utils v0.3.1 // indirect
 	go.opentelemetry.io/auto/sdk v1.2.1 // indirect
 	go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.65.0 // indirect

@@ -8,7 +8,8 @@ import (
 	"sync"
 	"time"
 
-	"google.golang.org/genai"
+	oa "github.com/openai/openai-go"
+	"github.com/openai/openai-go/shared"
 )
 
 const bufferWindow = 30 * time.Second
@@ -132,44 +133,39 @@ Examples:
 - "lol yeah" → [] (no factual content)
 - "I moved to Austin last year and started working at Dell" → ["Alex lives in Austin and works at Dell."]`
 
-// extractFacts calls Gemini to extract long-term facts from buffered messages.
-func extractFacts(ctx context.Context, username, text string) ([]string, error) {
-	prompt := "The user's name is " + username + ".\n\nMessages:\n" + text
-
-	t := float32(0.1)
-	resp, err := client.Models.GenerateContent(ctx, generationModel,
-		genai.Text(prompt),
-		&genai.GenerateContentConfig{
-			SystemInstruction: genai.NewContentFromText(extractionSystemPrompt, genai.RoleModel),
-			Temperature:       &t,
-			ResponseMIMEType:  "application/json",
-			ResponseSchema: &genai.Schema{
-				Type: genai.TypeArray,
-				Items: &genai.Schema{
-					Type: genai.TypeString,
+var extractionResponseSchema = shared.ResponseFormatJSONSchemaJSONSchemaParam{
+	Name:        "memory_extraction",
+	Description: oa.String("Long-term facts extracted from a user's Discord messages"),
+	Strict:      oa.Bool(true),
+	Schema: map[string]any{
+		"type":                 "object",
+		"additionalProperties": false,
+		"properties": map[string]any{
+			"facts": map[string]any{
+				"type": "array",
+				"items": map[string]any{
+					"type": "string",
 				},
 			},
 		},
-	)
+		"required": []string{"facts"},
+	},
+}
+
+// extractFacts calls OpenAI to extract long-term facts from buffered messages.
+func extractFacts(ctx context.Context, username, text string) ([]string, error) {
+	prompt := "The user's name is " + username + ".\n\nMessages:\n" + text
+
+	responseText, err := generateJSON(ctx, extractionSystemPrompt, prompt, extractionResponseSchema)
 	if err != nil {
 		return nil, err
 	}
 
-	if len(resp.Candidates) == 0 || resp.Candidates[0].Content == nil {
-		return nil, nil
+	var wrapped struct {
+		Facts []string `json:"facts"`
 	}
-
-	var responseText string
-	for _, part := range resp.Candidates[0].Content.Parts {
-		if part.Text != "" {
-			responseText += part.Text
-		}
-	}
-
-	var facts []string
-	if err := json.Unmarshal([]byte(responseText), &facts); err != nil {
+	if err := json.Unmarshal([]byte(responseText), &wrapped); err != nil {
 		return nil, err
 	}
-
-	return facts, nil
+	return wrapped.Facts, nil
 }
