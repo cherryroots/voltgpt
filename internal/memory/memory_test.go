@@ -4,13 +4,15 @@ import (
 	"context"
 	"encoding/binary"
 	"math"
+	"os"
 	"strings"
 	"testing"
 
 	"voltgpt/internal/db"
 
 	"github.com/joho/godotenv"
-	"google.golang.org/genai"
+	oa "github.com/openai/openai-go"
+	"github.com/openai/openai-go/option"
 )
 
 // setupTestDB opens a fresh in-memory SQLite database and wires it to the
@@ -25,19 +27,17 @@ func setupTestDB(t *testing.T) {
 	})
 }
 
-// setupGemini initialises the package-level Gemini client from
-// MEMORY_GEMINI_TOKEN. The test is skipped when the token is absent.
-func setupGemini(t *testing.T) {
+// setupOpenAI initialises the package-level OpenAI client from
+// MEMORY_OPENAI_TOKEN.
+func setupOpenAI(t *testing.T) {
 	t.Helper()
 	godotenv.Load("../../.env") // no-op if already set or file absent
-	ctx := context.Background()
-	var err error
-	client, err = genai.NewClient(ctx, &genai.ClientConfig{
-		Backend: genai.BackendGeminiAPI,
-	})
-	if err != nil {
-		t.Fatalf("setupGemini: failed to create client: %v", err)
+	token := strings.TrimSpace(os.Getenv("MEMORY_OPENAI_TOKEN"))
+	if token == "" {
+		t.Skip("MEMORY_OPENAI_TOKEN is not set")
 	}
+	c := oa.NewClient(option.WithAPIKey(token))
+	client = &c
 	enabled = true
 	t.Cleanup(func() { client = nil; enabled = false })
 }
@@ -372,10 +372,10 @@ func TestRefreshFactNames(t *testing.T) {
 	}
 }
 
-// ── Gemini API ────────────────────────────────────────────────────────────────
+// ── OpenAI API ────────────────────────────────────────────────────────────────
 
 func TestExtractFacts(t *testing.T) {
-	setupGemini(t)
+	setupOpenAI(t)
 
 	tests := []struct {
 		name     string
@@ -427,7 +427,7 @@ func TestExtractFacts(t *testing.T) {
 }
 
 func TestDecideAction(t *testing.T) {
-	setupGemini(t)
+	setupOpenAI(t)
 
 	tests := []struct {
 		name       string
@@ -660,7 +660,7 @@ func TestFindSimilarFacts(t *testing.T) {
 
 func TestConsolidateAndStore_NoSimilar(t *testing.T) {
 	setupTestDB(t)
-	setupGemini(t)
+	setupOpenAI(t)
 
 	id, _, err := upsertUser("cs1", "alice", "Alice")
 	if err != nil {
@@ -683,7 +683,7 @@ func TestConsolidateAndStore_NoSimilar(t *testing.T) {
 
 func TestConsolidateAndStore_Reinforce(t *testing.T) {
 	setupTestDB(t)
-	setupGemini(t)
+	setupOpenAI(t)
 
 	id, _, err := upsertUser("cs2", "alice", "Alice")
 	if err != nil {
@@ -709,7 +709,7 @@ func TestConsolidateAndStore_Reinforce(t *testing.T) {
 
 func TestConsolidateAndStore_Invalidate(t *testing.T) {
 	setupTestDB(t)
-	setupGemini(t)
+	setupOpenAI(t)
 
 	id, _, err := upsertUser("cs3", "alice", "Alice")
 	if err != nil {
@@ -735,7 +735,7 @@ func TestConsolidateAndStore_Invalidate(t *testing.T) {
 
 func TestConsolidateAndStore_Merge(t *testing.T) {
 	setupTestDB(t)
-	setupGemini(t)
+	setupOpenAI(t)
 
 	id, _, err := upsertUser("cs4", "alice", "Alice")
 	if err != nil {
@@ -761,7 +761,7 @@ func TestConsolidateAndStore_Merge(t *testing.T) {
 }
 
 func TestRetrieve_Disabled(t *testing.T) {
-	// No setupGemini — enabled stays false.
+	// No setupOpenAI — enabled stays false.
 	if got := Retrieve("anything", "discord1"); got != nil {
 		t.Errorf("Retrieve when disabled = %v, want nil", got)
 	}
@@ -776,7 +776,7 @@ func TestRetrieveMultiUser_Disabled(t *testing.T) {
 
 func TestRetrieve(t *testing.T) {
 	setupTestDB(t)
-	setupGemini(t)
+	setupOpenAI(t)
 
 	id, _, err := upsertUser("rv1", "alice", "Alice")
 	if err != nil {
@@ -795,7 +795,7 @@ func TestRetrieve(t *testing.T) {
 
 func TestRetrieveGeneral(t *testing.T) {
 	setupTestDB(t)
-	setupGemini(t)
+	setupOpenAI(t)
 
 	ctx := context.Background()
 	idA, _, err := upsertUser("rg1", "alice", "Alice")
@@ -820,7 +820,7 @@ func TestRetrieveGeneral(t *testing.T) {
 
 func TestRetrieveMultiUser(t *testing.T) {
 	setupTestDB(t)
-	setupGemini(t)
+	setupOpenAI(t)
 
 	ctx := context.Background()
 	idA, _, err := upsertUser("rm1", "alice", "Alice")
@@ -845,7 +845,7 @@ func TestRetrieveMultiUser(t *testing.T) {
 
 func TestFlushBuffer(t *testing.T) {
 	setupTestDB(t)
-	setupGemini(t)
+	setupOpenAI(t)
 
 	buffersMu.Lock()
 	buffers["fb1"] = &messageBuffer{
@@ -913,8 +913,95 @@ func TestFindSimilarFacts_UserScoped(t *testing.T) {
 func TestConsolidateAndStore_ReinforceDoesNotSkipInvalidate(t *testing.T) {
 	// When the first similar fact is REINFORCED, the loop must continue
 	// to check subsequent similar facts for INVALIDATE.
-	// This test is an integration test requiring Gemini; structural correctness
+	// This test is an integration test requiring OpenAI; structural correctness
 	// is verified by inspection of the reinforced-flag loop in consolidate.go.
 	setupTestDB(t)
-	setupGemini(t)
+	setupOpenAI(t)
+}
+
+func TestConsolidateAndStore_FallbackNearestFactsCanInvalidate(t *testing.T) {
+	setupTestDB(t)
+
+	id, _, err := upsertUser("fallback1", "alice", "Alice")
+	if err != nil {
+		t.Fatalf("upsertUser: %v", err)
+	}
+
+	stored := make([]float32, embeddingDimensions)
+	stored[0] = 1
+	if err := insertFact(id, "m1", "Alice lives in Tokyo.", stored); err != nil {
+		t.Fatalf("insertFact: %v", err)
+	}
+
+	originalEmbed := embedFunc
+	originalDecide := decideActionFunc
+	t.Cleanup(func() {
+		embedFunc = originalEmbed
+		decideActionFunc = originalDecide
+	})
+
+	embedFunc = func(ctx context.Context, text string) ([]float32, error) {
+		switch text {
+		case "Alice moved to Berlin.":
+			// Orthogonal to the stored vector so the strict threshold path returns 0
+			// and consolidateAndStore must fall back to nearest facts.
+			v := make([]float32, embeddingDimensions)
+			v[1] = 1
+			return v, nil
+		default:
+			return originalEmbed(ctx, text)
+		}
+	}
+	decideActionFunc = func(ctx context.Context, oldFact, newFact string) (*consolidationAction, error) {
+		if oldFact == "Alice lives in Tokyo." && newFact == "Alice moved to Berlin." {
+			return &consolidationAction{Action: "INVALIDATE"}, nil
+		}
+		return &consolidationAction{Action: "KEEP"}, nil
+	}
+
+	if err := consolidateAndStore(context.Background(), id, "m2", "Alice moved to Berlin."); err != nil {
+		t.Fatalf("consolidateAndStore: %v", err)
+	}
+
+	facts := GetUserFacts("fallback1")
+	if len(facts) != 1 {
+		t.Fatalf("after fallback invalidate: len = %d, want 1", len(facts))
+	}
+	if facts[0].FactText != "Alice moved to Berlin." {
+		t.Errorf("FactText = %q, want %q", facts[0].FactText, "Alice moved to Berlin.")
+	}
+}
+
+func TestRetrieve_FallbackNearestFacts(t *testing.T) {
+	setupTestDB(t)
+
+	id, _, err := upsertUser("retrieve_fallback", "alice", "Alice")
+	if err != nil {
+		t.Fatalf("upsertUser: %v", err)
+	}
+
+	stored := make([]float32, embeddingDimensions)
+	stored[0] = 1
+	if err := insertFact(id, "m1", "Alice loves hiking in the mountains.", stored); err != nil {
+		t.Fatalf("insertFact: %v", err)
+	}
+
+	originalEmbed := embedFunc
+	t.Cleanup(func() { embedFunc = originalEmbed })
+	embedFunc = func(ctx context.Context, text string) ([]float32, error) {
+		v := make([]float32, embeddingDimensions)
+		v[1] = 1
+		return v, nil
+	}
+
+	enabled = true
+	t.Cleanup(func() { enabled = false })
+
+	facts := Retrieve("outdoor activities", "retrieve_fallback")
+	if len(facts) != 1 {
+		t.Fatalf("fallback Retrieve len = %d, want 1", len(facts))
+	}
+	if facts[0].Text != "Alice loves hiking in the mountains." {
+		t.Errorf("Text = %q, want %q", facts[0].Text, "Alice loves hiking in the mountains.")
+	}
 }

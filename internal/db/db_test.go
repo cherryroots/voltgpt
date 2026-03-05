@@ -23,7 +23,7 @@ func TestCreateMemoryTables(t *testing.T) {
 
 	// Verify vec_facts virtual table exists by inserting a zero vector
 	// sqlite-vec accepts raw little-endian float32 bytes
-	zeroVec := make([]byte, 768*4) // 768 float32s = 3072 bytes
+	zeroVec := make([]byte, 1536*4) // 1536 float32s = 6144 bytes
 	_, err = DB.Exec("INSERT INTO vec_facts (fact_id, embedding) VALUES (1, ?)", zeroVec)
 	if err != nil {
 		t.Fatalf("vec_facts table not created: %v", err)
@@ -177,7 +177,7 @@ func TestVecFactsQueryable(t *testing.T) {
 	}
 
 	// Insert embedding for the fact
-	zeroVec := make([]byte, 768*4)
+	zeroVec := make([]byte, 1536*4)
 	_, err = DB.Exec("INSERT INTO vec_facts (fact_id, embedding) VALUES (1, ?)", zeroVec)
 	if err != nil {
 		t.Fatalf("failed to insert vec_facts row: %v", err)

@@ -36,7 +36,7 @@ func Retrieve(query string, discordID string) []RetrievedFact {
 
 	ctx := context.Background()
 
-	embedding, err := embed(ctx, query)
+	embedding, err := embedFunc(ctx, query)
 	if err != nil {
 		log.Printf("memory: retrieval embedding failed: %v", err)
 		return nil
@@ -56,7 +56,6 @@ func Retrieve(query string, discordID string) []RetrievedFact {
 		log.Printf("memory: retrieval query failed: %v", err)
 		return nil
 	}
-	defer rows.Close()
 
 	var facts []RetrievedFact
 	for rows.Next() {
@@ -73,6 +72,17 @@ func Retrieve(query string, discordID string) []RetrievedFact {
 	if err := rows.Err(); err != nil {
 		log.Printf("memory: retrieval rows error: %v", err)
 	}
+	if err := rows.Close(); err != nil {
+		log.Printf("memory: retrieval rows close error: %v", err)
+	}
+
+	if len(facts) == 0 {
+		facts, err = retrieveNearestForUser(discordID, embedding, retrievalLimit)
+		if err != nil {
+			log.Printf("memory: retrieval fallback query failed: %v", err)
+			return nil
+		}
+	}
 
 	return facts
 }
@@ -86,28 +96,25 @@ func RetrieveGeneral(query string, excludeDiscordIDs map[string]bool) []GeneralF
 
 	ctx := context.Background()
 
-	embedding, err := embed(ctx, query)
+	embedding, err := embedFunc(ctx, query)
 	if err != nil {
 		log.Printf("memory: general retrieval embedding failed: %v", err)
 		return nil
 	}
 
-	// Fetch more than we need since we filter out excluded users in Go
 	rows, err := database.Query(`
-		SELECT u.username, u.discord_id, f.fact_text, f.created_at, vf.distance
+		SELECT u.username, u.discord_id, f.fact_text, f.created_at, vec_distance_cosine(vf.embedding, ?) AS distance
 		FROM vec_facts vf
 		JOIN facts f ON f.id = vf.fact_id
 		JOIN users u ON u.id = f.user_id
-		WHERE vf.embedding MATCH ?
-		  AND k = ?
-		  AND f.is_active = 1
-		ORDER BY vf.distance
-	`, serializeFloat32(embedding), generalRetrievalLimit+len(excludeDiscordIDs))
+		WHERE f.is_active = 1
+		ORDER BY distance
+		LIMIT ?
+	`, serializeFloat32(embedding), (generalRetrievalLimit+len(excludeDiscordIDs))*10)
 	if err != nil {
 		log.Printf("memory: general retrieval query failed: %v", err)
 		return nil
 	}
-	defer rows.Close()
 
 	var facts []GeneralFact
 	for rows.Next() {
@@ -131,8 +138,79 @@ func RetrieveGeneral(query string, excludeDiscordIDs map[string]bool) []GeneralF
 	if err := rows.Err(); err != nil {
 		log.Printf("memory: general retrieval rows error: %v", err)
 	}
+	if err := rows.Close(); err != nil {
+		log.Printf("memory: general retrieval rows close error: %v", err)
+	}
+
+	if len(facts) == 0 {
+		facts, err = retrieveNearestGeneral(embedding, excludeDiscordIDs, generalRetrievalLimit)
+		if err != nil {
+			log.Printf("memory: general retrieval fallback query failed: %v", err)
+			return nil
+		}
+	}
 
 	return facts
+}
+
+func retrieveNearestForUser(discordID string, embedding []float32, limit int) ([]RetrievedFact, error) {
+	rows, err := database.Query(`
+		SELECT f.fact_text, f.created_at
+		FROM vec_facts vf
+		JOIN facts f ON f.id = vf.fact_id
+		JOIN users u ON u.id = f.user_id
+		WHERE u.discord_id = ?
+		  AND f.is_active = 1
+		ORDER BY vec_distance_cosine(vf.embedding, ?)
+		LIMIT ?
+	`, discordID, serializeFloat32(embedding), limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var facts []RetrievedFact
+	for rows.Next() {
+		var fact RetrievedFact
+		if err := rows.Scan(&fact.Text, &fact.CreatedAt); err != nil {
+			return nil, err
+		}
+		facts = append(facts, fact)
+	}
+	return facts, rows.Err()
+}
+
+func retrieveNearestGeneral(embedding []float32, excludeDiscordIDs map[string]bool, limit int) ([]GeneralFact, error) {
+	rows, err := database.Query(`
+		SELECT u.username, u.discord_id, f.fact_text, f.created_at
+		FROM vec_facts vf
+		JOIN facts f ON f.id = vf.fact_id
+		JOIN users u ON u.id = f.user_id
+		WHERE f.is_active = 1
+		ORDER BY vec_distance_cosine(vf.embedding, ?)
+		LIMIT ?
+	`, serializeFloat32(embedding), (limit+len(excludeDiscordIDs))*10)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var facts []GeneralFact
+	for rows.Next() {
+		var fact GeneralFact
+		var discordID string
+		if err := rows.Scan(&fact.Username, &discordID, &fact.Text, &fact.CreatedAt); err != nil {
+			return nil, err
+		}
+		if excludeDiscordIDs[discordID] {
+			continue
+		}
+		facts = append(facts, fact)
+		if len(facts) >= limit {
+			break
+		}
+	}
+	return facts, rows.Err()
 }
 
 // RetrieveMultiUser fetches facts for multiple users concurrently and formats

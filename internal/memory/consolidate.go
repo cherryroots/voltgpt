@@ -6,7 +6,8 @@ import (
 	"fmt"
 	"log"
 
-	"google.golang.org/genai"
+	oa "github.com/openai/openai-go"
+	"github.com/openai/openai-go/shared"
 )
 
 type consolidationAction struct {
@@ -51,10 +52,35 @@ Actions:
 
 If you choose MERGE, provide the combined fact in merged_text. For all other actions, leave merged_text blank.`
 
+var consolidationResponseSchema = shared.ResponseFormatJSONSchemaJSONSchemaParam{
+	Name:        "memory_consolidation",
+	Description: oa.String("How a new fact should update an existing memory fact"),
+	Strict:      oa.Bool(true),
+	Schema: map[string]any{
+		"type":                 "object",
+		"additionalProperties": false,
+		"properties": map[string]any{
+			"action": map[string]any{
+				"type": "string",
+				"enum": []string{"REINFORCE", "INVALIDATE", "MERGE", "KEEP"},
+			},
+			"merged_text": map[string]any{
+				"type": "string",
+			},
+		},
+		"required": []string{"action", "merged_text"},
+	},
+}
+
+var (
+	embedFunc        = embed
+	decideActionFunc = decideAction
+)
+
 // consolidateAndStore embeds a new fact, checks for similar existing facts,
 // and either inserts, merges, or invalidates as appropriate.
 func consolidateAndStore(ctx context.Context, userID int64, messageID, factText string) error {
-	embedding, err := embed(ctx, factText)
+	embedding, err := embedFunc(ctx, factText)
 	if err != nil {
 		return fmt.Errorf("embedding failed: %w", err)
 	}
@@ -62,6 +88,16 @@ func consolidateAndStore(ctx context.Context, userID int64, messageID, factText 
 	similar, err := findSimilarFacts(userID, embedding)
 	if err != nil {
 		return fmt.Errorf("similarity search failed: %w", err)
+	}
+	if len(similar) == 0 {
+		// OpenAI embeddings are less tightly clustered than the previous Gemini ones for
+		// some update-style facts ("lives in X" -> "moved to Y"). When the strict
+		// threshold misses, fall back to the nearest active facts for the same user and
+		// let the LLM decide whether they are actually related.
+		similar, err = findNearestFacts(userID, embedding, similarityLimit)
+		if err != nil {
+			return fmt.Errorf("nearest-fact search failed: %w", err)
+		}
 	}
 
 	// No similar facts — insert directly
@@ -72,7 +108,7 @@ func consolidateAndStore(ctx context.Context, userID int64, messageID, factText 
 	// Check each similar fact for consolidation
 	reinforced := false
 	for _, sf := range similar {
-		action, err := decideAction(ctx, sf.FactText, factText)
+		action, err := decideActionFunc(ctx, sf.FactText, factText)
 		if err != nil {
 			log.Printf("memory: consolidation decision failed for fact %d: %v", sf.ID, err)
 			continue
@@ -95,7 +131,7 @@ func consolidateAndStore(ctx context.Context, userID int64, messageID, factText 
 				log.Printf("memory: MERGE action returned empty merged_text, inserting as new fact")
 				return insertFact(userID, messageID, factText, embedding)
 			}
-			mergedEmbedding, err := embed(ctx, action.MergedText)
+			mergedEmbedding, err := embedFunc(ctx, action.MergedText)
 			if err != nil {
 				return fmt.Errorf("merge embedding failed: %w", err)
 			}
@@ -144,45 +180,42 @@ func findSimilarFacts(userID int64, embedding []float32) ([]similarFact, error) 
 	return results, rows.Err()
 }
 
-// decideAction calls Gemini to decide whether to REINFORCE, INVALIDATE, MERGE, or KEEP two facts.
-func decideAction(ctx context.Context, oldFact, newFact string) (*consolidationAction, error) {
-	prompt := fmt.Sprintf("OLD: %q\nNEW: %q", oldFact, newFact)
-
-	t := float32(0.1)
-	resp, err := client.Models.GenerateContent(ctx, generationModel,
-		genai.Text(prompt),
-		&genai.GenerateContentConfig{
-			SystemInstruction: genai.NewContentFromText(consolidationSystemPrompt, genai.RoleModel),
-			Temperature:       &t,
-			ResponseMIMEType:  "application/json",
-			ResponseSchema: &genai.Schema{
-				Type: genai.TypeObject,
-				Properties: map[string]*genai.Schema{
-					"action": {
-						Type: genai.TypeString,
-						Enum: []string{"REINFORCE", "INVALIDATE", "MERGE", "KEEP"},
-					},
-					"merged_text": {
-						Type: genai.TypeString,
-					},
-				},
-				Required: []string{"action", "merged_text"},
-			},
-		},
-	)
+// findNearestFacts returns the closest active facts for the user without applying
+// the stricter consolidation distance threshold. This is used as a fallback when
+// strict similarity filtering finds no candidates.
+func findNearestFacts(userID int64, embedding []float32, limit int) ([]similarFact, error) {
+	rows, err := database.Query(`
+		SELECT f.id, f.fact_text, vec_distance_cosine(vf.embedding, ?) AS distance
+		FROM vec_facts vf
+		JOIN facts f ON f.id = vf.fact_id
+		WHERE f.user_id = ?
+		  AND f.is_active = 1
+		ORDER BY distance
+		LIMIT ?
+	`, serializeFloat32(embedding), userID, limit)
 	if err != nil {
 		return nil, err
 	}
+	defer rows.Close()
 
-	if len(resp.Candidates) == 0 || resp.Candidates[0].Content == nil {
-		return &consolidationAction{Action: "KEEP"}, nil
-	}
-
-	var responseText string
-	for _, part := range resp.Candidates[0].Content.Parts {
-		if part.Text != "" {
-			responseText += part.Text
+	var results []similarFact
+	for rows.Next() {
+		var sf similarFact
+		if err := rows.Scan(&sf.ID, &sf.FactText, &sf.Distance); err != nil {
+			return nil, err
 		}
+		results = append(results, sf)
+	}
+	return results, rows.Err()
+}
+
+// decideAction calls OpenAI to decide whether to REINFORCE, INVALIDATE, MERGE, or KEEP two facts.
+func decideAction(ctx context.Context, oldFact, newFact string) (*consolidationAction, error) {
+	prompt := fmt.Sprintf("OLD: %q\nNEW: %q", oldFact, newFact)
+
+	responseText, err := generateJSON(ctx, consolidationSystemPrompt, prompt, consolidationResponseSchema)
+	if err != nil {
+		return nil, err
 	}
 
 	var action consolidationAction
