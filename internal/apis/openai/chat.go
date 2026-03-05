@@ -32,6 +32,13 @@ var (
 	sharedClientOnce sync.Once
 )
 
+func builtInTools() []responses.ToolUnionParam {
+	return []responses.ToolUnionParam{
+		responses.ToolParamOfWebSearchPreview("web_search"),
+		responses.ToolParamOfCodeInterpreter(responses.ToolCodeInterpreterContainerCodeInterpreterContainerAutoParam{}),
+	}
+}
+
 func GetClient() (*oa.Client, error) {
 	sharedClientOnce.Do(func() {
 		token := strings.TrimSpace(os.Getenv("OPENAI_TOKEN"))
@@ -167,11 +174,16 @@ func StreamMessageResponse(s *discordgo.Session, c *oa.Client, m *discordgo.Mess
 		Input: responses.ResponseNewParamsInputUnion{
 			OfInputItemList: responses.ResponseInputParam(input),
 		},
-		Instructions: oa.String(systemMessageText),
-		Model:        responses.ChatModel(chatModel),
-		Store:        oa.Bool(true),
-		Temperature:  oa.Float(1),
-		Truncation:   responses.ResponseNewParamsTruncationAuto,
+		Instructions:      oa.String(systemMessageText),
+		Model:             responses.ChatModel(chatModel),
+		Store:             oa.Bool(true),
+		Temperature:       oa.Float(1),
+		Truncation:        responses.ResponseNewParamsTruncationAuto,
+		ParallelToolCalls: oa.Bool(true),
+		ToolChoice: responses.ResponseNewParamsToolChoiceUnion{
+			OfToolChoiceMode: param.NewOpt(responses.ToolChoiceOptionsAuto),
+		},
+		Tools: builtInTools(),
 	}
 	if previousResponseID != "" {
 		params.PreviousResponseID = oa.String(previousResponseID)
