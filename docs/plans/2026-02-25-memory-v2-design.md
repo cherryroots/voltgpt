@@ -9,6 +9,17 @@ two-layer structured memory: **user profiles** (stable identity — who people a
 The existing `facts` and `vec_facts` tables are soft-deprecated: left in place for
 migration safety but ignored by all new code.
 
+## Design Amendments (2026-03-06)
+
+- Retrieval is scoped to the current guild. Optional channel/thread bias is allowed, but unrestricted cross-guild recall is not.
+- A single query embedding is computed per retrieval request and reused across all per-user and general note lookups.
+- Similarity fallback is bounded. If no notes or facts pass the relaxed distance threshold, inject nothing rather than the arbitrary nearest result.
+- Participant membership is normalized in a join table. Do not query JSON arrays with `LIKE`.
+- Midnight jobs are tracked per guild, date, and phase so clustering/consolidation can be retried safely without duplicate output.
+- Deleting memory must remove or redact note-derived data and vector rows, not just clear the user profile row.
+- Reloaded channel buffers must respect elapsed idle time and max age; overdue buffers flush immediately on startup.
+- Provider/model choices should follow the later OpenAI migration design where the two docs overlap; this document is about memory shape and lifecycle, not locking in Gemini.
+
 ---
 
 ## Schema
@@ -42,12 +53,26 @@ CREATE TABLE interaction_notes (
     guild_id        TEXT NOT NULL,
     channel_id      TEXT NOT NULL,
     note_type       TEXT NOT NULL,   -- 'conversation' | 'topic_cluster'
-    participants    TEXT NOT NULL,   -- JSON array of discord IDs
+    participants    TEXT NOT NULL,   -- JSON array snapshot for prompt/debug use
     title           TEXT NOT NULL,
     summary         TEXT NOT NULL,
     source_note_ids TEXT,            -- JSON array; populated for topic_cluster only
     note_date       DATE NOT NULL,
     created_at      DATETIME DEFAULT CURRENT_TIMESTAMP
+)
+```
+
+### `note_participants`
+
+Normalized participant membership for joins, deletion, and consolidation. This is the
+source of truth for "which users were involved in this note"; the JSON field above is a
+cached snapshot only.
+
+```sql
+CREATE TABLE note_participants (
+    note_id            INTEGER NOT NULL REFERENCES interaction_notes(id) ON DELETE CASCADE,
+    participant_user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    PRIMARY KEY (note_id, participant_user_id)
 )
 ```
 
@@ -77,14 +102,20 @@ CREATE TABLE channel_buffers (
 )
 ```
 
-### `memory_job_log`
+### `memory_job_runs`
 
-Tracks when the midnight job last ran, enabling startup catch-up.
+Tracks midnight job progress per guild/day/phase so startup catch-up is idempotent and
+safe to rerun after crashes or deploys.
 
 ```sql
-CREATE TABLE memory_job_log (
-    id         INTEGER PRIMARY KEY CHECK (id = 1),
-    last_run   DATETIME NOT NULL
+CREATE TABLE memory_job_runs (
+    guild_id     TEXT NOT NULL,
+    job_date     DATE NOT NULL,
+    phase        TEXT NOT NULL,      -- 'cluster' | 'consolidate'
+    status       TEXT NOT NULL,      -- 'running' | 'completed' | 'failed'
+    started_at   DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    finished_at  DATETIME,
+    PRIMARY KEY (guild_id, job_date, phase)
 )
 ```
 
@@ -103,6 +134,7 @@ Message arrives (human only — bot messages excluded)
 Channel/thread goes quiet (inactivity timer fires)
   └─ Gemini flash: generate title + summary from buffered messages
   └─ Conversation note written to interaction_notes
+  └─ Participant rows written to note_participants
   └─ Note embedded and stored in vec_notes
   └─ channel_buffers row deleted
   └─ For each human participant in the note:
@@ -141,22 +173,26 @@ For each user who appears as a participant in today's notes:
 
 **Startup catch-up:**
 
-On `memory.Init()`, query `memory_job_log`. If `last_run` is more than 24 hours ago
-(or the row doesn't exist), run the midnight job immediately before completing init.
+On `memory.Init()`, inspect `memory_job_runs` for the current guild and prior missed
+dates. Run only the missing or failed phases. If clustering already completed for a
+guild/day, do not recreate topic-cluster notes.
 
 ---
 
 ## Retrieval
 
 ```
-Embed current message query
-Search vec_notes → top N semantically relevant notes
-                   (matches both conversation and topic_cluster types)
+Embed current message query once
+Search vec_notes for notes in the current guild only
+  Optionally bias toward the current channel/thread and recent notes
+If strict similarity returns nothing, retry once with a relaxed but bounded threshold
+  If still nothing qualifies, inject no memory
 
 Profile injection:
   Always:     full profiles for all users directly in the conversation
   @mentions:  full profiles for mentioned users (up to 3 additional)
   From notes: full profiles for participants in retrieved notes (up to 3, deduped)
+              resolved through note_participants
 ```
 
 ### System prompt format
@@ -192,6 +228,18 @@ Relationships:
 
 ---
 
+## Memory Deletion & Retention
+
+- `DeleteUserProfile` is not enough on its own. A delete flow must remove the profile,
+  remove the user's rows from `note_participants`, delete any now-orphaned `vec_notes`
+  rows, and redact or delete interaction notes whose only participant was that user.
+- Mixed-participant notes should be retained only after redacting the deleted user from
+  summaries/titles if needed; otherwise they can repopulate the deleted profile later.
+- Retention should be explicit. If notes are kept indefinitely, document that. Otherwise
+  add a note-pruning job and cascade deletes into `vec_notes` and `note_participants`.
+
+---
+
 ## Model Split
 
 | Task | Model | Frequency |
@@ -216,7 +264,9 @@ const (
 
 ### Buffer loss on restart
 `channel_buffers` is persisted to SQLite. On startup, any rows in `channel_buffers`
-are loaded back into memory and their inactivity timers are restarted.
+are loaded back into memory and their inactivity timers are recalculated from
+`updated_at`. Buffers already past the inactivity window or max age are flushed
+immediately instead of getting a fresh full timer.
 
 ### Long conversations that never go quiet
 Channel buffers enforce a 2-hour maximum window. If a buffer's `started_at` is more
@@ -224,9 +274,9 @@ than 2 hours ago when a new message arrives, the buffer is flushed immediately b
 the new message is appended (creating a new buffer from scratch).
 
 ### Midnight job unavailability
-`memory_job_log` tracks the last successful run. On startup, if the last run was
-more than 24 hours ago, the job runs immediately. This handles nightly restarts,
-crashes, and deployments without requiring a cron scheduler.
+`memory_job_runs` tracks job state per guild/date/phase. On startup, only missing or
+failed phases are rerun. This handles nightly restarts, crashes, and deployments
+without duplicating topic-cluster notes or reconsolidating already-finished days.
 
 ### Bot message filtering
 The channel buffer only accepts messages where the author is not the bot's own user ID.

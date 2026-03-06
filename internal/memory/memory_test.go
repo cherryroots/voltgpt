@@ -6,6 +6,8 @@ import (
 	"math"
 	"os"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 
 	"voltgpt/internal/db"
@@ -13,6 +15,12 @@ import (
 	"github.com/joho/godotenv"
 	oa "github.com/openai/openai-go"
 	"github.com/openai/openai-go/option"
+)
+
+var (
+	testOpenAIOnce   sync.Once
+	testOpenAIClient *oa.Client
+	testOpenAIErr    string
 )
 
 // setupTestDB opens a fresh in-memory SQLite database and wires it to the
@@ -27,19 +35,86 @@ func setupTestDB(t *testing.T) {
 	})
 }
 
-// setupOpenAI initialises the package-level OpenAI client from
-// MEMORY_OPENAI_TOKEN.
-func setupOpenAI(t *testing.T) {
+// setupOpenAIClient initialises a shared OpenAI client from MEMORY_OPENAI_TOKEN.
+func setupOpenAIClient(t *testing.T) {
 	t.Helper()
-	godotenv.Load("../../.env") // no-op if already set or file absent
-	token := strings.TrimSpace(os.Getenv("MEMORY_OPENAI_TOKEN"))
-	if token == "" {
-		t.Skip("MEMORY_OPENAI_TOKEN is not set")
+	testOpenAIOnce.Do(func() {
+		godotenv.Load("../../.env") // no-op if already set or file absent
+		token := strings.TrimSpace(os.Getenv("MEMORY_OPENAI_TOKEN"))
+		if token == "" {
+			testOpenAIErr = "MEMORY_OPENAI_TOKEN is not set"
+			return
+		}
+		c := oa.NewClient(option.WithAPIKey(token))
+		testOpenAIClient = &c
+		client = testOpenAIClient
+	})
+	if testOpenAIErr != "" {
+		t.Skip(testOpenAIErr)
 	}
-	c := oa.NewClient(option.WithAPIKey(token))
-	client = &c
+}
+
+func setupOpenAIIntegration(t *testing.T) {
+	t.Helper()
+	setupOpenAIClient(t)
+	enableMemory(t)
+}
+
+func enableMemory(t *testing.T) {
+	t.Helper()
+	previous := enabled
 	enabled = true
-	t.Cleanup(func() { client = nil; enabled = false })
+	t.Cleanup(func() { enabled = previous })
+}
+
+func setEmbedFunc(t *testing.T, fn func(context.Context, string) ([]float32, error)) {
+	t.Helper()
+	previous := embedFunc
+	embedFunc = fn
+	t.Cleanup(func() { embedFunc = previous })
+}
+
+func setDecideActionFunc(t *testing.T, fn func(context.Context, string, string) (*consolidationAction, error)) {
+	t.Helper()
+	previous := decideActionFunc
+	decideActionFunc = fn
+	t.Cleanup(func() { decideActionFunc = previous })
+}
+
+func testVector(dim int, value float32) []float32 {
+	v := make([]float32, embeddingDimensions)
+	v[dim] = value
+	return v
+}
+
+func runExtractFactsTest(t *testing.T, username, messages string, wantAny bool) {
+	t.Helper()
+	setupOpenAIClient(t)
+
+	facts, err := extractFacts(context.Background(), username, messages)
+	if err != nil {
+		t.Fatalf("extractFacts: %v", err)
+	}
+	if wantAny && len(facts) == 0 {
+		t.Fatal("expected at least one fact, got none")
+	}
+	if !wantAny && len(facts) > 0 {
+		t.Fatalf("expected no facts, got %v", facts)
+	}
+}
+
+func runDecideActionTest(t *testing.T, oldFact, newFact, wantAction string) {
+	t.Helper()
+	setupOpenAIClient(t)
+
+	action, err := decideAction(context.Background(), oldFact, newFact)
+	if err != nil {
+		t.Fatalf("decideAction: %v", err)
+	}
+	if action.Action != wantAction {
+		t.Fatalf("action = %q, want %q (old: %q, new: %q)",
+			action.Action, wantAction, oldFact, newFact)
+	}
 }
 
 // ── Pure functions ────────────────────────────────────────────────────────────
@@ -374,136 +449,64 @@ func TestRefreshFactNames(t *testing.T) {
 
 // ── OpenAI API ────────────────────────────────────────────────────────────────
 
-func TestExtractFacts(t *testing.T) {
-	setupOpenAI(t)
-
-	tests := []struct {
-		name     string
-		username string
-		messages string
-		wantAny  bool // true: expect at least one fact; false: expect empty
-	}{
-		{
-			name:     "clear possession statement",
-			username: "Alex",
-			messages: "I just got a Mass 2 monitor, it's so crispy",
-			wantAny:  true,
-		},
-		{
-			name:     "filler with no factual content",
-			username: "Alex",
-			messages: "lol yeah brb",
-			wantAny:  false,
-		},
-		{
-			name:     "statement about someone else",
-			username: "Alex",
-			messages: "he was using the onboard intel gpu instead of his dedicated gpu",
-			wantAny:  false,
-		},
-		{
-			name:     "biographical information",
-			username: "Alex",
-			messages: "I moved to Austin last year and started working at Dell",
-			wantAny:  true,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			ctx := context.Background()
-			facts, err := extractFacts(ctx, tt.username, tt.messages)
-			if err != nil {
-				t.Fatalf("extractFacts: %v", err)
-			}
-			if tt.wantAny && len(facts) == 0 {
-				t.Error("expected at least one fact, got none")
-			}
-			if !tt.wantAny && len(facts) > 0 {
-				t.Errorf("expected no facts, got %v", facts)
-			}
-		})
-	}
+func TestExtractFacts_ClearPossessionStatement(t *testing.T) {
+	t.Parallel()
+	runExtractFactsTest(t, "Alex", "I just got a Mass 2 monitor, it's so crispy", true)
 }
 
-func TestDecideAction(t *testing.T) {
-	setupOpenAI(t)
+func TestExtractFacts_FillerWithNoFactualContent(t *testing.T) {
+	t.Parallel()
+	runExtractFactsTest(t, "Alex", "lol yeah brb", false)
+}
 
-	tests := []struct {
-		name       string
-		oldFact    string
-		newFact    string
-		wantAction string
-	}{
-		// Clear cases — close to prompt examples, should always pass.
-		{
-			name:       "reinforce: same tool rephrased",
-			oldFact:    "Alice uses VSCode.",
-			newFact:    "Alice codes in VSCode.",
-			wantAction: "REINFORCE",
-		},
-		{
-			name:       "keep: unrelated topics",
-			oldFact:    "Alice uses VSCode.",
-			newFact:    "Alice owns a dog.",
-			wantAction: "KEEP",
-		},
-		{
-			name:       "invalidate: city move",
-			oldFact:    "Alice lives in Tokyo.",
-			newFact:    "Alice moved to Berlin.",
-			wantAction: "INVALIDATE",
-		},
-		{
-			name:       "merge: complementary consoles",
-			oldFact:    "Alice owns a PS5.",
-			newFact:    "Alice bought an Xbox.",
-			wantAction: "MERGE",
-		},
-		// Edge cases — boundaries the prompt explicitly calls out.
-		{
-			// Visiting is temporary; the permanent residence is still valid.
-			name:       "keep not invalidate: temporary visit",
-			oldFact:    "Alice lives in Tokyo.",
-			newFact:    "Alice is visiting Paris this week.",
-			wantAction: "KEEP",
-		},
-		{
-			// Same domain (musical instruments) — should combine, not coexist.
-			name:       "merge not keep: same domain skills",
-			oldFact:    "Alice plays guitar.",
-			newFact:    "Alice plays piano.",
-			wantAction: "MERGE",
-		},
-		{
-			// Different wording for the same role — no new information to merge.
-			name:       "reinforce not merge: same role rephrased",
-			oldFact:    "Alice is a software engineer.",
-			newFact:    "Alice works as a developer.",
-			wantAction: "REINFORCE",
-		},
-		{
-			// Pet ownership and employer are genuinely independent facts.
-			name:       "keep not merge: unrelated domains",
-			oldFact:    "Alice owns a cat.",
-			newFact:    "Alice works at Dell.",
-			wantAction: "KEEP",
-		},
-	}
+func TestExtractFacts_StatementAboutSomeoneElse(t *testing.T) {
+	t.Parallel()
+	runExtractFactsTest(t, "Alex", "he was using the onboard intel gpu instead of his dedicated gpu", false)
+}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			ctx := context.Background()
-			action, err := decideAction(ctx, tt.oldFact, tt.newFact)
-			if err != nil {
-				t.Fatalf("decideAction: %v", err)
-			}
-			if action.Action != tt.wantAction {
-				t.Errorf("action = %q, want %q (old: %q, new: %q)",
-					action.Action, tt.wantAction, tt.oldFact, tt.newFact)
-			}
-		})
-	}
+func TestExtractFacts_BiographicalInformation(t *testing.T) {
+	t.Parallel()
+	runExtractFactsTest(t, "Alex", "I moved to Austin last year and started working at Dell", true)
+}
+
+func TestDecideAction_ReinforceSameToolRephrased(t *testing.T) {
+	t.Parallel()
+	runDecideActionTest(t, "Alice uses VSCode.", "Alice codes in VSCode.", "REINFORCE")
+}
+
+func TestDecideAction_KeepUnrelatedTopics(t *testing.T) {
+	t.Parallel()
+	runDecideActionTest(t, "Alice uses VSCode.", "Alice owns a dog.", "KEEP")
+}
+
+func TestDecideAction_InvalidateCityMove(t *testing.T) {
+	t.Parallel()
+	runDecideActionTest(t, "Alice lives in Tokyo.", "Alice moved to Berlin.", "INVALIDATE")
+}
+
+func TestDecideAction_MergeComplementaryConsoles(t *testing.T) {
+	t.Parallel()
+	runDecideActionTest(t, "Alice owns a PS5.", "Alice bought an Xbox.", "MERGE")
+}
+
+func TestDecideAction_KeepTemporaryVisit(t *testing.T) {
+	t.Parallel()
+	runDecideActionTest(t, "Alice lives in Tokyo.", "Alice is visiting Paris this week.", "KEEP")
+}
+
+func TestDecideAction_MergeSameDomainSkills(t *testing.T) {
+	t.Parallel()
+	runDecideActionTest(t, "Alice plays guitar.", "Alice plays piano.", "MERGE")
+}
+
+func TestDecideAction_ReinforceSameRoleRephrased(t *testing.T) {
+	t.Parallel()
+	runDecideActionTest(t, "Alice is a software engineer.", "Alice works as a developer.", "REINFORCE")
+}
+
+func TestDecideAction_KeepUnrelatedDomains(t *testing.T) {
+	t.Parallel()
+	runDecideActionTest(t, "Alice owns a cat.", "Alice works at Dell.", "KEEP")
 }
 
 func TestDeleteAllFacts(t *testing.T) {
@@ -660,7 +663,7 @@ func TestFindSimilarFacts(t *testing.T) {
 
 func TestConsolidateAndStore_NoSimilar(t *testing.T) {
 	setupTestDB(t)
-	setupOpenAI(t)
+	setupOpenAIIntegration(t)
 
 	id, _, err := upsertUser("cs1", "alice", "Alice")
 	if err != nil {
@@ -683,7 +686,7 @@ func TestConsolidateAndStore_NoSimilar(t *testing.T) {
 
 func TestConsolidateAndStore_Reinforce(t *testing.T) {
 	setupTestDB(t)
-	setupOpenAI(t)
+	setupOpenAIIntegration(t)
 
 	id, _, err := upsertUser("cs2", "alice", "Alice")
 	if err != nil {
@@ -709,7 +712,7 @@ func TestConsolidateAndStore_Reinforce(t *testing.T) {
 
 func TestConsolidateAndStore_Invalidate(t *testing.T) {
 	setupTestDB(t)
-	setupOpenAI(t)
+	setupOpenAIIntegration(t)
 
 	id, _, err := upsertUser("cs3", "alice", "Alice")
 	if err != nil {
@@ -735,7 +738,7 @@ func TestConsolidateAndStore_Invalidate(t *testing.T) {
 
 func TestConsolidateAndStore_Merge(t *testing.T) {
 	setupTestDB(t)
-	setupOpenAI(t)
+	setupOpenAIIntegration(t)
 
 	id, _, err := upsertUser("cs4", "alice", "Alice")
 	if err != nil {
@@ -776,7 +779,7 @@ func TestRetrieveMultiUser_Disabled(t *testing.T) {
 
 func TestRetrieve(t *testing.T) {
 	setupTestDB(t)
-	setupOpenAI(t)
+	setupOpenAIIntegration(t)
 
 	id, _, err := upsertUser("rv1", "alice", "Alice")
 	if err != nil {
@@ -795,14 +798,13 @@ func TestRetrieve(t *testing.T) {
 
 func TestRetrieveGeneral(t *testing.T) {
 	setupTestDB(t)
-	setupOpenAI(t)
+	setupOpenAIIntegration(t)
 
-	ctx := context.Background()
 	idA, _, err := upsertUser("rg1", "alice", "Alice")
 	if err != nil {
 		t.Fatalf("upsertUser A: %v", err)
 	}
-
+	ctx := context.Background()
 	if err := consolidateAndStore(ctx, idA, "m1", "Alice loves mountain hiking."); err != nil {
 		t.Fatalf("store A: %v", err)
 	}
@@ -820,14 +822,13 @@ func TestRetrieveGeneral(t *testing.T) {
 
 func TestRetrieveMultiUser(t *testing.T) {
 	setupTestDB(t)
-	setupOpenAI(t)
+	setupOpenAIIntegration(t)
 
-	ctx := context.Background()
 	idA, _, err := upsertUser("rm1", "alice", "Alice")
 	if err != nil {
 		t.Fatalf("upsertUser A: %v", err)
 	}
-
+	ctx := context.Background()
 	if err := consolidateAndStore(ctx, idA, "m1", "Alice plays piano."); err != nil {
 		t.Fatalf("store A: %v", err)
 	}
@@ -845,7 +846,7 @@ func TestRetrieveMultiUser(t *testing.T) {
 
 func TestFlushBuffer(t *testing.T) {
 	setupTestDB(t)
-	setupOpenAI(t)
+	setupOpenAIIntegration(t)
 
 	buffersMu.Lock()
 	buffers["fb1"] = &messageBuffer{
@@ -911,15 +912,63 @@ func TestFindSimilarFacts_UserScoped(t *testing.T) {
 }
 
 func TestConsolidateAndStore_ReinforceDoesNotSkipInvalidate(t *testing.T) {
-	// When the first similar fact is REINFORCED, the loop must continue
-	// to check subsequent similar facts for INVALIDATE.
-	// This test is an integration test requiring OpenAI; structural correctness
-	// is verified by inspection of the reinforced-flag loop in consolidate.go.
 	setupTestDB(t)
-	setupOpenAI(t)
+
+	id, _, err := upsertUser("loop1", "alice", "Alice")
+	if err != nil {
+		t.Fatalf("upsertUser: %v", err)
+	}
+
+	reinforceVector := testVector(0, 1)
+	invalidateVector := make([]float32, embeddingDimensions)
+	invalidateVector[0] = 0.9
+	invalidateVector[1] = 0.1
+
+	if err := insertFact(id, "m1", "Alice uses VSCode.", reinforceVector); err != nil {
+		t.Fatalf("insertFact reinforce candidate: %v", err)
+	}
+	if err := insertFact(id, "m2", "Alice lives in Tokyo.", invalidateVector); err != nil {
+		t.Fatalf("insertFact invalidate candidate: %v", err)
+	}
+
+	setEmbedFunc(t, func(ctx context.Context, text string) ([]float32, error) {
+		return reinforceVector, nil
+	})
+	setDecideActionFunc(t, func(ctx context.Context, oldFact, newFact string) (*consolidationAction, error) {
+		switch oldFact {
+		case "Alice uses VSCode.":
+			return &consolidationAction{Action: "REINFORCE"}, nil
+		case "Alice lives in Tokyo.":
+			return &consolidationAction{Action: "INVALIDATE"}, nil
+		default:
+			return &consolidationAction{Action: "KEEP"}, nil
+		}
+	})
+
+	if err := consolidateAndStore(context.Background(), id, "m3", "Alice moved to Berlin."); err != nil {
+		t.Fatalf("consolidateAndStore: %v", err)
+	}
+
+	facts := GetUserFacts("loop1")
+	if len(facts) != 2 {
+		t.Fatalf("active facts len = %d, want 2", len(facts))
+	}
+
+	var gotVSCode, gotBerlin, gotTokyo bool
+	for _, fact := range facts {
+		gotVSCode = gotVSCode || fact.FactText == "Alice uses VSCode."
+		gotBerlin = gotBerlin || fact.FactText == "Alice moved to Berlin."
+		gotTokyo = gotTokyo || fact.FactText == "Alice lives in Tokyo."
+		if fact.FactText == "Alice uses VSCode." && fact.ReinforcementCount != 1 {
+			t.Fatalf("VSCode reinforcement_count = %d, want 1", fact.ReinforcementCount)
+		}
+	}
+	if !gotVSCode || !gotBerlin || gotTokyo {
+		t.Fatalf("unexpected active facts after reinforce+invalidate loop: %+v", facts)
+	}
 }
 
-func TestConsolidateAndStore_FallbackNearestFactsCanInvalidate(t *testing.T) {
+func TestConsolidateAndStore_RelaxedFallbackCanInvalidate(t *testing.T) {
 	setupTestDB(t)
 
 	id, _, err := upsertUser("fallback1", "alice", "Alice")
@@ -943,10 +992,10 @@ func TestConsolidateAndStore_FallbackNearestFactsCanInvalidate(t *testing.T) {
 	embedFunc = func(ctx context.Context, text string) ([]float32, error) {
 		switch text {
 		case "Alice moved to Berlin.":
-			// Orthogonal to the stored vector so the strict threshold path returns 0
-			// and consolidateAndStore must fall back to nearest facts.
+			// Similar enough for the relaxed fallback, but outside the strict threshold.
 			v := make([]float32, embeddingDimensions)
-			v[1] = 1
+			v[0] = 0.6
+			v[1] = 0.8
 			return v, nil
 		default:
 			return originalEmbed(ctx, text)
@@ -972,10 +1021,104 @@ func TestConsolidateAndStore_FallbackNearestFactsCanInvalidate(t *testing.T) {
 	}
 }
 
-func TestRetrieve_FallbackNearestFacts(t *testing.T) {
+func TestConsolidateAndStore_UnrelatedFactDoesNotUseArbitraryNearestFallback(t *testing.T) {
+	setupTestDB(t)
+
+	id, _, err := upsertUser("fallback2", "alice", "Alice")
+	if err != nil {
+		t.Fatalf("upsertUser: %v", err)
+	}
+
+	stored := make([]float32, embeddingDimensions)
+	stored[0] = 1
+	if err := insertFact(id, "m1", "Alice lives in Tokyo.", stored); err != nil {
+		t.Fatalf("insertFact: %v", err)
+	}
+
+	originalEmbed := embedFunc
+	originalDecide := decideActionFunc
+	t.Cleanup(func() {
+		embedFunc = originalEmbed
+		decideActionFunc = originalDecide
+	})
+
+	embedFunc = func(ctx context.Context, text string) ([]float32, error) {
+		if text == "Alice bought a surfboard." {
+			v := make([]float32, embeddingDimensions)
+			v[1] = 1
+			return v, nil
+		}
+		return originalEmbed(ctx, text)
+	}
+
+	decideCalled := false
+	decideActionFunc = func(ctx context.Context, oldFact, newFact string) (*consolidationAction, error) {
+		decideCalled = true
+		return &consolidationAction{Action: "INVALIDATE"}, nil
+	}
+
+	if err := consolidateAndStore(context.Background(), id, "m2", "Alice bought a surfboard."); err != nil {
+		t.Fatalf("consolidateAndStore: %v", err)
+	}
+
+	if decideCalled {
+		t.Fatal("decideAction should not run for unrelated fallback candidates")
+	}
+
+	facts := GetUserFacts("fallback2")
+	if len(facts) != 2 {
+		t.Fatalf("after unrelated insert: len = %d, want 2", len(facts))
+	}
+
+	var gotTokyo, gotSurfboard bool
+	for _, fact := range facts {
+		gotTokyo = gotTokyo || fact.FactText == "Alice lives in Tokyo."
+		gotSurfboard = gotSurfboard || fact.FactText == "Alice bought a surfboard."
+	}
+	if !gotTokyo || !gotSurfboard {
+		t.Fatalf("expected both facts to remain active, got %+v", facts)
+	}
+}
+
+func TestRetrieve_RelaxedFallbackDistance(t *testing.T) {
 	setupTestDB(t)
 
 	id, _, err := upsertUser("retrieve_fallback", "alice", "Alice")
+	if err != nil {
+		t.Fatalf("upsertUser: %v", err)
+	}
+
+	stored := make([]float32, embeddingDimensions)
+	stored[0] = 1
+	if err := insertFact(id, "m1", "Alice loves hiking in the mountains.", stored); err != nil {
+		t.Fatalf("insertFact: %v", err)
+	}
+
+	originalEmbed := embedFunc
+	t.Cleanup(func() { embedFunc = originalEmbed })
+	embedFunc = func(ctx context.Context, text string) ([]float32, error) {
+		v := make([]float32, embeddingDimensions)
+		v[0] = 0.3
+		v[1] = 0.9539392
+		return v, nil
+	}
+
+	enabled = true
+	t.Cleanup(func() { enabled = false })
+
+	facts := Retrieve("outdoor activities", "retrieve_fallback")
+	if len(facts) != 1 {
+		t.Fatalf("fallback Retrieve len = %d, want 1", len(facts))
+	}
+	if facts[0].Text != "Alice loves hiking in the mountains." {
+		t.Errorf("Text = %q, want %q", facts[0].Text, "Alice loves hiking in the mountains.")
+	}
+}
+
+func TestRetrieve_DoesNotReturnArbitraryNearestFact(t *testing.T) {
+	setupTestDB(t)
+
+	id, _, err := upsertUser("retrieve_none", "alice", "Alice")
 	if err != nil {
 		t.Fatalf("upsertUser: %v", err)
 	}
@@ -997,11 +1140,55 @@ func TestRetrieve_FallbackNearestFacts(t *testing.T) {
 	enabled = true
 	t.Cleanup(func() { enabled = false })
 
-	facts := Retrieve("outdoor activities", "retrieve_fallback")
-	if len(facts) != 1 {
-		t.Fatalf("fallback Retrieve len = %d, want 1", len(facts))
+	facts := Retrieve("outdoor activities", "retrieve_none")
+	if len(facts) != 0 {
+		t.Fatalf("Retrieve returned unrelated nearest facts: %+v", facts)
 	}
-	if facts[0].Text != "Alice loves hiking in the mountains." {
-		t.Errorf("Text = %q, want %q", facts[0].Text, "Alice loves hiking in the mountains.")
+}
+
+func TestRetrieveMultiUser_EmbedsQueryOnce(t *testing.T) {
+	setupTestDB(t)
+
+	aliceID, _, err := upsertUser("embed_once_a", "alice", "Alice")
+	if err != nil {
+		t.Fatalf("upsertUser alice: %v", err)
+	}
+	bobID, _, err := upsertUser("embed_once_b", "bob", "Bob")
+	if err != nil {
+		t.Fatalf("upsertUser bob: %v", err)
+	}
+
+	stored := make([]float32, embeddingDimensions)
+	stored[0] = 1
+	if err := insertFact(aliceID, "m1", "Alice plays piano.", stored); err != nil {
+		t.Fatalf("insertFact alice: %v", err)
+	}
+	if err := insertFact(bobID, "m2", "Bob collects synths.", stored); err != nil {
+		t.Fatalf("insertFact bob: %v", err)
+	}
+
+	originalEmbed := embedFunc
+	t.Cleanup(func() { embedFunc = originalEmbed })
+
+	var embedCalls atomic.Int32
+	embedFunc = func(ctx context.Context, text string) ([]float32, error) {
+		embedCalls.Add(1)
+		v := make([]float32, embeddingDimensions)
+		v[0] = 1
+		return v, nil
+	}
+
+	enabled = true
+	t.Cleanup(func() { enabled = false })
+
+	result := RetrieveMultiUser("music gear", map[string]string{
+		"embed_once_a": "Alice",
+		"embed_once_b": "Bob",
+	})
+	if result == "" {
+		t.Fatal("expected non-empty XML output")
+	}
+	if calls := embedCalls.Load(); calls != 1 {
+		t.Fatalf("embedFunc calls = %d, want 1", calls)
 	}
 }

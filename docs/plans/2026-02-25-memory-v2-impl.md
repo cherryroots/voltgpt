@@ -16,6 +16,19 @@
 
 **Run single test:** `/usr/local/go/bin/go test ./internal/memory/ -run TestFoo -v -timeout 30s`
 
+## Plan Corrections (2026-03-06)
+
+When this section conflicts with the older task body below, this section wins.
+
+- Retrieval must be guild-scoped. Pass current guild context through the retrieval path and never inject memory from other guilds.
+- Compute the query embedding once per retrieval request and reuse it across all per-user and general/note searches.
+- Similarity fallback is bounded. Do not fall back to arbitrary nearest neighbors for retrieval or consolidation.
+- Do not query note participants from JSON with `LIKE`. Add a normalized `note_participants` table and use joins.
+- Replace `memory_job_log` with `memory_job_runs (guild_id, job_date, phase, status, started_at, finished_at)` so midnight clustering/consolidation is idempotent.
+- Reloaded channel buffers must use elapsed inactivity from `updated_at`; overdue buffers flush immediately on startup.
+- Delete flows must remove/redact note-derived data as well as the profile row, otherwise deleted users can be reconstructed from retained notes.
+- If this work continues after the OpenAI migration, prefer the provider/model choices in `docs/plans/2026-03-05-openai-migration-design.md` over the older Gemini-specific snippets below.
+
 ---
 
 ## Implementation Order
@@ -53,9 +66,10 @@ func TestNewTablesCreated(t *testing.T) {
 	tables := []string{
 		"user_profiles",
 		"interaction_notes",
+		"note_participants",
 		"vec_notes",
 		"channel_buffers",
-		"memory_job_log",
+		"memory_job_runs",
 	}
 
 	for _, name := range tables {
@@ -78,7 +92,7 @@ func TestNewTablesCreated(t *testing.T) {
 
 Expected: FAIL — tables don't exist yet.
 
-**Step 3: Implement — add 5 new table DDLs to `createTables()` in `internal/db/db.go`**
+**Step 3: Implement — add the new table DDLs to `createTables()` in `internal/db/db.go`**
 
 Append to the `tables` slice (before the `for` loop):
 
@@ -105,6 +119,11 @@ Append to the `tables` slice (before the `for` loop):
     note_date       DATE NOT NULL,
     created_at      DATETIME DEFAULT CURRENT_TIMESTAMP
 )`,
+`CREATE TABLE IF NOT EXISTS note_participants (
+    note_id             INTEGER NOT NULL REFERENCES interaction_notes(id) ON DELETE CASCADE,
+    participant_user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    PRIMARY KEY (note_id, participant_user_id)
+)`,
 `CREATE TABLE IF NOT EXISTS channel_buffers (
     channel_id   TEXT PRIMARY KEY,
     guild_id     TEXT NOT NULL,
@@ -112,9 +131,14 @@ Append to the `tables` slice (before the `for` loop):
     started_at   DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at   DATETIME DEFAULT CURRENT_TIMESTAMP
 )`,
-`CREATE TABLE IF NOT EXISTS memory_job_log (
-    id         INTEGER PRIMARY KEY CHECK (id = 1),
-    last_run   DATETIME NOT NULL
+`CREATE TABLE IF NOT EXISTS memory_job_runs (
+    guild_id     TEXT NOT NULL,
+    job_date     DATE NOT NULL,
+    phase        TEXT NOT NULL,
+    status       TEXT NOT NULL,
+    started_at   DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    finished_at  DATETIME,
+    PRIMARY KEY (guild_id, job_date, phase)
 )`,
 ```
 
@@ -150,7 +174,7 @@ Expected: PASS
 
 ```bash
 git add internal/db/db.go internal/db/db_test.go
-git commit -m "feat(db): add user_profiles, interaction_notes, vec_notes, channel_buffers, memory_job_log tables"
+git commit -m "feat(db): add user_profiles, interaction_notes, note_participants, vec_notes, channel_buffers, and memory_job_runs tables"
 ```
 
 ---

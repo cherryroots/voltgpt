@@ -20,16 +20,19 @@ import (
 )
 
 const (
-	embeddingModel                   = oa.EmbeddingModelTextEmbedding3Small
-	embeddingDimensions        int64 = 1536
-	generationModel                  = "gpt-5-mini"
-	reembedBatchSize                 = 25
-	similarityLimit                  = 3
-	retrievalLimit                   = 5
-	generalRetrievalLimit            = 10
-	minMessageLength                 = 10
-	distanceThreshold                = float64(0.35) // cosine distance; vec_facts uses distance_metric=cosine
-	retrievalDistanceThreshold       = float64(0.6)  // more permissive than deduplication threshold
+	embeddingModel                       = oa.EmbeddingModelTextEmbedding3Small
+	embeddingDimensions            int64 = 1536
+	generationModel                      = "gpt-5-mini"
+	reembedBatchSize                     = 25
+	similarityLimit                      = 3
+	retrievalLimit                       = 5
+	generalRetrievalLimit                = 10
+	minMessageLength                     = 10
+	distanceThreshold                    = float64(0.35) // strict consolidation threshold
+	consolidationFallbackThreshold       = float64(0.55) // relaxed but still bounded
+	retrievalDistanceThreshold           = float64(0.6)  // default retrieval threshold
+	retrievalFallbackThreshold           = float64(0.75) // broader fallback without "nearest no matter what"
+	distanceQueryMultiplier              = 10
 )
 
 var (

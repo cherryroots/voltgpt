@@ -92,11 +92,11 @@ func consolidateAndStore(ctx context.Context, userID int64, messageID, factText 
 	if len(similar) == 0 {
 		// OpenAI embeddings are less tightly clustered than the previous Gemini ones for
 		// some update-style facts ("lives in X" -> "moved to Y"). When the strict
-		// threshold misses, fall back to the nearest active facts for the same user and
-		// let the LLM decide whether they are actually related.
-		similar, err = findNearestFacts(userID, embedding, similarityLimit)
+		// threshold misses, allow a bounded relaxed search instead of falling back to
+		// arbitrary nearest neighbors.
+		similar, err = findFallbackSimilarFacts(userID, embedding)
 		if err != nil {
-			return fmt.Errorf("nearest-fact search failed: %w", err)
+			return fmt.Errorf("fallback similarity search failed: %w", err)
 		}
 	}
 
@@ -153,37 +153,14 @@ func consolidateAndStore(ctx context.Context, userID int64, messageID, factText 
 // findSimilarFacts queries vec_facts for active facts belonging to the same user
 // that are within the distance threshold.
 func findSimilarFacts(userID int64, embedding []float32) ([]similarFact, error) {
-	rows, err := database.Query(`
-		SELECT f.id, f.fact_text, vec_distance_cosine(vf.embedding, ?) AS distance
-		FROM vec_facts vf
-		JOIN facts f ON f.id = vf.fact_id
-		WHERE f.user_id = ?
-		  AND f.is_active = 1
-		ORDER BY distance
-		LIMIT ?
-	`, serializeFloat32(embedding), userID, similarityLimit*10)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	var results []similarFact
-	for rows.Next() {
-		var sf similarFact
-		if err := rows.Scan(&sf.ID, &sf.FactText, &sf.Distance); err != nil {
-			return nil, err
-		}
-		if sf.Distance < distanceThreshold {
-			results = append(results, sf)
-		}
-	}
-	return results, rows.Err()
+	return findFactsWithinDistance(userID, embedding, distanceThreshold, similarityLimit)
 }
 
-// findNearestFacts returns the closest active facts for the user without applying
-// the stricter consolidation distance threshold. This is used as a fallback when
-// strict similarity filtering finds no candidates.
-func findNearestFacts(userID int64, embedding []float32, limit int) ([]similarFact, error) {
+func findFallbackSimilarFacts(userID int64, embedding []float32) ([]similarFact, error) {
+	return findFactsWithinDistance(userID, embedding, consolidationFallbackThreshold, similarityLimit)
+}
+
+func findFactsWithinDistance(userID int64, embedding []float32, maxDistance float64, limit int) ([]similarFact, error) {
 	rows, err := database.Query(`
 		SELECT f.id, f.fact_text, vec_distance_cosine(vf.embedding, ?) AS distance
 		FROM vec_facts vf
@@ -192,7 +169,7 @@ func findNearestFacts(userID int64, embedding []float32, limit int) ([]similarFa
 		  AND f.is_active = 1
 		ORDER BY distance
 		LIMIT ?
-	`, serializeFloat32(embedding), userID, limit)
+	`, serializeFloat32(embedding), userID, limit*distanceQueryMultiplier)
 	if err != nil {
 		return nil, err
 	}
@@ -204,7 +181,13 @@ func findNearestFacts(userID int64, embedding []float32, limit int) ([]similarFa
 		if err := rows.Scan(&sf.ID, &sf.FactText, &sf.Distance); err != nil {
 			return nil, err
 		}
+		if sf.Distance > maxDistance {
+			break
+		}
 		results = append(results, sf)
+		if len(results) >= limit {
+			break
+		}
 	}
 	return results, rows.Err()
 }
