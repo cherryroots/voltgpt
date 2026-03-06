@@ -2,116 +2,209 @@
 
 ## Overview
 
-Full replacement of the current flat-facts memory system (`facts`, `vec_facts`) with a
-two-layer structured memory: **user profiles** (stable identity — who people are) and
-**interaction notes** (episodic memory — what happened in the server).
+Memory v2 fully replaces the old flat-fact system (`facts`, `vec_facts`).
+There is no migration or backfill from v1. Existing v1 memory is discarded.
 
-The existing `facts` and `vec_facts` tables are soft-deprecated: left in place for
-migration safety but ignored by all new code.
+The v2 model has three layers:
 
-## Design Amendments (2026-03-06)
+1. `interaction_notes`: canonical record of what happened
+2. `topic clusters`: derived guild-level summaries built from conversation notes
+3. `guild_user_profiles`: derived guild-scoped user summaries built from conversation notes
 
-- Retrieval is scoped to the current guild. Optional channel/thread bias is allowed, but unrestricted cross-guild recall is not.
-- A single query embedding is computed per retrieval request and reused across all per-user and general note lookups.
-- Similarity fallback is bounded. If no notes or facts pass the relaxed distance threshold, inject nothing rather than the arbitrary nearest result.
-- Participant membership is normalized in a join table. Do not query JSON arrays with `LIKE`.
-- Midnight jobs are tracked per guild, date, and phase so clustering/consolidation can be retried safely without duplicate output.
-- Deleting memory must remove or redact note-derived data and vector rows, not just clear the user profile row.
-- Reloaded channel buffers must respect elapsed idle time and max age; overdue buffers flush immediately on startup.
-- Provider/model choices should follow the later OpenAI migration design where the two docs overlap; this document is about memory shape and lifecycle, not locking in Gemini.
+Conversation notes are the source of truth. Topic clusters and profiles are caches that can
+be deleted and rebuilt from notes.
 
----
+## Goals
+
+- Guild-scoped recall only. No cross-guild memory injection.
+- Better conversational grounding than flat facts, with real episodic context.
+- Lower token cost than "rebuild every profile from all notes every time."
+- Safe restart behavior for in-flight channel buffers.
+- Safe deletion semantics when notes are the source of truth.
+- A clean cold cutover from v1 with no legacy-memory compatibility burden.
+
+## Non-Goals
+
+- Preserving or migrating old v1 memory
+- Cross-guild identity stitching
+- Using topic clusters as the authoritative source for user profiles
+- Retaining raw Discord messages as the long-term source of truth
+
+## Core Model
+
+### Conversation notes are canonical
+
+The durable memory record is a stream of channel or thread summaries:
+
+- one note per quiet period or max-age flush
+- stored with guild, channel or thread, note date, participants, title, summary
+- embedded into `vec_notes` for retrieval
+
+Everything else is derived from these notes.
+
+### Topic clusters are derived guild context
+
+Topic clusters are lossy summaries of many conversation notes from the same guild and day.
+They exist to improve broad retrieval, compression, and admin recap features.
+
+They are useful for:
+
+- "what has the server been talking about lately?"
+- prompt compression
+- admin digests
+
+They are not used as the authoritative input for profile creation.
+
+### Guild user profiles are cached summaries
+
+Profiles are not canonical memory. They are a cached materialization for one user in one guild.
+
+- Keyed by `(guild_id, user_id)`
+- Updated incrementally from new conversation notes
+- Rebuilt from notes only when needed
+- Safe to delete and regenerate
+
+This avoids cross-guild leakage and keeps token usage bounded.
+
+## Why Profiles Are Incremental
+
+Rebuilding a profile from all of a user's notes on every new note does not scale well in tokens.
+The default update path is therefore incremental:
+
+1. write the new conversation note
+2. read the current cached profile for that guild and user
+3. update the profile using only the current profile plus the new note
+
+Full rebuilds are rare maintenance operations, not the normal write path.
+
+Full rebuilds are triggered only when needed:
+
+- note deletion or redaction
+- model or schema changes
+- profile drift, contradiction, or oversize
+- failed incremental updates
+- scheduled maintenance for very active users
+
+Because notes remain canonical, profile repair is always possible.
 
 ## Schema
 
-### `user_profiles`
+### `guild_user_profiles`
 
-One row per user. Each section is a JSON array of `{"text": "...", "note_id": N}` objects,
-allowing per-fact source tracing at retrieval time.
+One row per `(guild_id, user_id)`.
+
+Each section is stored as a JSON array of:
+
+```json
+{"text":"Lives in Austin.","source_note_ids":[12,18]}
+```
+
+`source_note_ids` is an array, not a single note ID, because profile facts may be merged across
+multiple notes over time.
+
+`is_dirty` marks profiles whose cached summary should be rebuilt from notes.
 
 ```sql
-CREATE TABLE user_profiles (
-    user_id       INTEGER PRIMARY KEY REFERENCES users(id),
-    bio           TEXT NOT NULL DEFAULT '[]',
-    interests     TEXT NOT NULL DEFAULT '[]',
-    skills        TEXT NOT NULL DEFAULT '[]',
-    opinions      TEXT NOT NULL DEFAULT '[]',
-    relationships TEXT NOT NULL DEFAULT '[]',
-    other         TEXT NOT NULL DEFAULT '[]',
-    updated_at    DATETIME DEFAULT CURRENT_TIMESTAMP
+CREATE TABLE guild_user_profiles (
+    guild_id             TEXT NOT NULL,
+    user_id              INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    bio                  TEXT NOT NULL DEFAULT '[]',
+    interests            TEXT NOT NULL DEFAULT '[]',
+    skills               TEXT NOT NULL DEFAULT '[]',
+    opinions             TEXT NOT NULL DEFAULT '[]',
+    relationships        TEXT NOT NULL DEFAULT '[]',
+    other                TEXT NOT NULL DEFAULT '[]',
+    is_dirty             INTEGER NOT NULL DEFAULT 0,
+    updated_at           DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    last_full_rebuild_at DATETIME,
+    PRIMARY KEY (guild_id, user_id)
 )
 ```
 
 ### `interaction_notes`
 
-Stores both granular conversation notes (written throughout the day) and daily topic
-cluster notes (written by the midnight job). Both types are embedded and searchable.
+Stores both conversation notes and topic-cluster notes.
+
+`source_note_ids` is only populated for `topic_cluster` rows.
 
 ```sql
 CREATE TABLE interaction_notes (
     id              INTEGER PRIMARY KEY AUTOINCREMENT,
     guild_id        TEXT NOT NULL,
-    channel_id      TEXT NOT NULL,
+    channel_id      TEXT,
     note_type       TEXT NOT NULL,   -- 'conversation' | 'topic_cluster'
-    participants    TEXT NOT NULL,   -- JSON array snapshot for prompt/debug use
     title           TEXT NOT NULL,
     summary         TEXT NOT NULL,
-    source_note_ids TEXT,            -- JSON array; populated for topic_cluster only
+    source_note_ids TEXT NOT NULL DEFAULT '[]',
     note_date       DATE NOT NULL,
-    created_at      DATETIME DEFAULT CURRENT_TIMESTAMP
+    created_at      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 )
 ```
 
 ### `note_participants`
 
-Normalized participant membership for joins, deletion, and consolidation. This is the
-source of truth for "which users were involved in this note"; the JSON field above is a
-cached snapshot only.
+Normalized participant membership for joins, retrieval expansion, deletion, and rebuilds.
+This is the source of truth for note participants.
 
 ```sql
 CREATE TABLE note_participants (
-    note_id            INTEGER NOT NULL REFERENCES interaction_notes(id) ON DELETE CASCADE,
-    participant_user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    note_id              INTEGER NOT NULL REFERENCES interaction_notes(id) ON DELETE CASCADE,
+    participant_user_id  INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     PRIMARY KEY (note_id, participant_user_id)
 )
 ```
 
 ### `vec_notes`
 
-sqlite-vec virtual table. Mirrors the existing `vec_facts` pattern.
+Embeddings for `interaction_notes`.
 
 ```sql
 CREATE VIRTUAL TABLE vec_notes USING vec0(
     note_id   INTEGER PRIMARY KEY,
-    embedding float[768] distance_metric=cosine
+    embedding float[1536] distance_metric=cosine
 )
 ```
 
 ### `channel_buffers`
 
-Persists active channel/thread buffers to SQLite so in-progress conversations survive
-bot restarts.
+Persists active channel or thread buffers so ongoing conversations survive restarts.
+
+`messages` stores JSON objects:
+
+```json
+{
+  "discord_id": "...",
+  "username": "...",
+  "display_name": "...",
+  "text": "...",
+  "message_id": "..."
+}
+```
 
 ```sql
 CREATE TABLE channel_buffers (
     channel_id   TEXT PRIMARY KEY,
     guild_id     TEXT NOT NULL,
-    messages     TEXT NOT NULL,   -- JSON array of {discord_id, username, display_name, text, message_id}
-    started_at   DATETIME DEFAULT CURRENT_TIMESTAMP,
-    updated_at   DATETIME DEFAULT CURRENT_TIMESTAMP
+    messages     TEXT NOT NULL,
+    started_at   DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at   DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 )
 ```
 
 ### `memory_job_runs`
 
-Tracks midnight job progress per guild/day/phase so startup catch-up is idempotent and
-safe to rerun after crashes or deploys.
+Tracks scheduled work per guild, day, and phase.
+
+Phases:
+
+- `cluster`
+- `profile_maintenance`
 
 ```sql
 CREATE TABLE memory_job_runs (
     guild_id     TEXT NOT NULL,
     job_date     DATE NOT NULL,
-    phase        TEXT NOT NULL,      -- 'cluster' | 'consolidate'
+    phase        TEXT NOT NULL,
     status       TEXT NOT NULL,      -- 'running' | 'completed' | 'failed'
     started_at   DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     finished_at  DATETIME,
@@ -119,189 +212,255 @@ CREATE TABLE memory_job_runs (
 )
 ```
 
----
+### Recommended indexes
+
+```sql
+CREATE INDEX idx_notes_guild_type_date
+    ON interaction_notes(guild_id, note_type, note_date, created_at);
+
+CREATE INDEX idx_notes_guild_channel_created
+    ON interaction_notes(guild_id, channel_id, created_at);
+
+CREATE INDEX idx_note_participants_user_note
+    ON note_participants(participant_user_id, note_id);
+
+CREATE INDEX idx_profiles_guild_dirty
+    ON guild_user_profiles(guild_id, is_dirty, updated_at);
+```
 
 ## Data Flow
 
-### Throughout the day — channel/thread buffers
+### Online capture path
 
-```
-Message arrives (human only — bot messages excluded)
-  └─ channel_buffers row upserted (keyed by channel_id)
-  └─ inactivity timer reset (20–30 min)
-  └─ if buffer age >= 2 hours → force flush (max window)
-
-Channel/thread goes quiet (inactivity timer fires)
-  └─ Gemini flash: generate title + summary from buffered messages
-  └─ Conversation note written to interaction_notes
-  └─ Participant rows written to note_participants
-  └─ Note embedded and stored in vec_notes
-  └─ channel_buffers row deleted
-  └─ For each human participant in the note:
-       Gemini flash: compare note to user's existing profile
-                     → update relevant sections with new facts
-                     → each new fact carries the note's ID as source
+```text
+Message arrives
+  -> ignore bot messages
+  -> ignore blacklisted channels
+  -> if skip-memory guard is present, skip both capture and retrieval
+  -> upsert channel_buffers row keyed by channel_id
+  -> reset inactivity timer
+  -> if buffer age >= max age, flush immediately before appending new message
 ```
 
-Threads have their own `channel_id` in Discord — handled identically to channels,
-no special casing. Archived threads simply go quiet and trigger the inactivity flush
-naturally.
+### Buffer flush path
 
-### Midnight job — two sequential passes
-
-**Pass 1 — Topic clustering (per guild):**
-
-```
-Fetch all conversation notes from today for this guild
-Gemini pro: cluster into 3–8 topic cluster notes
-  Each cluster: title, summary, list of source_note_ids, participants union
-Each cluster stored in interaction_notes + embedded in vec_notes
-```
-
-**Pass 2 — Profile consolidation (per active user):**
-
-```
-For each user who appears as a participant in today's notes:
-  Single Gemini pro call:
-    Input:  current profile (all sections as JSON facts) +
-            today's interaction notes the user participated in
-    Output: updated, consolidated profile sections
-            (new facts added, redundancies removed, contradictions resolved,
-             each fact carrying the source note_id)
-  Profile written back to user_profiles
+```text
+Channel or thread goes quiet, or max age is reached
+  -> generate one conversation note (title + summary)
+  -> upsert users for all human participants
+  -> insert interaction_notes row
+  -> insert note_participants rows
+  -> embed the note into vec_notes
+  -> delete channel_buffers row
+  -> for each participant:
+       attempt incremental guild profile update using current profile + this note only
+       if update fails or is low-confidence, mark profile dirty
 ```
 
-**Startup catch-up:**
+### Daily maintenance path
 
-On `memory.Init()`, inspect `memory_job_runs` for the current guild and prior missed
-dates. Run only the missing or failed phases. If clustering already completed for a
-guild/day, do not recreate topic-cluster notes.
+Per guild, once per day:
 
----
+1. `cluster` phase:
+   build topic clusters from that day's conversation notes
+2. `profile_maintenance` phase:
+   rebuild dirty profiles and any scheduled maintenance profiles
+
+Both phases are idempotent and tracked in `memory_job_runs`.
+
+### Startup catch-up
+
+On `memory.Init()`:
+
+1. reload persisted `channel_buffers`
+2. recompute remaining inactivity from `updated_at`
+3. flush overdue buffers immediately
+4. restart timers for the rest
+5. rerun missing or failed maintenance phases for missed days
+
+## Topic Clusters
+
+Topic clusters sit beside profiles, not underneath them.
+
+- built from conversation notes for one guild and one day
+- stored in `interaction_notes` with `note_type = 'topic_cluster'`
+- embedded into `vec_notes`
+- participants are the union of source-note participants
+
+Topic clusters are used for:
+
+- broad topical retrieval
+- server recaps
+- compression when many notes are relevant
+
+Topic clusters are not used as the primary input for profile creation.
+Profiles are built from conversation notes involving the user.
+
+If a source conversation note is deleted or redacted:
+
+- affected cluster notes are deleted or marked stale by deleting the completed job record
+- the next cluster phase rebuilds them from remaining notes
 
 ## Retrieval
 
+Retrieval is request-scoped, not "query plus users" only.
+
+The retrieval request must include:
+
+- `GuildID`
+- `ChannelID`
+- `Query`
+- direct conversation users
+- explicitly mentioned users
+
+### Retrieval algorithm
+
+```text
+Embed query once
+  -> search topic clusters in the current guild
+  -> search conversation notes in the current guild
+       optionally bias toward current channel or thread and recency
+  -> use a strict threshold, then one bounded relaxed threshold
+  -> if nothing qualifies, inject nothing
 ```
-Embed current message query once
-Search vec_notes for notes in the current guild only
-  Optionally bias toward the current channel/thread and recent notes
-If strict similarity returns nothing, retry once with a relaxed but bounded threshold
-  If still nothing qualifies, inject no memory
 
-Profile injection:
-  Always:     full profiles for all users directly in the conversation
-  @mentions:  full profiles for mentioned users (up to 3 additional)
-  From notes: full profiles for participants in retrieved notes (up to 3, deduped)
-              resolved through note_participants
-```
+### Profile injection
 
-### System prompt format
+- Always include ready profiles for direct conversation participants
+- Include ready profiles for explicitly mentioned users, up to a small cap
+- Include ready profiles for a few additional users surfaced by relevant notes or clusters
+- If a profile is missing or dirty, fall back to raw notes for that user and queue a rebuild
 
-Profile sections are formatted with inline source references so Vivy can answer
-"where did you learn that?" without any additional lookup:
+No unrestricted cross-user or cross-guild fact sweep exists in v2.
+
+### Prompt format
+
+The wrapper can stay named `<background_facts>` for compatibility, but its contents are now
+structured memory context:
 
 ```xml
 <background_facts>
 <user name="Alex">
 Bio:
-- Lives in Austin, works at Dell  [Gaming session, Feb 23]
+- Lives in Austin [Gaming chat, Feb 23]
 
 Interests:
-- RPG games  [Gaming discussion, Feb 23]
-- Anime      [Weekly recs, Feb 20]
+- JRPGs [Gaming chat, Feb 23]
 
 Skills:
-- Python, JavaScript  [Dev chat, Feb 19]
-
-Opinions:
-- Prefers Linux over Windows  [OS debate, Feb 21]
-
-Relationships:
-- Dog named Bento  [Pet photos, Feb 18]
+- Python and JavaScript [Dev chat, Feb 19; Tooling thread, Feb 21]
 </user>
+<topics>
+- [Feb 23] Weekly game discussion - Several people compared JRPG recommendations.
+</topics>
 <notes>
-- [Feb 23] Gaming discussion — Alex, Sam, and Jake debated JRPG recommendations...
-- [Feb 21] OS debate — A heated thread about Linux vs Windows...
+- [Feb 23] Gaming chat - Alex and Sam compared Baldur's Gate 3 builds.
 </notes>
 </background_facts>
 ```
 
----
+Profile citations are resolved at render time from `source_note_ids`.
 
-## Memory Deletion & Retention
+## Profile Maintenance Strategy
 
-- `DeleteUserProfile` is not enough on its own. A delete flow must remove the profile,
-  remove the user's rows from `note_participants`, delete any now-orphaned `vec_notes`
-  rows, and redact or delete interaction notes whose only participant was that user.
-- Mixed-participant notes should be retained only after redacting the deleted user from
-  summaries/titles if needed; otherwise they can repopulate the deleted profile later.
-- Retention should be explicit. If notes are kept indefinitely, document that. Otherwise
-  add a note-pruning job and cascade deletes into `vec_notes` and `note_participants`.
+### Default path: incremental
 
----
+Incremental updates are the normal path because they keep token usage bounded.
+
+Input:
+
+- current guild-scoped profile
+- one new conversation note
+- the target participant identity
+
+Output:
+
+- full updated profile sections for that one user
+
+Rules:
+
+- only add or merge facts about the target user
+- do not attribute other participants' facts to the target user
+- keep `source_note_ids`
+- if uncertain, return unchanged profile and set `is_dirty = 1`
+
+### Rare path: full rebuild
+
+A full rebuild discards the cached profile summary and recreates it from all remaining
+conversation notes for that user in that guild.
+
+It is used for:
+
+- deletion or redaction repair
+- drift correction
+- model or prompt changes
+- periodic maintenance
+
+Full rebuilds never use topic clusters as authoritative source data.
+
+## Deletion and Retention
+
+Because notes are canonical, delete flows must update both derived caches and note records.
+
+Deleting one user's memory in one guild must:
+
+1. delete that user's `guild_user_profiles` row
+2. remove that user's `note_participants` rows in that guild
+3. delete any note whose only participant was that user
+4. redact mixed-participant notes so the deleted user is no longer represented in title or summary
+5. delete orphaned `vec_notes` rows when notes are deleted
+6. mark surviving participants' profiles dirty
+7. invalidate topic clusters for affected guild and day so they are rebuilt
+
+V2 does not include automatic pruning. Retention is explicit:
+
+- conversation notes are kept until a separate pruning policy is designed
+- topic clusters and profiles remain rebuildable caches
+
+## Cutover Strategy
+
+This is a cold cutover.
+
+- Do not migrate or reinterpret `facts` or `vec_facts`
+- New code reads only v2 tables
+- Old memory is intentionally discarded
+- After cutover, remove v1 code and drop v1 tables
 
 ## Model Split
 
-| Task | Model | Frequency |
-|---|---|---|
-| Conversation note generation | `gemini-2.0-flash` (flash) | Per channel inactivity |
-| Per-note profile update | flash | Per conversation note |
-| Topic clustering | `gemini-2.5-pro` (pro) | Once daily per guild |
-| Profile consolidation | pro | Once per active user daily |
+| Task | Model |
+|---|---|
+| Conversation note generation | `gpt-5-mini` |
+| Incremental profile update | `gpt-5-mini` |
+| Topic clustering | `gpt-5.4` |
+| Full profile rebuild | `gpt-5.4` |
+| Embeddings | `text-embedding-3-small` |
 
-Two model constants replace the current single `generationModel`:
-
-```go
-const (
-    flashModel         = "gemini-2.0-flash"
-    consolidationModel = "gemini-2.5-pro"
-)
-```
-
----
+All memory-model traffic uses `MEMORY_OPENAI_TOKEN`.
 
 ## Edge Cases
 
-### Buffer loss on restart
-`channel_buffers` is persisted to SQLite. On startup, any rows in `channel_buffers`
-are loaded back into memory and their inactivity timers are recalculated from
-`updated_at`. Buffers already past the inactivity window or max age are flushed
-immediately instead of getting a fresh full timer.
+### Buffer reload after restart
+
+Reload persisted channel buffers from SQLite, compute elapsed idle time from `updated_at`,
+flush overdue buffers immediately, and restart only the timers that still have time remaining.
 
 ### Long conversations that never go quiet
-Channel buffers enforce a 2-hour maximum window. If a buffer's `started_at` is more
-than 2 hours ago when a new message arrives, the buffer is flushed immediately before
-the new message is appended (creating a new buffer from scratch).
 
-### Midnight job unavailability
-`memory_job_runs` tracks job state per guild/date/phase. On startup, only missing or
-failed phases are rerun. This handles nightly restarts, crashes, and deployments
-without duplicating topic-cluster notes or reconsolidating already-finished days.
+Buffers enforce a hard max age. When a new message arrives on an over-age buffer, flush the
+existing buffer first and then start a fresh one.
+
+### Few-note days
+
+If a guild has too few conversation notes on a given day to form useful topic clusters, skip
+the cluster phase for that day instead of forcing low-quality output.
+
+### Dirty profiles at retrieval time
+
+If a direct participant's profile is dirty or missing, retrieval should still be useful by
+including recent or relevant conversation notes for that user and queuing a rebuild.
 
 ### Bot message filtering
-The channel buffer only accepts messages where the author is not the bot's own user ID.
-Vivy's responses are excluded from all conversation notes and profile updates.
 
----
-
-## What's Removed
-
-| Removed | Replaced by |
-|---|---|
-| `facts` table | `user_profiles` + `interaction_notes` |
-| `vec_facts` virtual table | `vec_notes` |
-| Per-user 30s message buffer (in-memory) | Per-channel buffer persisted to `channel_buffers` |
-| `extractFacts()` | Per-note profile update pass |
-| `consolidateAndStore()`, `findSimilarFacts()`, `decideAction()` | Daily profile consolidation pass |
-| `GetUserFacts()`, `DeleteUserFacts()` | Profile equivalents |
-| `ReinforceFact()`, `reinforceFact()` | Removed entirely — consolidation handles this |
-| `RefreshFactNames()`, `RefreshAllFactNames()` | Profiles are Gemini-maintained text; no name prefix hacks |
-
-## What Carries Over
-
-- `users` table — unchanged
-- `embed()`, `serializeFloat32()` — reused verbatim
-- `upsertUser()` — reused verbatim
-- `shouldSkipMemory` guard in message handler — applies to both note capture and retrieval
-- `RetrieveMultiUser` function signature — implementation rewritten, signature compatible
-- `config.MemoryBlacklist`, `config.MainServer` gating — unchanged
+Bot-authored messages are excluded from buffer capture, note generation, clustering, and
+profile maintenance.
