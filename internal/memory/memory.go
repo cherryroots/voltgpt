@@ -10,12 +10,12 @@ import (
 	"fmt"
 	"log"
 	"math"
-	"os"
 	"sort"
 	"strings"
 
+	openaiapi "voltgpt/internal/apis/openai"
+
 	oa "github.com/openai/openai-go"
-	"github.com/openai/openai-go/option"
 	"github.com/openai/openai-go/shared"
 )
 
@@ -43,14 +43,13 @@ func Init(db *sql.DB) {
 	enabled = false
 	client = nil
 
-	token := strings.TrimSpace(os.Getenv("MEMORY_OPENAI_TOKEN"))
-	if token == "" {
-		log.Printf("Memory system disabled: MEMORY_OPENAI_TOKEN is not set")
+	c, err := openaiapi.GetMemoryClient()
+	if err != nil {
+		log.Printf("Memory system disabled: %v", err)
 		return
 	}
 
-	c := oa.NewClient(option.WithAPIKey(token))
-	client = &c
+	client = c
 	enabled = true
 	log.Println("Memory system initialized")
 

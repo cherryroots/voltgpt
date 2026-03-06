@@ -15,6 +15,7 @@ import (
 	"github.com/openai/openai-go/option"
 	"github.com/openai/openai-go/packages/param"
 	"github.com/openai/openai-go/responses"
+	"github.com/openai/openai-go/shared"
 
 	"github.com/bwmarrin/discordgo"
 
@@ -27,9 +28,12 @@ import (
 const chatModel = "gpt-5.4"
 
 var (
-	sharedClient     *oa.Client
-	sharedClientErr  error
-	sharedClientOnce sync.Once
+	sharedClient           *oa.Client
+	sharedClientErr        error
+	sharedClientOnce       sync.Once
+	sharedMemoryClient     *oa.Client
+	sharedMemoryClientErr  error
+	sharedMemoryClientOnce sync.Once
 )
 
 func builtInTools() []responses.ToolUnionParam {
@@ -47,10 +51,43 @@ func GetClient() (*oa.Client, error) {
 			return
 		}
 
-		client := oa.NewClient(option.WithAPIKey(token))
+		opts := []option.RequestOption{option.WithAPIKey(token)}
+		if baseURL := chatBaseURL(); baseURL != "" {
+			opts = append(opts, option.WithBaseURL(baseURL))
+			log.Printf("openai: chat client using base URL %s", baseURL)
+		}
+
+		client := oa.NewClient(opts...)
 		sharedClient = &client
 	})
 	return sharedClient, sharedClientErr
+}
+
+func GetMemoryClient() (*oa.Client, error) {
+	sharedMemoryClientOnce.Do(func() {
+		token := strings.TrimSpace(os.Getenv("MEMORY_OPENAI_TOKEN"))
+		if token == "" {
+			sharedMemoryClientErr = fmt.Errorf("MEMORY_OPENAI_TOKEN is not set")
+			return
+		}
+
+		client := oa.NewClient(option.WithAPIKey(token))
+		sharedMemoryClient = &client
+	})
+	return sharedMemoryClient, sharedMemoryClientErr
+}
+
+func chatBaseURL() string {
+	baseURL := strings.TrimSpace(os.Getenv("OPENAI_BASE"))
+	if baseURL == "" {
+		return ""
+	}
+
+	baseURL = strings.TrimRight(baseURL, "/")
+	if !strings.HasSuffix(baseURL, "/v1") {
+		baseURL += "/v1"
+	}
+	return baseURL + "/"
 }
 
 type Streamer struct {
@@ -178,6 +215,7 @@ func StreamMessageResponse(s *discordgo.Session, c *oa.Client, m *discordgo.Mess
 		Model:             responses.ChatModel(chatModel),
 		Store:             oa.Bool(true),
 		Temperature:       oa.Float(1),
+		Reasoning:         shared.ReasoningParam{Effort: "medium"},
 		Truncation:        responses.ResponseNewParamsTruncationAuto,
 		ParallelToolCalls: oa.Bool(true),
 		ToolChoice: responses.ResponseNewParamsToolChoiceUnion{
