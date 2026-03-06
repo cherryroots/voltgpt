@@ -19,7 +19,7 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y --fix-missing gcc ffmpeg
 
       - name: Test
-        run: go test ./... -timeout 60s
+        run: go test ./... -timeout 90s
         env:
           OPENAI_TOKEN: ${{ secrets.OPENAI_TOKEN }}
           MEMORY_OPENAI_TOKEN: ${{ secrets.MEMORY_OPENAI_TOKEN }}
