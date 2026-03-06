@@ -15,7 +15,7 @@ There is no migration from v1. Old memory is discarded.
 This plan implements:
 
 - [2026-02-25-memory-v2-design.md](./2026-02-25-memory-v2-design.md)
-- [2026-03-05-openai-migration-design.md](./2026-03-05-openai-migration-design.md)
+- [2026-03-05-openai-migration-design.md](./2026-03-05-openai-migration-design.md) //this is already implemented but keep it in mind
 
 If the two documents overlap:
 
