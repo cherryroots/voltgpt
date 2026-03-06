@@ -3,20 +3,33 @@ package db
 
 import (
 	"database/sql"
+	"fmt"
 	"log"
 	"strings"
+	"sync/atomic"
 
 	sqlite_vec "github.com/asg017/sqlite-vec-go-bindings/cgo"
 	_ "github.com/mattn/go-sqlite3"
 )
 
 var DB *sql.DB
+var memoryDBCounter atomic.Uint64
 
 func Open(path string) {
 	sqlite_vec.Auto()
+
+	if DB != nil {
+		if err := DB.Close(); err != nil {
+			log.Printf("Failed to close existing database before reopen: %v", err)
+		}
+		DB = nil
+	}
+
 	dsn := path + "?_journal_mode=WAL"
 	if path == ":memory:" {
-		dsn = "file::memory:?cache=shared"
+		// Give each test run its own named in-memory database while still
+		// keeping a shared cache within that single sql.DB handle.
+		dsn = fmt.Sprintf("file:voltgpt-memory-%d?mode=memory&cache=shared", memoryDBCounter.Add(1))
 	}
 	var err error
 	DB, err = sql.Open("sqlite3", dsn)
@@ -41,6 +54,7 @@ func Open(path string) {
 func Close() {
 	if DB != nil {
 		DB.Close()
+		DB = nil
 	}
 }
 

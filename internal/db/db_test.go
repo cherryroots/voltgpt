@@ -193,3 +193,24 @@ func TestVecFactsQueryable(t *testing.T) {
 		t.Errorf("vec_facts fact_id = %d, want 1", factID)
 	}
 }
+
+func TestOpenMemoryIsolatedAcrossCalls(t *testing.T) {
+	Open(":memory:")
+
+	_, err := DB.Exec("INSERT INTO users (discord_id, username) VALUES ('isolated', 'first')")
+	if err != nil {
+		t.Fatalf("failed to insert into first in-memory DB: %v", err)
+	}
+
+	Open(":memory:")
+	defer Close()
+
+	var count int
+	err = DB.QueryRow("SELECT COUNT(*) FROM users WHERE discord_id = 'isolated'").Scan(&count)
+	if err != nil {
+		t.Fatalf("failed to query second in-memory DB: %v", err)
+	}
+	if count != 0 {
+		t.Fatalf("expected reopened in-memory DB to be empty, got %d matching rows", count)
+	}
+}

@@ -7,11 +7,33 @@ import (
 	"voltgpt/internal/db"
 )
 
+func stopTimers() {
+	mu.Lock()
+	defer mu.Unlock()
+
+	for id, timer := range timers {
+		timer.Stop()
+		delete(timers, id)
+	}
+}
+
 func setupDB(t *testing.T) {
 	t.Helper()
+
+	stopTimers()
+	db.Close()
 	db.Open(":memory:")
 	database = db.DB
 	timers = map[int64]*time.Timer{}
+	session = nil
+
+	t.Cleanup(func() {
+		stopTimers()
+		db.Close()
+		database = nil
+		session = nil
+		timers = map[int64]*time.Timer{}
+	})
 }
 
 func TestAddAndGetUserReminders(t *testing.T) {
