@@ -157,14 +157,6 @@ func TestStreamer_Flush_EmptyBuffer(t *testing.T) {
 	s.Flush() // must not panic
 }
 
-func TestStreamer_Flush_OnlyXMLTags(t *testing.T) {
-	// Buffer containing only replacement-map strings cleans to empty → early return.
-	// replacementMap: "<username>", "</username>", "<attachments>", "</attachments>", "..."
-	s := NewStreamer(nil, nil)
-	s.Buffer = "<username></username><attachments></attachments>..."
-	s.Flush() // must not panic or call Discord
-}
-
 func TestStreamer_DoneChannelIsBuffered(t *testing.T) {
 	// An unbuffered done channel would block Stop() if the goroutine is gone.
 	// Verify the channel can accept a send without a receiver (capacity >= 1).

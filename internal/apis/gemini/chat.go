@@ -41,16 +41,14 @@ type Streamer struct {
 	mu               sync.Mutex
 	done             chan bool
 	ticker           *time.Ticker
-	replacementMap   []string
 }
 
 // NewStreamer creates a new Streamer instance.
 func NewStreamer(s *discordgo.Session, m *discordgo.Message) *Streamer {
 	return &Streamer{
-		Session:        s,
-		Message:        m,
-		replacementMap: []string{"<username>", "</username>", "<attachments>", "</attachments>", "..."},
-		done:           make(chan bool, 1),
+		Session: s,
+		Message: m,
+		done:    make(chan bool, 1),
 	}
 }
 
@@ -121,12 +119,11 @@ func (s *Streamer) Flush() {
 		return
 	}
 
-	cleanedMessage := utility.ReplaceMultiple(s.Buffer, s.replacementMap, "")
-	if strings.TrimSpace(cleanedMessage) == "" {
+	if strings.TrimSpace(s.Buffer) == "" {
 		return
 	}
 
-	newBuffer, newMsg, err := utility.SplitSend(s.Session, s.Message, cleanedMessage)
+	newBuffer, newMsg, err := utility.SplitSend(s.Session, s.Message, s.Buffer)
 	if err != nil {
 		log.Printf("Error sending message update: %v", err)
 		return

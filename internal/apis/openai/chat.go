@@ -91,24 +91,22 @@ func chatBaseURL() string {
 }
 
 type Streamer struct {
-	Session        *discordgo.Session
-	Message        *discordgo.Message
-	Buffer         string
-	mu             sync.Mutex
-	done           chan struct{}
-	stopOnce       sync.Once
-	ticker         *time.Ticker
-	replacementMap []string
-	messageIDs     []string
+	Session    *discordgo.Session
+	Message    *discordgo.Message
+	Buffer     string
+	mu         sync.Mutex
+	done       chan struct{}
+	stopOnce   sync.Once
+	ticker     *time.Ticker
+	messageIDs []string
 }
 
 func NewStreamer(s *discordgo.Session, m *discordgo.Message) *Streamer {
 	return &Streamer{
-		Session:        s,
-		Message:        m,
-		done:           make(chan struct{}),
-		replacementMap: []string{"<username>", "</username>", "<attachments>", "</attachments>", "..."},
-		messageIDs:     []string{m.ID},
+		Session:    s,
+		Message:    m,
+		done:       make(chan struct{}),
+		messageIDs: []string{m.ID},
 	}
 }
 
@@ -166,12 +164,11 @@ func (s *Streamer) Flush() {
 		return
 	}
 
-	cleanedMessage := utility.ReplaceMultiple(s.Buffer, s.replacementMap, "")
-	if strings.TrimSpace(cleanedMessage) == "" {
+	if strings.TrimSpace(s.Buffer) == "" {
 		return
 	}
 
-	newBuffer, newMsg, err := utility.SplitSend(s.Session, s.Message, cleanedMessage)
+	newBuffer, newMsg, err := utility.SplitSend(s.Session, s.Message, s.Buffer)
 	if err != nil {
 		log.Printf("openai: error sending message update: %v", err)
 		return
