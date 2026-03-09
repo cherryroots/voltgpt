@@ -1,17 +1,17 @@
-// Package memory provides a vector-backed long-term memory system.
-// It extracts facts from Discord messages, consolidates them via
-// semantic similarity, and retrieves relevant facts for RAG.
 package memory
 
 import (
 	"context"
 	"database/sql"
 	"encoding/binary"
+	"encoding/json"
 	"fmt"
 	"log"
 	"math"
 	"sort"
 	"strings"
+	"sync"
+	"time"
 
 	openaiapi "voltgpt/internal/apis/openai"
 
@@ -20,46 +20,196 @@ import (
 )
 
 const (
-	embeddingModel                       = oa.EmbeddingModelTextEmbedding3Small
-	embeddingDimensions            int64 = 1536
-	generationModel                      = "gpt-5-mini"
-	reembedBatchSize                     = 25
-	similarityLimit                      = 3
-	retrievalLimit                       = 5
-	generalRetrievalLimit                = 10
-	minMessageLength                     = 10
-	distanceThreshold                    = float64(0.35) // strict consolidation threshold
-	consolidationFallbackThreshold       = float64(0.55) // relaxed but still bounded
-	retrievalDistanceThreshold           = float64(0.6)  // default retrieval threshold
-	retrievalFallbackThreshold           = float64(0.75) // broader fallback without "nearest no matter what"
-	distanceQueryMultiplier              = 10
+	embeddingModel                     = oa.EmbeddingModelTextEmbedding3Small
+	embeddingDimensions          int64 = 1536
+	noteGenerationModel                = "gpt-5-mini"
+	incrementalUpdateModel             = "gpt-5-mini"
+	clusteringModel                    = "gpt-5.4"
+	fullRebuildModel                   = "gpt-5.4"
+	strictRetrievalDistance            = 0.45
+	fallbackRetrievalDistance          = 0.62
+	retrievalCandidateMultiplier       = 12
+	topicRetrievalLimit                = 3
+	conversationRetrievalLimit         = 5
+	mentionedProfileLimit              = 3
+	extraProfileLimit                  = 2
+	recentUserFallbackNoteLimit        = 3
+	minBufferedContentLength           = 100
+	minClusterInputNotes               = 3
+	bufferInactivityWindow             = 30 * time.Minute
+	bufferMaxAge                       = 2 * time.Hour
+	bufferMaxMessages                  = 100
+	maintenanceSchedulerInterval       = 1 * time.Hour
+	noteTypeConversation               = "conversation"
+	noteTypeTopicCluster               = "topic_cluster"
+	jobPhaseCluster                    = "cluster"
+	jobPhaseProfileMaintenance         = "profile_maintenance"
+	jobStatusRunning                   = "running"
+	jobStatusCompleted                 = "completed"
+	jobStatusFailed                    = "failed"
 )
+
+type ProfileFact struct {
+	Text          string  `json:"text"`
+	SourceNoteIDs []int64 `json:"source_note_ids"`
+}
+
+type GuildUserProfile struct {
+	GuildID           string
+	UserID            int64
+	Bio               []ProfileFact
+	Interests         []ProfileFact
+	Skills            []ProfileFact
+	Opinions          []ProfileFact
+	Relationships     []ProfileFact
+	Other             []ProfileFact
+	IsDirty           bool
+	UpdatedAt         string
+	LastFullRebuildAt string
+}
+
+type InteractionNote struct {
+	ID                 int64
+	GuildID            string
+	ChannelID          string
+	NoteType           string
+	Title              string
+	Summary            string
+	SourceNoteIDs      []int64
+	NoteDate           string
+	CreatedAt          string
+	ParticipantUserIDs []int64
+}
+
+type bufMsg struct {
+	DiscordID   string `json:"discord_id"`
+	Username    string `json:"username"`
+	DisplayName string `json:"display_name"`
+	Text        string `json:"text"`
+	MessageID   string `json:"message_id"`
+}
+
+type RetrieveRequest struct {
+	GuildID           string
+	ChannelID         string
+	Query             string
+	ConversationUsers map[string]string
+	MentionedUsers    map[string]string
+}
+
+type generatedConversationNote struct {
+	Title   string `json:"title"`
+	Summary string `json:"summary"`
+}
+
+type profileUpdateResult struct {
+	Profile   GuildUserProfile
+	MarkDirty bool
+}
+
+type clusterResult struct {
+	Title         string  `json:"title"`
+	Summary       string  `json:"summary"`
+	SourceNoteIDs []int64 `json:"source_note_ids"`
+}
+
+type userIdentity struct {
+	UserID        int64
+	DiscordID     string
+	Username      string
+	DisplayName   string
+	PreferredName string
+}
+
+func (u userIdentity) EffectiveName() string {
+	return effectiveName(u.PreferredName, u.DisplayName, u.Username)
+}
 
 var (
 	database *sql.DB
 	client   *oa.Client
 	enabled  bool
+
+	embedText                = embed
+	generateConversationNote = generateConversationNoteOpenAI
+	incrementalProfileUpdate = incrementalProfileUpdateOpenAI
+	clusterGuildDay          = clusterGuildDayOpenAI
+	rebuildGuildProfile      = rebuildGuildProfileOpenAI
+	timeNow                  = func() time.Time { return time.Now().UTC() }
+)
+
+var (
+	lifecycleMu             sync.Mutex
+	maintenanceStopCh       chan struct{}
+	maintenanceSweepRunning bool
 )
 
 func Init(db *sql.DB) {
 	database = db
-	enabled = false
 	client = nil
+	enabled = false
+	stopMaintenanceScheduler()
 
 	c, err := openaiapi.GetMemoryClient()
 	if err != nil {
-		log.Printf("Memory system disabled: %v", err)
+		log.Printf("memory: model-backed features disabled: %v", err)
 		return
 	}
 
 	client = c
 	enabled = true
-	log.Println("Memory system initialized")
+	log.Println("memory: v2 initialized")
 
-	go backfillMissingEmbeddings()
+	if err := loadAndRestartBuffers(); err != nil {
+		log.Printf("memory: failed to reload channel buffers: %v", err)
+	}
+	go func() {
+		if err := runStartupCatchUp(); err != nil {
+			log.Printf("memory: startup catch-up failed: %v", err)
+		}
+	}()
+	startMaintenanceScheduler()
 }
 
-// embed calls the OpenAI embedding API and returns a float32 vector.
+func Shutdown() {
+	stopMaintenanceScheduler()
+	stopAllBufferTimers()
+	enabled = false
+	client = nil
+	database = nil
+}
+
+func generateJSON(ctx context.Context, model, systemPrompt, userPrompt string, schema shared.ResponseFormatJSONSchemaJSONSchemaParam) (string, error) {
+	if client == nil {
+		return "", fmt.Errorf("chat completion: OpenAI client is not initialized")
+	}
+
+	resp, err := client.Chat.Completions.New(ctx, oa.ChatCompletionNewParams{
+		Messages: []oa.ChatCompletionMessageParamUnion{
+			oa.DeveloperMessage(systemPrompt),
+			oa.UserMessage(userPrompt),
+		},
+		Model: oa.ChatModel(model),
+		ResponseFormat: oa.ChatCompletionNewParamsResponseFormatUnion{
+			OfJSONSchema: &shared.ResponseFormatJSONSchemaParam{
+				JSONSchema: schema,
+			},
+		},
+	})
+	if err != nil {
+		return "", err
+	}
+	if len(resp.Choices) == 0 {
+		return "", fmt.Errorf("chat completion returned no choices")
+	}
+
+	content := strings.TrimSpace(resp.Choices[0].Message.Content)
+	if content == "" {
+		return "", fmt.Errorf("chat completion returned empty content")
+	}
+	return content, nil
+}
+
 func embed(ctx context.Context, text string) ([]float32, error) {
 	if strings.TrimSpace(text) == "" {
 		return nil, fmt.Errorf("embed: empty text")
@@ -67,6 +217,7 @@ func embed(ctx context.Context, text string) ([]float32, error) {
 	if client == nil {
 		return nil, fmt.Errorf("embed: OpenAI client is not initialized")
 	}
+
 	resp, err := client.Embeddings.New(ctx, oa.EmbeddingNewParams{
 		Input: oa.EmbeddingNewParamsInputUnion{
 			OfString: oa.String(text),
@@ -89,126 +240,6 @@ func embed(ctx context.Context, text string) ([]float32, error) {
 	return values, nil
 }
 
-func generateJSON(ctx context.Context, systemPrompt, userPrompt string, schema shared.ResponseFormatJSONSchemaJSONSchemaParam) (string, error) {
-	if client == nil {
-		return "", fmt.Errorf("chat completion: OpenAI client is not initialized")
-	}
-
-	resp, err := client.Chat.Completions.New(ctx, oa.ChatCompletionNewParams{
-		Messages: []oa.ChatCompletionMessageParamUnion{
-			oa.DeveloperMessage(systemPrompt),
-			oa.UserMessage(userPrompt),
-		},
-		Model: oa.ChatModel(generationModel),
-		ResponseFormat: oa.ChatCompletionNewParamsResponseFormatUnion{
-			OfJSONSchema: &shared.ResponseFormatJSONSchemaParam{
-				JSONSchema: schema,
-			},
-		},
-	})
-	if err != nil {
-		return "", err
-	}
-	if len(resp.Choices) == 0 {
-		return "", fmt.Errorf("chat completion returned no choices")
-	}
-
-	content := strings.TrimSpace(resp.Choices[0].Message.Content)
-	if content == "" {
-		return "", fmt.Errorf("chat completion returned empty content")
-	}
-	return content, nil
-}
-
-type factToEmbed struct {
-	ID       int64
-	FactText string
-}
-
-func backfillMissingEmbeddings() {
-	if database == nil || client == nil {
-		return
-	}
-
-	ctx := context.Background()
-	var (
-		lastID    int64
-		processed int
-		inserted  int
-		failed    int
-	)
-
-	for {
-		batch, err := listFactsMissingEmbeddings(lastID, reembedBatchSize)
-		if err != nil {
-			log.Printf("memory: backfill query failed: %v", err)
-			return
-		}
-		if len(batch) == 0 {
-			if processed > 0 {
-				log.Printf("memory: embedding backfill finished: processed=%d inserted=%d failed=%d", processed, inserted, failed)
-			}
-			return
-		}
-
-		for _, fact := range batch {
-			lastID = fact.ID
-			processed++
-
-			embedding, err := embed(ctx, fact.FactText)
-			if err != nil {
-				failed++
-				log.Printf("memory: backfill embed failed for fact %d: %v", fact.ID, err)
-				continue
-			}
-			if err := insertMissingEmbedding(fact.ID, embedding); err != nil {
-				failed++
-				log.Printf("memory: backfill insert failed for fact %d: %v", fact.ID, err)
-				continue
-			}
-			inserted++
-		}
-	}
-}
-
-func listFactsMissingEmbeddings(afterID int64, limit int) ([]factToEmbed, error) {
-	rows, err := database.Query(`
-		SELECT f.id, f.fact_text
-		FROM facts f
-		LEFT JOIN vec_facts vf ON vf.fact_id = f.id
-		WHERE f.is_active = 1
-		  AND vf.fact_id IS NULL
-		  AND f.id > ?
-		ORDER BY f.id
-		LIMIT ?
-	`, afterID, limit)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	var facts []factToEmbed
-	for rows.Next() {
-		var fact factToEmbed
-		if err := rows.Scan(&fact.ID, &fact.FactText); err != nil {
-			return nil, err
-		}
-		facts = append(facts, fact)
-	}
-	return facts, rows.Err()
-}
-
-func insertMissingEmbedding(factID int64, embedding []float32) error {
-	_, err := database.Exec(
-		"INSERT INTO vec_facts (fact_id, embedding) VALUES (?, ?)",
-		factID,
-		serializeFloat32(embedding),
-	)
-	return err
-}
-
-// serializeFloat32 converts a float32 slice to a little-endian byte slice
-// for sqlite-vec queries.
 func serializeFloat32(v []float32) []byte {
 	buf := make([]byte, len(v)*4)
 	for i, f := range v {
@@ -217,190 +248,15 @@ func serializeFloat32(v []float32) []byte {
 	return buf
 }
 
-// upsertUser returns an existing user's ID and their effective display name.
-// Uses SELECT-first to avoid burning autoincrement IDs on INSERT OR IGNORE.
-// Name priority: preferred_name > display_name > username.
-func upsertUser(discordID, username, displayName string) (int64, string, error) {
-	var id int64
-	var preferredName string
-	err := database.QueryRow("SELECT id, preferred_name FROM users WHERE discord_id = ?", discordID).Scan(&id, &preferredName)
-	if err == nil {
-		// Existing user — update username and display_name
-		_, _ = database.Exec("UPDATE users SET username = ?, display_name = ? WHERE id = ?", username, displayName, id)
-		return id, effectiveName(preferredName, displayName, username), nil
-	}
-	if err != sql.ErrNoRows {
-		return 0, "", err
-	}
-
-	// New user — insert
-	res, err := database.Exec(
-		"INSERT INTO users (discord_id, username, display_name) VALUES (?, ?, ?)",
-		discordID, username, displayName,
-	)
-	if err != nil {
-		return 0, "", err
-	}
-	id, err = res.LastInsertId()
-	return id, effectiveName("", displayName, username), err
-}
-
-// effectiveName returns the best available name: preferred > display > username.
-func effectiveName(preferredName, displayName, username string) string {
-	if preferredName != "" {
-		return preferredName
-	}
-	if displayName != "" {
-		return displayName
-	}
-	return username
-}
-
-// insertFact inserts a new fact and its embedding in a transaction.
-func insertFact(userID int64, messageID, factText string, embedding []float32) error {
-	tx, err := database.Begin()
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback()
-
-	res, err := tx.Exec(
-		"INSERT INTO facts (user_id, original_message_id, fact_text) VALUES (?, ?, ?)",
-		userID, messageID, factText,
-	)
-	if err != nil {
-		return err
-	}
-
-	factID, err := res.LastInsertId()
-	if err != nil {
-		return err
-	}
-
-	_, err = tx.Exec(
-		"INSERT INTO vec_facts (fact_id, embedding) VALUES (?, ?)",
-		factID, serializeFloat32(embedding),
-	)
-	if err != nil {
-		return err
-	}
-
-	return tx.Commit()
-}
-
-// replaceFact atomically deactivates an old fact and inserts a new one with its embedding.
-func replaceFact(oldFactID, userID int64, messageID, factText string, embedding []float32) error {
-	tx, err := database.Begin()
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback()
-
-	_, err = tx.Exec("UPDATE facts SET is_active = 0 WHERE id = ?", oldFactID)
-	if err != nil {
-		return err
-	}
-
-	res, err := tx.Exec(
-		"INSERT INTO facts (user_id, original_message_id, fact_text) VALUES (?, ?, ?)",
-		userID, messageID, factText,
-	)
-	if err != nil {
-		return err
-	}
-
-	factID, err := res.LastInsertId()
-	if err != nil {
-		return err
-	}
-
-	_, err = tx.Exec(
-		"INSERT INTO vec_facts (fact_id, embedding) VALUES (?, ?)",
-		factID, serializeFloat32(embedding),
-	)
-	if err != nil {
-		return err
-	}
-
-	return tx.Commit()
-}
-
-// TotalFacts returns the count of active facts for logging at startup.
-func TotalFacts() int {
+func TotalNotes() int {
 	if database == nil {
 		return 0
 	}
 	var count int
-	database.QueryRow("SELECT COUNT(*) FROM facts WHERE is_active = 1").Scan(&count)
+	_ = database.QueryRow("SELECT COUNT(*) FROM interaction_notes").Scan(&count)
 	return count
 }
 
-// Fact represents a stored fact for display.
-type Fact struct {
-	ID                 int64
-	FactText           string
-	CreatedAt          string
-	ReinforcementCount int
-}
-
-// GetUserFacts returns all active facts for a Discord user.
-func GetUserFacts(discordID string) []Fact {
-	if database == nil {
-		return nil
-	}
-
-	rows, err := database.Query(`
-		SELECT f.id, f.fact_text, f.created_at, f.reinforcement_count
-		FROM facts f
-		JOIN users u ON u.id = f.user_id
-		WHERE u.discord_id = ? AND f.is_active = 1
-		ORDER BY f.reinforcement_count DESC, f.created_at DESC
-	`, discordID)
-	if err != nil {
-		log.Printf("memory: failed to get user facts: %v", err)
-		return nil
-	}
-	defer rows.Close()
-
-	var facts []Fact
-	for rows.Next() {
-		var f Fact
-		if err := rows.Scan(&f.ID, &f.FactText, &f.CreatedAt, &f.ReinforcementCount); err != nil {
-			log.Printf("memory: failed to scan fact: %v", err)
-			continue
-		}
-		facts = append(facts, f)
-	}
-	if err := rows.Err(); err != nil {
-		log.Printf("memory: GetUserFacts rows error: %v", err)
-	}
-	return facts
-}
-
-// DeleteUserFacts soft-deletes all facts for a Discord user.
-func DeleteUserFacts(discordID string) (int64, error) {
-	res, err := database.Exec(`
-		UPDATE facts SET is_active = 0
-		WHERE user_id = (SELECT id FROM users WHERE discord_id = ?)
-		AND is_active = 1
-	`, discordID)
-	if err != nil {
-		return 0, err
-	}
-	return res.RowsAffected()
-}
-
-// DeleteAllFacts soft-deletes all facts.
-func DeleteAllFacts() (int64, error) {
-	res, err := database.Exec("UPDATE facts SET is_active = 0 WHERE is_active = 1")
-	if err != nil {
-		return 0, err
-	}
-	return res.RowsAffected()
-}
-
-// SetPreferredName sets the preferred display name for a user.
-// If the user doesn't exist yet, they are created with the given discordID and username.
 func SetPreferredName(discordID, username, preferredName string) error {
 	if database == nil {
 		return fmt.Errorf("memory system not initialized")
@@ -423,184 +279,202 @@ func SetPreferredName(discordID, username, preferredName string) error {
 	return err
 }
 
-// GetPreferredName returns the current preferred name for a user, or empty string if unset.
 func GetPreferredName(discordID string) string {
 	if database == nil {
 		return ""
 	}
 	var name string
-	database.QueryRow("SELECT preferred_name FROM users WHERE discord_id = ?", discordID).Scan(&name)
+	_ = database.QueryRow("SELECT preferred_name FROM users WHERE discord_id = ?", discordID).Scan(&name)
 	return name
 }
 
-// RefreshFactNames replaces the name prefix in all active facts for a user
-// with their current effective name. Strips text up to the first space and
-// prepends the new name. Embeddings are not recomputed since the semantic
-// meaning is nearly identical with only a name change.
-func RefreshFactNames(discordID string) (int64, error) {
-	if database == nil {
-		return 0, fmt.Errorf("memory system not initialized")
+func upsertUser(discordID, username, displayName string) (int64, string, error) {
+	var (
+		id            int64
+		preferredName string
+	)
+	err := database.QueryRow("SELECT id, preferred_name FROM users WHERE discord_id = ?", discordID).Scan(&id, &preferredName)
+	if err == nil {
+		_, _ = database.Exec("UPDATE users SET username = ?, display_name = ? WHERE id = ?", username, displayName, id)
+		return id, effectiveName(preferredName, displayName, username), nil
+	}
+	if err != sql.ErrNoRows {
+		return 0, "", err
 	}
 
-	var userID int64
-	var username, displayName, preferredName string
-	err := database.QueryRow(
-		"SELECT id, username, display_name, preferred_name FROM users WHERE discord_id = ?",
-		discordID,
-	).Scan(&userID, &username, &displayName, &preferredName)
-	if err != nil {
-		return 0, fmt.Errorf("user not found: %w", err)
-	}
-
-	newName := effectiveName(preferredName, displayName, username)
-
-	rows, err := database.Query(
-		"SELECT id, fact_text FROM facts WHERE user_id = ? AND is_active = 1",
-		userID,
+	res, err := database.Exec(
+		"INSERT INTO users (discord_id, username, display_name) VALUES (?, ?, ?)",
+		discordID, username, displayName,
 	)
 	if err != nil {
-		return 0, err
+		return 0, "", err
 	}
-	defer rows.Close()
-
-	type factRow struct {
-		id   int64
-		text string
-	}
-	var toUpdate []factRow
-	for rows.Next() {
-		var f factRow
-		if err := rows.Scan(&f.id, &f.text); err != nil {
-			continue
-		}
-		// Try each known name variant as an exact prefix, longest first
-		candidates := []string{preferredName, displayName, username}
-		sort.Slice(candidates, func(i, j int) bool { return len(candidates[i]) > len(candidates[j]) })
-		var rest string
-		for _, c := range candidates {
-			if c != "" && strings.HasPrefix(f.text, c+" ") {
-				rest = f.text[len(c):]
-				break
-			}
-		}
-		if rest == "" {
-			continue // no prefix matched — skip rather than corrupt
-		}
-		if updated := newName + rest; updated != f.text {
-			toUpdate = append(toUpdate, factRow{id: f.id, text: updated})
-		}
-	}
-
-	if len(toUpdate) == 0 {
-		return 0, nil
-	}
-
-	tx, err := database.Begin()
-	if err != nil {
-		return 0, err
-	}
-	defer tx.Rollback()
-
-	stmt, err := tx.Prepare("UPDATE facts SET fact_text = ? WHERE id = ?")
-	if err != nil {
-		return 0, err
-	}
-	defer stmt.Close()
-
-	var count int64
-	for _, f := range toUpdate {
-		if _, err := stmt.Exec(f.text, f.id); err != nil {
-			log.Printf("memory: failed to update fact %d: %v", f.id, err)
-			continue
-		}
-		count++
-	}
-
-	if err := tx.Commit(); err != nil {
-		return 0, err
-	}
-	return count, nil
+	id, err = res.LastInsertId()
+	return id, effectiveName("", displayName, username), err
 }
 
-// RefreshAllFactNames refreshes fact name prefixes for every user that has active facts.
-func RefreshAllFactNames() (int64, error) {
-	if database == nil {
-		return 0, fmt.Errorf("memory system not initialized")
+func getUserIdentityByDiscordID(discordID string) (*userIdentity, error) {
+	var user userIdentity
+	err := database.QueryRow(`
+		SELECT id, discord_id, username, display_name, preferred_name
+		FROM users
+		WHERE discord_id = ?
+	`, discordID).Scan(&user.UserID, &user.DiscordID, &user.Username, &user.DisplayName, &user.PreferredName)
+	if err == sql.ErrNoRows {
+		return nil, nil
 	}
-
-	rows, err := database.Query("SELECT discord_id FROM users WHERE id IN (SELECT DISTINCT user_id FROM facts WHERE is_active = 1)")
 	if err != nil {
-		return 0, err
+		return nil, err
 	}
-	defer rows.Close()
+	return &user, nil
+}
 
-	var ids []string
-	for rows.Next() {
-		var id string
-		if err := rows.Scan(&id); err != nil {
+func getUserIdentityByID(userID int64) (*userIdentity, error) {
+	var user userIdentity
+	err := database.QueryRow(`
+		SELECT id, discord_id, username, display_name, preferred_name
+		FROM users
+		WHERE id = ?
+	`, userID).Scan(&user.UserID, &user.DiscordID, &user.Username, &user.DisplayName, &user.PreferredName)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &user, nil
+}
+
+func effectiveName(preferredName, displayName, username string) string {
+	if preferredName != "" {
+		return preferredName
+	}
+	if displayName != "" {
+		return displayName
+	}
+	return username
+}
+
+func emptyProfile(guildID string, userID int64) GuildUserProfile {
+	return GuildUserProfile{
+		GuildID:       guildID,
+		UserID:        userID,
+		Bio:           []ProfileFact{},
+		Interests:     []ProfileFact{},
+		Skills:        []ProfileFact{},
+		Opinions:      []ProfileFact{},
+		Relationships: []ProfileFact{},
+		Other:         []ProfileFact{},
+	}
+}
+
+func cloneProfile(profile GuildUserProfile) GuildUserProfile {
+	return GuildUserProfile{
+		GuildID:           profile.GuildID,
+		UserID:            profile.UserID,
+		Bio:               append([]ProfileFact(nil), profile.Bio...),
+		Interests:         append([]ProfileFact(nil), profile.Interests...),
+		Skills:            append([]ProfileFact(nil), profile.Skills...),
+		Opinions:          append([]ProfileFact(nil), profile.Opinions...),
+		Relationships:     append([]ProfileFact(nil), profile.Relationships...),
+		Other:             append([]ProfileFact(nil), profile.Other...),
+		IsDirty:           profile.IsDirty,
+		UpdatedAt:         profile.UpdatedAt,
+		LastFullRebuildAt: profile.LastFullRebuildAt,
+	}
+}
+
+func profileHasContent(profile *GuildUserProfile) bool {
+	if profile == nil {
+		return false
+	}
+	return len(profile.Bio)+len(profile.Interests)+len(profile.Skills)+len(profile.Opinions)+len(profile.Relationships)+len(profile.Other) > 0
+}
+
+func marshalProfileFacts(facts []ProfileFact) string {
+	b, err := json.Marshal(normalizeProfileFacts(facts))
+	if err != nil {
+		return "[]"
+	}
+	return string(b)
+}
+
+func unmarshalProfileFacts(raw string) ([]ProfileFact, error) {
+	if strings.TrimSpace(raw) == "" {
+		return nil, nil
+	}
+	var facts []ProfileFact
+	if err := json.Unmarshal([]byte(raw), &facts); err != nil {
+		return nil, err
+	}
+	return normalizeProfileFacts(facts), nil
+}
+
+func normalizeProfileFacts(facts []ProfileFact) []ProfileFact {
+	out := make([]ProfileFact, 0, len(facts))
+	for _, fact := range facts {
+		text := strings.TrimSpace(fact.Text)
+		if text == "" {
 			continue
 		}
-		ids = append(ids, id)
+		out = append(out, ProfileFact{
+			Text:          text,
+			SourceNoteIDs: dedupeInt64s(fact.SourceNoteIDs),
+		})
 	}
+	return out
+}
 
-	var total int64
+func marshalInt64Slice(ids []int64) string {
+	b, err := json.Marshal(dedupeInt64s(ids))
+	if err != nil {
+		return "[]"
+	}
+	return string(b)
+}
+
+func parseInt64Slice(raw string) ([]int64, error) {
+	if strings.TrimSpace(raw) == "" {
+		return nil, nil
+	}
+	var ids []int64
+	if err := json.Unmarshal([]byte(raw), &ids); err != nil {
+		return nil, err
+	}
+	return dedupeInt64s(ids), nil
+}
+
+func dedupeInt64s(ids []int64) []int64 {
+	if len(ids) == 0 {
+		return nil
+	}
+	seen := make(map[int64]struct{}, len(ids))
+	out := make([]int64, 0, len(ids))
 	for _, id := range ids {
-		count, err := RefreshFactNames(id)
-		if err != nil {
-			log.Printf("memory: failed to refresh names for %s: %v", id, err)
+		if id == 0 {
 			continue
 		}
-		total += count
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		seen[id] = struct{}{}
+		out = append(out, id)
 	}
-	return total, nil
+	sort.Slice(out, func(i, j int) bool { return out[i] < out[j] })
+	return out
 }
 
-// reinforceFact increments the reinforcement counter for a fact.
-func reinforceFact(factID int64) error {
-	_, err := database.Exec("UPDATE facts SET reinforcement_count = reinforcement_count + 1 WHERE id = ?", factID)
-	return err
+func quoteList(items []string) string {
+	if len(items) == 0 {
+		return "(none)"
+	}
+	return strings.Join(items, ", ")
 }
 
-// GetRecentFacts returns recently created active facts for the digest.
-func GetRecentFacts(limit int) []struct {
-	Username string
-	FactText string
-} {
-	if database == nil {
-		return nil
-	}
-
-	rows, err := database.Query(`
-		SELECT u.username, f.fact_text
-		FROM facts f
-		JOIN users u ON u.id = f.user_id
-		WHERE f.is_active = 1
-		ORDER BY f.created_at DESC
-		LIMIT ?
-	`, limit)
+func jsonString(v any) string {
+	b, err := json.Marshal(v)
 	if err != nil {
-		log.Printf("memory: failed to get recent facts: %v", err)
-		return nil
+		return "{}"
 	}
-	defer rows.Close()
-
-	type recentFact struct {
-		Username string
-		FactText string
-	}
-	var facts []struct {
-		Username string
-		FactText string
-	}
-	for rows.Next() {
-		var f struct {
-			Username string
-			FactText string
-		}
-		if err := rows.Scan(&f.Username, &f.FactText); err != nil {
-			continue
-		}
-		facts = append(facts, f)
-	}
-	return facts
+	return string(b)
 }

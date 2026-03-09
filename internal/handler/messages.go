@@ -4,7 +4,6 @@ import (
 	"encoding/base64"
 	"fmt"
 	"log"
-	"maps"
 	"strings"
 	"time"
 
@@ -41,10 +40,10 @@ func HandleMessage(s *discordgo.Session, m *discordgo.MessageCreate) {
 		return
 	}
 
-	// Background fact extraction for all non-bot messages
-	if !config.MemoryBlacklist[m.ChannelID] && m.Message.GuildID == config.MainServer {
-		extractContent := utility.ResolveMentions(m.Content, m.Mentions)
-		go memory.Extract(m.Author.ID, m.Author.Username, m.Author.GlobalName, m.ID, extractContent)
+	skipMemory := utility.ShouldSkipMemory(m.Content)
+	if !skipMemory && !config.MemoryBlacklist[m.ChannelID] && m.Message.GuildID == config.MainServer {
+		captureText := utility.ResolveMentions(m.Content, m.Mentions)
+		go memory.BufferMessage(m.ChannelID, m.GuildID, m.Author.ID, m.Author.Username, m.Author.GlobalName, captureText, m.ID)
 	}
 
 	c, err := openaiapi.GetClient()
@@ -96,7 +95,6 @@ func HandleMessage(s *discordgo.Session, m *discordgo.MessageCreate) {
 		PDFs:   pdfs,
 	}
 
-	skipMemory := utility.ShouldSkipMemory(m.Content)
 	if skipMemory {
 		content.Text = strings.ReplaceAll(content.Text, "🚫", "")
 	}
@@ -115,14 +113,33 @@ func HandleMessage(s *discordgo.Session, m *discordgo.MessageCreate) {
 		}
 	}
 
-	// Retrieve memory facts for users in the reply chain (not the whole channel)
 	users := map[string]string{m.Author.ID: m.Author.Username}
 	if isReply {
-		maps.Copy(users, utility.ReplyChainUsers(s, m.Message, cache))
+		for discordID, username := range utility.ReplyChainUsers(s, m.Message, cache) {
+			users[discordID] = username
+		}
+	}
+	mentionedUsers := make(map[string]string)
+	for _, mention := range m.Mentions {
+		if mention.Bot || mention.ID == s.State.User.ID {
+			continue
+		}
+		mentionedUsers[mention.ID] = mention.Username
 	}
 	var backgroundFacts string
-	if !skipMemory {
-		backgroundFacts = memory.RetrieveMultiUser(m.Content, users)
+	if !skipMemory && m.Message.GuildID == config.MainServer {
+		query := strings.TrimSpace(strings.Join([]string{
+			utility.AttachmentText(m.Message),
+			utility.EmbedText(m.Message),
+			m.Message.Content,
+		}, " "))
+		backgroundFacts = memory.BuildPromptContext(memory.RetrieveRequest{
+			GuildID:           m.GuildID,
+			ChannelID:         m.ChannelID,
+			Query:             query,
+			ConversationUsers: users,
+			MentionedUsers:    mentionedUsers,
+		})
 	}
 
 	err = openaiapi.StreamMessageResponse(s, c, m.Message, chatMessages, previousResponseID, backgroundFacts)

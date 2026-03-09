@@ -1,32 +1,50 @@
 package db
 
-import (
-	"testing"
-)
+import "testing"
 
-func TestCreateMemoryTables(t *testing.T) {
-	// Open an in-memory DB using the same Open logic
+func TestCreateMemoryV2Tables(t *testing.T) {
 	Open(":memory:")
 	defer Close()
 
-	// Verify users table exists
-	_, err := DB.Exec("INSERT INTO users (discord_id, username) VALUES ('123', 'testuser')")
-	if err != nil {
+	if _, err := DB.Exec("INSERT INTO users (discord_id, username, display_name, preferred_name) VALUES ('123', 'testuser', 'Test User', 'Tester')"); err != nil {
 		t.Fatalf("users table not created: %v", err)
 	}
 
-	// Verify facts table exists
-	_, err = DB.Exec("INSERT INTO facts (user_id, original_message_id, fact_text) VALUES (1, 'msg1', 'likes cats')")
-	if err != nil {
-		t.Fatalf("facts table not created: %v", err)
+	if _, err := DB.Exec(`
+		INSERT INTO interaction_notes (guild_id, channel_id, note_type, title, summary, note_date)
+		VALUES ('guild-1', 'channel-1', 'conversation', 'Test note', 'Summary', '2026-02-25')
+	`); err != nil {
+		t.Fatalf("interaction_notes table not created: %v", err)
 	}
 
-	// Verify vec_facts virtual table exists by inserting a zero vector
-	// sqlite-vec accepts raw little-endian float32 bytes
-	zeroVec := make([]byte, 1536*4) // 1536 float32s = 6144 bytes
-	_, err = DB.Exec("INSERT INTO vec_facts (fact_id, embedding) VALUES (1, ?)", zeroVec)
-	if err != nil {
-		t.Fatalf("vec_facts table not created: %v", err)
+	if _, err := DB.Exec("INSERT INTO note_participants (note_id, participant_user_id) VALUES (1, 1)"); err != nil {
+		t.Fatalf("note_participants table not created: %v", err)
+	}
+
+	zeroVec := make([]byte, 1536*4)
+	if _, err := DB.Exec("INSERT INTO vec_notes (note_id, embedding) VALUES (1, ?)", zeroVec); err != nil {
+		t.Fatalf("vec_notes table not created: %v", err)
+	}
+
+	if _, err := DB.Exec(`
+		INSERT INTO guild_user_profiles (guild_id, user_id, bio)
+		VALUES ('guild-1', 1, '[{"text":"Lives in Austin.","source_note_ids":[1]}]')
+	`); err != nil {
+		t.Fatalf("guild_user_profiles table not created: %v", err)
+	}
+
+	if _, err := DB.Exec(`
+		INSERT INTO channel_buffers (channel_id, guild_id, messages)
+		VALUES ('channel-1', 'guild-1', '[]')
+	`); err != nil {
+		t.Fatalf("channel_buffers table not created: %v", err)
+	}
+
+	if _, err := DB.Exec(`
+		INSERT INTO memory_job_runs (guild_id, job_date, phase, status)
+		VALUES ('guild-1', '2026-02-25', 'cluster', 'completed')
+	`); err != nil {
+		t.Fatalf("memory_job_runs table not created: %v", err)
 	}
 }
 
@@ -58,7 +76,6 @@ func TestGameStateTable(t *testing.T) {
 		t.Fatalf("game_state table not created: %v", err)
 	}
 
-	// Only one row allowed (CHECK id = 1)
 	_, err = DB.Exec("INSERT INTO game_state (id, data) VALUES (2, '{}')")
 	if err == nil {
 		t.Error("expected error when inserting game_state with id != 1, got nil")
@@ -69,13 +86,11 @@ func TestGameStateInsertOrReplace(t *testing.T) {
 	Open(":memory:")
 	defer Close()
 
-	// Insert initial state
 	_, err := DB.Exec("INSERT OR REPLACE INTO game_state (id, data) VALUES (1, '{\"rounds\":[]}')")
 	if err != nil {
 		t.Fatalf("initial game_state insert failed: %v", err)
 	}
 
-	// Replace with new state
 	_, err = DB.Exec("INSERT OR REPLACE INTO game_state (id, data) VALUES (1, '{\"rounds\":[1,2]}')")
 	if err != nil {
 		t.Fatalf("game_state replace failed: %v", err)
@@ -91,53 +106,25 @@ func TestGameStateInsertOrReplace(t *testing.T) {
 	}
 }
 
-func TestUsersTableMigrationColumns(t *testing.T) {
+func TestUsersTableColumns(t *testing.T) {
 	Open(":memory:")
 	defer Close()
 
-	// Verify migrated columns exist by using them
 	_, err := DB.Exec("INSERT INTO users (discord_id, username, display_name, preferred_name) VALUES ('999', 'migrated', 'Display Name', 'Preferred')")
 	if err != nil {
-		t.Fatalf("users table missing migrated columns: %v", err)
+		t.Fatalf("users table missing expected columns: %v", err)
 	}
 
 	var displayName, preferredName string
 	err = DB.QueryRow("SELECT display_name, preferred_name FROM users WHERE discord_id = '999'").Scan(&displayName, &preferredName)
 	if err != nil {
-		t.Fatalf("failed to query migrated columns: %v", err)
+		t.Fatalf("failed to query user columns: %v", err)
 	}
 	if displayName != "Display Name" {
 		t.Errorf("display_name = %q, want %q", displayName, "Display Name")
 	}
 	if preferredName != "Preferred" {
 		t.Errorf("preferred_name = %q, want %q", preferredName, "Preferred")
-	}
-}
-
-func TestFactsTableDefaultValues(t *testing.T) {
-	Open(":memory:")
-	defer Close()
-
-	_, err := DB.Exec("INSERT INTO users (discord_id, username) VALUES ('u1', 'testuser')")
-	if err != nil {
-		t.Fatalf("failed to insert user: %v", err)
-	}
-
-	_, err = DB.Exec("INSERT INTO facts (user_id, original_message_id, fact_text) VALUES (1, 'msg_default', 'test fact')")
-	if err != nil {
-		t.Fatalf("failed to insert fact: %v", err)
-	}
-
-	var isActive, reinforcementCount int
-	err = DB.QueryRow("SELECT is_active, reinforcement_count FROM facts WHERE original_message_id = 'msg_default'").Scan(&isActive, &reinforcementCount)
-	if err != nil {
-		t.Fatalf("failed to query fact defaults: %v", err)
-	}
-	if isActive != 1 {
-		t.Errorf("is_active default = %d, want 1", isActive)
-	}
-	if reinforcementCount != 0 {
-		t.Errorf("reinforcement_count default = %d, want 0", reinforcementCount)
 	}
 }
 
@@ -157,48 +144,36 @@ func TestUserDiscordIDUnique(t *testing.T) {
 }
 
 func TestCloseNilSafe(t *testing.T) {
-	// Verify Close is safe when DB is nil
 	DB = nil
-	Close() // should not panic
+	Close()
 }
 
-func TestVecFactsQueryable(t *testing.T) {
+func TestVecNotesQueryable(t *testing.T) {
 	Open(":memory:")
 	defer Close()
 
-	// Insert user and fact first
-	_, err := DB.Exec("INSERT INTO users (discord_id, username) VALUES ('v1', 'vecuser')")
-	if err != nil {
-		t.Fatalf("failed to insert user: %v", err)
-	}
-	_, err = DB.Exec("INSERT INTO facts (user_id, original_message_id, fact_text) VALUES (1, 'vmsg', 'vector fact')")
-	if err != nil {
-		t.Fatalf("failed to insert fact: %v", err)
+	if _, err := DB.Exec("INSERT INTO interaction_notes (guild_id, note_type, title, summary, note_date) VALUES ('g1', 'conversation', 'Note', 'Summary', '2026-02-25')"); err != nil {
+		t.Fatalf("failed to insert note: %v", err)
 	}
 
-	// Insert embedding for the fact
 	zeroVec := make([]byte, 1536*4)
-	_, err = DB.Exec("INSERT INTO vec_facts (fact_id, embedding) VALUES (1, ?)", zeroVec)
-	if err != nil {
-		t.Fatalf("failed to insert vec_facts row: %v", err)
+	if _, err := DB.Exec("INSERT INTO vec_notes (note_id, embedding) VALUES (1, ?)", zeroVec); err != nil {
+		t.Fatalf("failed to insert vec_notes row: %v", err)
 	}
 
-	// Verify we can query it back
-	var factID int
-	err = DB.QueryRow("SELECT fact_id FROM vec_facts WHERE fact_id = 1").Scan(&factID)
-	if err != nil {
-		t.Fatalf("failed to query vec_facts: %v", err)
+	var noteID int
+	if err := DB.QueryRow("SELECT note_id FROM vec_notes WHERE note_id = 1").Scan(&noteID); err != nil {
+		t.Fatalf("failed to query vec_notes: %v", err)
 	}
-	if factID != 1 {
-		t.Errorf("vec_facts fact_id = %d, want 1", factID)
+	if noteID != 1 {
+		t.Errorf("vec_notes note_id = %d, want 1", noteID)
 	}
 }
 
 func TestOpenMemoryIsolatedAcrossCalls(t *testing.T) {
 	Open(":memory:")
 
-	_, err := DB.Exec("INSERT INTO users (discord_id, username) VALUES ('isolated', 'first')")
-	if err != nil {
+	if _, err := DB.Exec("INSERT INTO users (discord_id, username) VALUES ('isolated', 'first')"); err != nil {
 		t.Fatalf("failed to insert into first in-memory DB: %v", err)
 	}
 
@@ -206,8 +181,7 @@ func TestOpenMemoryIsolatedAcrossCalls(t *testing.T) {
 	defer Close()
 
 	var count int
-	err = DB.QueryRow("SELECT COUNT(*) FROM users WHERE discord_id = 'isolated'").Scan(&count)
-	if err != nil {
+	if err := DB.QueryRow("SELECT COUNT(*) FROM users WHERE discord_id = 'isolated'").Scan(&count); err != nil {
 		t.Fatalf("failed to query second in-memory DB: %v", err)
 	}
 	if count != 0 {

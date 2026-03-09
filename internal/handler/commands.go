@@ -671,31 +671,38 @@ var Commands = map[string]func(s *discordgo.Session, i *discordgo.InteractionCre
 			return
 		}
 
-		facts := memory.GetUserFacts(user.ID)
-		if len(facts) == 0 {
-			_, err := discord.SendFollowup(s, i, fmt.Sprintf("No facts stored for %s.", user.Username))
+		profile, err := memory.GetGuildUserProfile(i.GuildID, user.ID)
+		if err != nil {
+			_, err := discord.SendFollowup(s, i, fmt.Sprintf("Error: %v", err))
 			if err != nil {
 				log.Println(err)
 			}
 			return
 		}
 
-		var sb strings.Builder
-		sb.WriteString(fmt.Sprintf("**Facts about %s** (%d total):\n", user.Username, len(facts)))
-		for _, f := range facts {
-			reinforcement := ""
-			if f.ReinforcementCount > 0 {
-				reinforcement = fmt.Sprintf(" [x%d]", f.ReinforcementCount)
+		var message string
+		if profile != nil {
+			message = memory.RenderProfileMarkdown(profile, user.Username)
+		} else {
+			notes, err := memory.GetRecentConversationNotesForUser(i.GuildID, user.ID, 3)
+			if err != nil {
+				_, err := discord.SendFollowup(s, i, fmt.Sprintf("Error: %v", err))
+				if err != nil {
+					log.Println(err)
+				}
+				return
 			}
-			sb.WriteString(fmt.Sprintf("- %s%s\n", f.FactText, reinforcement))
+			if len(notes) == 0 {
+				message = fmt.Sprintf("No guild-scoped memory stored for %s.", user.Username)
+			} else {
+				message = fmt.Sprintf("No cached profile for %s.\n\n%s", user.Username, memory.RenderNotesMarkdown(notes))
+			}
 		}
-
-		message := sb.String()
 		if len(message) > 2000 {
 			message = message[:1997] + "..."
 		}
 
-		_, err := discord.SendFollowup(s, i, message)
+		_, err = discord.SendFollowup(s, i, message)
 		if err != nil {
 			log.Println(err)
 		}
@@ -719,16 +726,16 @@ var Commands = map[string]func(s *discordgo.Session, i *discordgo.InteractionCre
 			}
 		}
 
-		var count int64
 		var err error
 		var message string
 
 		if user != nil {
-			count, err = memory.DeleteUserFacts(user.ID)
-			message = fmt.Sprintf("Deleted %d facts for %s.", count, user.Username)
+			err = memory.DeleteUserMemory(i.GuildID, user.ID)
+			message = fmt.Sprintf("Deleted guild-scoped memory for %s.", user.Username)
 		} else {
-			count, err = memory.DeleteAllFacts()
-			message = fmt.Sprintf("Deleted %d facts for all users.", count)
+			count := memory.CountGuildNotes(i.GuildID)
+			err = memory.DeleteAllGuildMemory(i.GuildID)
+			message = fmt.Sprintf("Deleted %d note(s) of guild-scoped memory.", count)
 		}
 
 		if err != nil {
@@ -748,27 +755,38 @@ var Commands = map[string]func(s *discordgo.Session, i *discordgo.InteractionCre
 		log.Printf("Received interaction: %s by %s", i.ApplicationCommandData().Name, i.Interaction.Member.User.Username)
 		discord.DeferEphemeralResponse(s, i)
 
-		facts := memory.GetUserFacts(i.Interaction.Member.User.ID)
-		if len(facts) == 0 {
-			_, err := discord.SendFollowup(s, i, "I don't have any facts stored about you yet!")
+		profile, err := memory.GetGuildUserProfile(i.GuildID, i.Interaction.Member.User.ID)
+		if err != nil {
+			_, err := discord.SendFollowup(s, i, fmt.Sprintf("Error: %v", err))
 			if err != nil {
 				log.Println(err)
 			}
 			return
 		}
 
-		var sb strings.Builder
-		sb.WriteString(fmt.Sprintf("**What I know about you** (%d facts):\n", len(facts)))
-		for _, f := range facts {
-			sb.WriteString(fmt.Sprintf("- %s\n", f.FactText))
+		message := ""
+		if profile != nil {
+			message = memory.RenderProfileMarkdown(profile, i.Interaction.Member.User.Username)
+		} else {
+			notes, err := memory.GetRecentConversationNotesForUser(i.GuildID, i.Interaction.Member.User.ID, 3)
+			if err != nil {
+				_, err := discord.SendFollowup(s, i, fmt.Sprintf("Error: %v", err))
+				if err != nil {
+					log.Println(err)
+				}
+				return
+			}
+			if len(notes) == 0 {
+				message = "I don't have any guild-scoped memory stored about you yet."
+			} else {
+				message = "I don't have a cached profile for you yet.\n\n" + memory.RenderNotesMarkdown(notes)
+			}
 		}
-
-		message := sb.String()
 		if len(message) > 2000 {
 			message = message[:1997] + "..."
 		}
 
-		_, err := discord.SendFollowup(s, i, message)
+		_, err = discord.SendFollowup(s, i, message)
 		if err != nil {
 			log.Println(err)
 		}
@@ -785,37 +803,28 @@ var Commands = map[string]func(s *discordgo.Session, i *discordgo.InteractionCre
 			return
 		}
 
-		recentFacts := memory.GetRecentFacts(20)
-		if len(recentFacts) == 0 {
-			_, err := discord.SendFollowup(s, i, "No facts learned recently!")
+		notes, err := memory.GetRecentGuildNotes(i.GuildID, 10)
+		if err != nil {
+			_, err := discord.SendFollowup(s, i, fmt.Sprintf("Error: %v", err))
+			if err != nil {
+				log.Println(err)
+			}
+			return
+		}
+		if len(notes) == 0 {
+			_, err := discord.SendFollowup(s, i, "No guild-scoped memory has been captured yet.")
 			if err != nil {
 				log.Println(err)
 			}
 			return
 		}
 
-		// Group facts by user
-		userFacts := make(map[string][]string)
-		for _, f := range recentFacts {
-			userFacts[f.Username] = append(userFacts[f.Username], f.FactText)
-		}
-
-		var sb strings.Builder
-		sb.WriteString("**Memory Digest** — Here's what I've learned recently:\n\n")
-		for username, facts := range userFacts {
-			sb.WriteString(fmt.Sprintf("**%s:**\n", username))
-			for _, fact := range facts {
-				sb.WriteString(fmt.Sprintf("- %s\n", fact))
-			}
-			sb.WriteString("\n")
-		}
-
-		message := sb.String()
+		message := memory.RenderNotesMarkdown(notes)
 		if len(message) > 2000 {
 			message = message[:1997] + "..."
 		}
 
-		_, err := discord.SendFollowup(s, i, message)
+		_, err = discord.SendFollowup(s, i, message)
 		if err != nil {
 			log.Println(err)
 		}
@@ -876,50 +885,6 @@ var Commands = map[string]func(s *discordgo.Session, i *discordgo.InteractionCre
 
 		msg := fmt.Sprintf("Set preferred name for %s to **%s**.", targetUser.Username, name)
 		_, err := discord.SendFollowup(s, i, msg)
-		if err != nil {
-			log.Println(err)
-		}
-	},
-	"memory_admin_refreshnames": func(s *discordgo.Session, i *discordgo.InteractionCreate) {
-		log.Printf("Received interaction: %s by %s", i.ApplicationCommandData().Name, i.Interaction.Member.User.Username)
-		discord.DeferEphemeralResponse(s, i)
-
-		if !utility.IsAdmin(i.Interaction.Member.User.ID) {
-			_, err := discord.SendFollowup(s, i, "Only admins can use this command!")
-			if err != nil {
-				log.Println(err)
-			}
-			return
-		}
-
-		var user *discordgo.User
-		for _, option := range i.ApplicationCommandData().Options {
-			if option.Name == "user" {
-				user = option.UserValue(s)
-			}
-		}
-
-		var count int64
-		var err error
-		var message string
-
-		if user != nil {
-			count, err = memory.RefreshFactNames(user.ID)
-			message = fmt.Sprintf("Updated %d facts for %s.", count, user.Username)
-		} else {
-			count, err = memory.RefreshAllFactNames()
-			message = fmt.Sprintf("Updated %d facts across all users.", count)
-		}
-
-		if err != nil {
-			_, err := discord.SendFollowup(s, i, fmt.Sprintf("Error: %v", err))
-			if err != nil {
-				log.Println(err)
-			}
-			return
-		}
-
-		_, err = discord.SendFollowup(s, i, message)
 		if err != nil {
 			log.Println(err)
 		}

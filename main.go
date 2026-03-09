@@ -79,7 +79,7 @@ func main() {
 		log.Printf("Logged in as: %v#%v", s.State.User.Username, s.State.User.Discriminator)
 		log.Printf("Hashes: %d", hasher.TotalHashes())
 		log.Printf("Rounds: %d", gamble.GameState.TotalRounds())
-		log.Printf("Active facts: %d", memory.TotalFacts())
+		log.Printf("Stored notes: %d", memory.TotalNotes())
 		log.Printf("Active reminders: %d", reminder.TotalActive())
 	})
 
@@ -122,6 +122,7 @@ func main() {
 	<-sc
 
 	defer db.Close()
+	defer memory.Shutdown()
 	defer dg.Close()
 	defer log.Print("Bot is shutting down.")
 }
