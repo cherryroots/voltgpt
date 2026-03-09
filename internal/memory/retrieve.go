@@ -57,6 +57,8 @@ func BuildPromptContext(req RetrieveRequest) string {
 	}
 
 	var renderedUsers []renderedUser
+	fallbackUsers := 0
+	rebuildsQueued := 0
 	for userID := range selectedUsers {
 		user, err := getUserIdentityByID(userID)
 		if err != nil || user == nil {
@@ -76,6 +78,7 @@ func BuildPromptContext(req RetrieveRequest) string {
 			continue
 		}
 
+		fallbackUsers++
 		fallbackNotes, err := getRecentConversationNotesForUser(req.GuildID, userID, recentUserFallbackNoteLimit)
 		if err != nil {
 			log.Printf("memory: failed to load fallback notes for user %d: %v", userID, err)
@@ -85,6 +88,7 @@ func BuildPromptContext(req RetrieveRequest) string {
 			selectedNotes[note.ID] = note
 		}
 		if enabled {
+			rebuildsQueued++
 			go func(guildID string, userID int64) {
 				if err := rebuildOneGuildProfile(guildID, userID); err != nil {
 					log.Printf("memory: background profile rebuild failed for user %d: %v", userID, err)
@@ -105,7 +109,20 @@ func BuildPromptContext(req RetrieveRequest) string {
 		return ""
 	}
 
-	return renderPromptContext(renderedUsers, topics, renderedNotes)
+	contextText := renderPromptContext(renderedUsers, topics, renderedNotes)
+	log.Printf(
+		"memory: prompt_context guild=%s channel=%s users=%d %s topics=%d notes=%d fallback_users=%d rebuilds_queued=%d bytes=%d",
+		req.GuildID,
+		req.ChannelID,
+		len(renderedUsers),
+		profileCountLogFields("", countRenderedUserFacts(renderedUsers)),
+		len(topics),
+		len(renderedNotes),
+		fallbackUsers,
+		rebuildsQueued,
+		len(contextText),
+	)
+	return contextText
 }
 
 func searchRelevantNotes(guildID, channelID, noteType string, embedding []float32, limit int) ([]InteractionNote, error) {

@@ -166,6 +166,45 @@ func TestInsertNoteAndProfileRoundTrip(t *testing.T) {
 	}
 }
 
+func TestWriteGuildUserProfileCompactsOversizedProfile(t *testing.T) {
+	setupTestDB(t)
+
+	userID, _, err := upsertUser("discord-compact", "compact", "Compact")
+	if err != nil {
+		t.Fatalf("upsertUser: %v", err)
+	}
+
+	profile := emptyProfile("guild-compact", userID)
+	longFact := strings.TrimSpace(strings.Repeat("word ", profileMaxFactWords+5))
+	for i := 0; i < profileMaxBioFacts+1; i++ {
+		profile.Bio = append(profile.Bio, ProfileFact{
+			Text:          longFact,
+			SourceNoteIDs: []int64{1, 2, 3, 4, 5, 5},
+		})
+	}
+
+	if err := writeGuildUserProfile(profile); err != nil {
+		t.Fatalf("writeGuildUserProfile: %v", err)
+	}
+
+	loaded, err := GetGuildUserProfile("guild-compact", "discord-compact")
+	if err != nil {
+		t.Fatalf("GetGuildUserProfile: %v", err)
+	}
+	if loaded == nil {
+		t.Fatal("expected compacted profile")
+	}
+	if got := len(loaded.Bio); got != profileMaxBioFacts {
+		t.Fatalf("bio facts after compaction = %d, want %d", got, profileMaxBioFacts)
+	}
+	if got := len(strings.Fields(loaded.Bio[0].Text)); got != profileMaxFactWords {
+		t.Fatalf("word count after compaction = %d, want %d", got, profileMaxFactWords)
+	}
+	if got := len(loaded.Bio[0].SourceNoteIDs); got != profileMaxSourceNoteIDs {
+		t.Fatalf("source note IDs after compaction = %d, want %d", got, profileMaxSourceNoteIDs)
+	}
+}
+
 func TestBufferFlushCreatesConversationNoteAndProfile(t *testing.T) {
 	setupTestDB(t)
 
@@ -221,6 +260,116 @@ func TestBufferFlushCreatesConversationNoteAndProfile(t *testing.T) {
 	}
 	if profile == nil || len(profile.Other) != 1 {
 		t.Fatalf("unexpected profile after flush: %+v", profile)
+	}
+}
+
+func TestBufferFlushMarksProfileDirtyWhenIncrementalResultExceedsBudget(t *testing.T) {
+	setupTestDB(t)
+
+	setEmbedText(t, func(context.Context, string) ([]float32, error) {
+		return testEmbedding(), nil
+	})
+	setConversationNoteGenerator(t, func(context.Context, string, string, []bufMsg) (generatedConversationNote, error) {
+		return generatedConversationNote{
+			Title:   "Budget chat",
+			Summary: "Alice generated too many profile facts.",
+		}, nil
+	})
+	setIncrementalProfileUpdater(t, func(_ context.Context, current GuildUserProfile, note InteractionNote, target userIdentity) (profileUpdateResult, error) {
+		current.GuildID = note.GuildID
+		current.UserID = target.UserID
+		for i := 0; i < profileMaxOtherFacts+profileHysteresisExtraFacts+1; i++ {
+			current.Other = append(current.Other, ProfileFact{
+				Text:          "Keeps adding profile facts.",
+				SourceNoteIDs: []int64{note.ID},
+			})
+		}
+		return profileUpdateResult{Profile: current}, nil
+	})
+
+	err := flushBufferData(&channelBuffer{
+		ChannelID: "channel-budget",
+		GuildID:   "guild-budget",
+		StartedAt: contextDeadlineTime(),
+		UpdatedAt: contextDeadlineTime(),
+		Messages: []bufMsg{
+			{
+				DiscordID:   "discord-budget",
+				Username:    "alice",
+				DisplayName: "Alice",
+				Text:        "This message is long enough to create a conversation note and trigger the oversized profile path without any ambiguity in the test setup.",
+				MessageID:   "budget-1",
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("flushBufferData: %v", err)
+	}
+
+	profile, err := GetGuildUserProfile("guild-budget", "discord-budget")
+	if err != nil {
+		t.Fatalf("GetGuildUserProfile: %v", err)
+	}
+	if profile == nil || !profile.IsDirty {
+		t.Fatalf("expected dirty profile marker after oversized incremental update, got %+v", profile)
+	}
+	if got := len(profile.Other); got != 0 {
+		t.Fatalf("expected no oversized facts to be written, got %d", got)
+	}
+}
+
+func TestBufferFlushCompactsSlightlyOversizedIncrementalResultWithinHysteresis(t *testing.T) {
+	setupTestDB(t)
+
+	setEmbedText(t, func(context.Context, string) ([]float32, error) {
+		return testEmbedding(), nil
+	})
+	setConversationNoteGenerator(t, func(context.Context, string, string, []bufMsg) (generatedConversationNote, error) {
+		return generatedConversationNote{
+			Title:   "Compact chat",
+			Summary: "Alice generated a slightly oversized profile.",
+		}, nil
+	})
+	setIncrementalProfileUpdater(t, func(_ context.Context, current GuildUserProfile, note InteractionNote, target userIdentity) (profileUpdateResult, error) {
+		current.GuildID = note.GuildID
+		current.UserID = target.UserID
+		for i := 0; i < profileMaxOtherFacts+1; i++ {
+			current.Other = append(current.Other, ProfileFact{
+				Text:          "Keeps adding profile facts.",
+				SourceNoteIDs: []int64{note.ID},
+			})
+		}
+		return profileUpdateResult{Profile: current}, nil
+	})
+
+	err := flushBufferData(&channelBuffer{
+		ChannelID: "channel-budget-compact",
+		GuildID:   "guild-budget-compact",
+		StartedAt: contextDeadlineTime(),
+		UpdatedAt: contextDeadlineTime(),
+		Messages: []bufMsg{
+			{
+				DiscordID:   "discord-budget-compact",
+				Username:    "alice",
+				DisplayName: "Alice",
+				Text:        "This message is long enough to create a conversation note and verify that a slight overflow is compacted rather than forcing a rebuild.",
+				MessageID:   "budget-compact-1",
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("flushBufferData: %v", err)
+	}
+
+	profile, err := GetGuildUserProfile("guild-budget-compact", "discord-budget-compact")
+	if err != nil {
+		t.Fatalf("GetGuildUserProfile: %v", err)
+	}
+	if profile == nil || profile.IsDirty {
+		t.Fatalf("expected compacted clean profile, got %+v", profile)
+	}
+	if got := len(profile.Other); got != profileMaxOtherFacts {
+		t.Fatalf("compacted other facts = %d, want %d", got, profileMaxOtherFacts)
 	}
 }
 
@@ -376,6 +525,63 @@ func TestClusterAndDeleteFlows(t *testing.T) {
 	}
 	if profile != nil {
 		t.Fatalf("expected deleted profile to be gone, got %+v", profile)
+	}
+}
+
+func TestRebuildDirtyProfilesCompactsOversizedRebuildOutput(t *testing.T) {
+	setupTestDB(t)
+
+	userID, _, err := upsertUser("discord-rebuild-compact", "rebuildcompact", "Rebuild Compact")
+	if err != nil {
+		t.Fatalf("upsertUser: %v", err)
+	}
+
+	noteID, err := insertNote(InteractionNote{
+		GuildID:   "guild-rebuild-compact",
+		ChannelID: "channel-1",
+		NoteType:  noteTypeConversation,
+		Title:     "Compact chat",
+		Summary:   "Rebuild compaction should keep profiles bounded.",
+		NoteDate:  "2026-03-08",
+	}, []int64{userID}, testEmbedding())
+	if err != nil {
+		t.Fatalf("insertNote: %v", err)
+	}
+
+	setProfileRebuilder(t, func(_ context.Context, guildID string, target userIdentity, notes []InteractionNote) (GuildUserProfile, error) {
+		profile := emptyProfile(guildID, target.UserID)
+		longFact := strings.TrimSpace(strings.Repeat("detail ", profileMaxFactWords+4))
+		for i := 0; i < profileMaxOtherFacts+2; i++ {
+			profile.Other = append(profile.Other, ProfileFact{
+				Text:          longFact,
+				SourceNoteIDs: []int64{noteID, noteID + 1, noteID + 2, noteID + 3, noteID + 4},
+			})
+		}
+		return profile, nil
+	})
+
+	if err := markProfileDirty("guild-rebuild-compact", userID); err != nil {
+		t.Fatalf("markProfileDirty: %v", err)
+	}
+	if err := rebuildDirtyProfiles("guild-rebuild-compact"); err != nil {
+		t.Fatalf("rebuildDirtyProfiles: %v", err)
+	}
+
+	profile, err := GetGuildUserProfile("guild-rebuild-compact", "discord-rebuild-compact")
+	if err != nil {
+		t.Fatalf("GetGuildUserProfile: %v", err)
+	}
+	if profile == nil || profile.IsDirty {
+		t.Fatalf("expected rebuilt clean compacted profile, got %+v", profile)
+	}
+	if got := len(profile.Other); got != profileMaxOtherFacts {
+		t.Fatalf("other facts after rebuild compaction = %d, want %d", got, profileMaxOtherFacts)
+	}
+	if got := len(strings.Fields(profile.Other[0].Text)); got != profileMaxFactWords {
+		t.Fatalf("rebuilt fact word count = %d, want %d", got, profileMaxFactWords)
+	}
+	if got := len(profile.Other[0].SourceNoteIDs); got != profileMaxSourceNoteIDs {
+		t.Fatalf("rebuilt fact source note IDs = %d, want %d", got, profileMaxSourceNoteIDs)
 	}
 }
 

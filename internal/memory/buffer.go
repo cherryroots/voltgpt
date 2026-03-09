@@ -375,6 +375,12 @@ func processBuffer(buf *channelBuffer) error {
 			continue
 		}
 		if result.MarkDirty {
+			log.Printf(
+				"memory: profile_dirty reason=llm_mark_dirty guild=%s user=%d note=%d",
+				note.GuildID,
+				participant.UserID,
+				note.ID,
+			)
 			_ = markProfileDirty(note.GuildID, participant.UserID)
 			continue
 		}
@@ -382,6 +388,18 @@ func processBuffer(buf *channelBuffer) error {
 		result.Profile.GuildID = note.GuildID
 		result.Profile.UserID = participant.UserID
 		result.Profile.IsDirty = false
+		if profileExceedsHysteresisBudget(result.Profile) {
+			counts := countProfileFacts(result.Profile)
+			log.Printf(
+				"memory: profile_dirty reason=hysteresis_overflow guild=%s user=%d note=%d %s",
+				note.GuildID,
+				participant.UserID,
+				note.ID,
+				profileCountLogFields("", counts),
+			)
+			_ = markProfileDirty(note.GuildID, participant.UserID)
+			continue
+		}
 		if err := writeGuildUserProfile(result.Profile); err != nil {
 			log.Printf("memory: failed to write profile for user %d: %v", participant.UserID, err)
 			_ = markProfileDirty(note.GuildID, participant.UserID)

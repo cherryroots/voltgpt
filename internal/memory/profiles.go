@@ -123,6 +123,20 @@ func getGuildUserProfileByUserID(guildID string, userID int64) (*GuildUserProfil
 }
 
 func writeGuildUserProfile(profile GuildUserProfile) error {
+	profile, compaction := compactProfileWithStats(profile)
+	if compaction.changed() {
+		log.Printf(
+			"memory: profile_compaction guild=%s user=%d %s %s facts_dropped=%d text_facts_trimmed=%d source_refs_trimmed=%d",
+			profile.GuildID,
+			profile.UserID,
+			profileCountLogFields("before_", compaction.Before),
+			profileCountLogFields("after_", compaction.After),
+			compaction.factsDropped(),
+			compaction.TextFactsTrimmed,
+			compaction.SourceRefsTrimmed,
+		)
+	}
+
 	var lastFullRebuild any
 	if strings.TrimSpace(profile.LastFullRebuildAt) != "" {
 		lastFullRebuild = profile.LastFullRebuildAt
@@ -272,7 +286,42 @@ func renderProfileSectionMarkdown(sb *strings.Builder, title string, facts []Pro
 	sb.WriteByte('\n')
 }
 
-const incrementalProfileSystemPrompt = `You update one guild-scoped user profile using a single new conversation note.
+const profileSectionGuidance = `
+
+Section guidance:
+- bio: stable identity or background facts such as role, location, long-lived life context, or enduring setup.
+- interests: recurring hobbies, fandoms, media tastes, topics, and activities the user repeatedly enjoys.
+- skills: demonstrated abilities, expertise, or tools the user can actually use well; do not treat aspirations as skills.
+- opinions: durable preferences, stances, likes, dislikes, or repeated comparisons the user seems to hold.
+- relationships: stable connections to other people or groups, including family, friends, coworkers, teammates, or recurring guild dynamics.
+- other: durable constraints, habits, routines, recurring projects, or important facts that do not fit the sections above.
+- Leave a section empty rather than forcing weak evidence into it.
+- Never duplicate the same fact across multiple sections.
+- Do not store one-off plans, temporary status, current-session chatter, jokes, or throwaway remarks unless they clearly recur or define the user.`
+
+func profileCompactnessRule(prefix string) string {
+	return fmt.Sprintf(
+		"- %s compact: bio<=%d, interests<=%d, skills<=%d, opinions<=%d, relationships<=%d, other<=%d.",
+		prefix,
+		profileMaxBioFacts,
+		profileMaxInterestFacts,
+		profileMaxSkillFacts,
+		profileMaxOpinionFacts,
+		profileMaxRelationshipFacts,
+		profileMaxOtherFacts,
+	)
+}
+
+func profileFactLengthRule() string {
+	return fmt.Sprintf(
+		"- Keep each fact to %d words or fewer and each source_note_ids array to %d note IDs or fewer.",
+		profileMaxFactWords,
+		profileMaxSourceNoteIDs,
+	)
+}
+
+func incrementalProfileSystemPrompt() string {
+	return `You update one guild-scoped user profile using a single new conversation note.` + profileSectionGuidance + `
 
 Rules:
 - Only keep facts about the target user.
@@ -280,8 +329,32 @@ Rules:
 - Return the full updated profile sections, not a patch.
 - Keep and merge source_note_ids when facts overlap.
 - Use concise third-person facts.
-- If the note is too ambiguous, set mark_dirty=true and leave the sections unchanged.
+- Prefer durable, high-signal facts over stale or transient trivia.
+- Order facts within each section from most durable/high-signal to least.
+` + profileCompactnessRule("Keep the profile") + `
+` + profileFactLengthRule() + `
+- If a new note is weak, one-off, or ambiguous, prefer not to promote it into the profile.
+- If the note is too ambiguous or the updated profile would exceed those limits, set mark_dirty=true and leave the sections unchanged.
 - Do not invent facts.`
+}
+
+func rebuildProfileSystemPrompt() string {
+	return `You rebuild one guild-scoped user profile from conversation notes.` + profileSectionGuidance + `
+
+Rules:
+- Only keep facts about the target user.
+- Never use topic clusters as source truth.
+- Preserve source_note_ids on every fact.
+- Prefer concise, merged facts over duplicates.
+- Drop stale or transient trivia in favor of durable preferences, recurring patterns, stable relationships, and capabilities.
+- Order facts within each section from most durable/high-signal to least.
+- Keep only durable, high-signal facts when space is tight.
+` + profileCompactnessRule("Keep the rebuilt profile") + `
+` + profileFactLengthRule() + `
+- Prefer recurring patterns and stable traits over isolated anecdotes.
+- If the notes are empty, return empty arrays.
+- Do not infer facts that are not supported by the notes.`
+}
 
 func incrementalProfileUpdateOpenAI(ctx context.Context, current GuildUserProfile, note InteractionNote, target userIdentity) (profileUpdateResult, error) {
 	prompt := fmt.Sprintf(
@@ -292,7 +365,7 @@ func incrementalProfileUpdateOpenAI(ctx context.Context, current GuildUserProfil
 		jsonString(note),
 	)
 
-	responseText, err := generateJSON(ctx, incrementalUpdateModel, incrementalProfileSystemPrompt, prompt, profileResponseSchema)
+	responseText, err := generateJSON(ctx, incrementalUpdateModel, incrementalProfileSystemPrompt(), prompt, profileResponseSchema)
 	if err != nil {
 		return profileUpdateResult{}, err
 	}
@@ -319,16 +392,6 @@ func incrementalProfileUpdateOpenAI(ctx context.Context, current GuildUserProfil
 	return profileUpdateResult{Profile: next}, nil
 }
 
-const rebuildProfileSystemPrompt = `You rebuild one guild-scoped user profile from conversation notes.
-
-Rules:
-- Only include facts about the target user.
-- Never use topic clusters as source truth.
-- Preserve source_note_ids on every fact.
-- Prefer concise, merged facts over duplicates.
-- If the notes are empty, return empty arrays.
-- Do not infer facts that are not supported by the notes.`
-
 func rebuildGuildProfileOpenAI(ctx context.Context, guildID string, target userIdentity, notes []InteractionNote) (GuildUserProfile, error) {
 	if len(notes) == 0 {
 		return emptyProfile(guildID, target.UserID), nil
@@ -341,7 +404,7 @@ func rebuildGuildProfileOpenAI(ctx context.Context, guildID string, target userI
 		jsonString(notes),
 	)
 
-	responseText, err := generateJSON(ctx, fullRebuildModel, rebuildProfileSystemPrompt, prompt, profileResponseSchema)
+	responseText, err := generateJSON(ctx, fullRebuildModel, rebuildProfileSystemPrompt(), prompt, profileResponseSchema)
 	if err != nil {
 		return GuildUserProfile{}, err
 	}

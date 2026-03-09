@@ -20,33 +20,46 @@ import (
 )
 
 const (
-	embeddingModel                     = oa.EmbeddingModelTextEmbedding3Small
-	embeddingDimensions          int64 = 1536
-	noteGenerationModel                = "gpt-5-mini"
-	incrementalUpdateModel             = "gpt-5-mini"
-	clusteringModel                    = "gpt-5.4"
-	fullRebuildModel                   = "gpt-5.4"
-	strictRetrievalDistance            = 0.45
-	fallbackRetrievalDistance          = 0.62
-	retrievalCandidateMultiplier       = 12
-	topicRetrievalLimit                = 3
-	conversationRetrievalLimit         = 5
-	mentionedProfileLimit              = 3
-	extraProfileLimit                  = 2
-	recentUserFallbackNoteLimit        = 3
-	minBufferedContentLength           = 100
-	minClusterInputNotes               = 3
-	bufferInactivityWindow             = 40 * time.Minute
-	bufferMaxAge                       = 2 * time.Hour
-	bufferMaxMessages                  = 100
-	maintenanceSchedulerInterval       = 1 * time.Hour
-	noteTypeConversation               = "conversation"
-	noteTypeTopicCluster               = "topic_cluster"
-	jobPhaseCluster                    = "cluster"
-	jobPhaseProfileMaintenance         = "profile_maintenance"
-	jobStatusRunning                   = "running"
-	jobStatusCompleted                 = "completed"
-	jobStatusFailed                    = "failed"
+	embeddingModel                            = oa.EmbeddingModelTextEmbedding3Small
+	embeddingDimensions                 int64 = 1536
+	noteGenerationModel                       = "gpt-5-mini"
+	incrementalUpdateModel                    = "gpt-5-mini"
+	clusteringModel                           = "gpt-5.4"
+	fullRebuildModel                          = "gpt-5.4"
+	strictRetrievalDistance                   = 0.45
+	fallbackRetrievalDistance                 = 0.62
+	retrievalCandidateMultiplier              = 12
+	topicRetrievalLimit                       = 3
+	conversationRetrievalLimit                = 5
+	mentionedProfileLimit                     = 3
+	extraProfileLimit                         = 2
+	recentUserFallbackNoteLimit               = 3
+	minBufferedContentLength                  = 100
+	minClusterInputNotes                      = 3
+	bufferInactivityWindow                    = 40 * time.Minute
+	bufferMaxAge                              = 2 * time.Hour
+	bufferMaxMessages                         = 100
+	maintenanceSchedulerInterval              = 1 * time.Hour
+	profileMaxBioFacts                        = 5
+	profileMaxInterestFacts                   = 6
+	profileMaxSkillFacts                      = 6
+	profileMaxOpinionFacts                    = 5
+	profileMaxRelationshipFacts               = 6
+	profileMaxOtherFacts                      = 5
+	profileMaxTotalFacts                      = 33
+	profileMaxFactWords                       = 20
+	profileMaxSourceNoteIDs                   = 4
+	profileHysteresisExtraFacts               = 1
+	profileHysteresisExtraTotalFacts          = 4
+	profileHysteresisExtraFactWords           = 4
+	profileHysteresisExtraSourceNoteIDs       = 1
+	noteTypeConversation                      = "conversation"
+	noteTypeTopicCluster                      = "topic_cluster"
+	jobPhaseCluster                           = "cluster"
+	jobPhaseProfileMaintenance                = "profile_maintenance"
+	jobStatusRunning                          = "running"
+	jobStatusCompleted                        = "completed"
+	jobStatusFailed                           = "failed"
 )
 
 type ProfileFact struct {
@@ -389,6 +402,147 @@ func profileHasContent(profile *GuildUserProfile) bool {
 		return false
 	}
 	return len(profile.Bio)+len(profile.Interests)+len(profile.Skills)+len(profile.Opinions)+len(profile.Relationships)+len(profile.Other) > 0
+}
+
+func profileExceedsBudget(profile GuildUserProfile) bool {
+	return profileExceedsLimits(profile, 0, 0, 0, 0)
+}
+
+func profileExceedsHysteresisBudget(profile GuildUserProfile) bool {
+	return profileExceedsLimits(
+		profile,
+		profileHysteresisExtraFacts,
+		profileHysteresisExtraTotalFacts,
+		profileHysteresisExtraFactWords,
+		profileHysteresisExtraSourceNoteIDs,
+	)
+}
+
+func profileExceedsLimits(profile GuildUserProfile, extraFacts, extraTotalFacts, extraFactWords, extraSourceNoteIDs int) bool {
+	totalFacts := 0
+	for _, section := range []struct {
+		facts []ProfileFact
+		max   int
+	}{
+		{facts: profile.Bio, max: profileMaxBioFacts},
+		{facts: profile.Interests, max: profileMaxInterestFacts},
+		{facts: profile.Skills, max: profileMaxSkillFacts},
+		{facts: profile.Opinions, max: profileMaxOpinionFacts},
+		{facts: profile.Relationships, max: profileMaxRelationshipFacts},
+		{facts: profile.Other, max: profileMaxOtherFacts},
+	} {
+		normalized := normalizeProfileFacts(section.facts)
+		if len(normalized) > section.max+extraFacts {
+			return true
+		}
+		totalFacts += len(normalized)
+		for _, fact := range normalized {
+			if len(strings.Fields(fact.Text)) > profileMaxFactWords+extraFactWords {
+				return true
+			}
+			if len(dedupeInt64s(fact.SourceNoteIDs)) > profileMaxSourceNoteIDs+extraSourceNoteIDs {
+				return true
+			}
+		}
+	}
+	return totalFacts > profileMaxTotalFacts+extraTotalFacts
+}
+
+func compactProfile(profile GuildUserProfile) GuildUserProfile {
+	compacted, _ := compactProfileWithStats(profile)
+	return compacted
+}
+
+func compactProfileWithStats(profile GuildUserProfile) (GuildUserProfile, profileCompactionStats) {
+	compacted := cloneProfile(profile)
+	stats := profileCompactionStats{Before: countProfileFacts(profile)}
+	remaining := profileMaxTotalFacts
+	var textTrimmed, sourceTrimmed int
+	compacted.Bio, textTrimmed, sourceTrimmed = compactProfileFacts(compacted.Bio, profileMaxBioFacts, &remaining)
+	stats.TextFactsTrimmed += textTrimmed
+	stats.SourceRefsTrimmed += sourceTrimmed
+	compacted.Interests, textTrimmed, sourceTrimmed = compactProfileFacts(compacted.Interests, profileMaxInterestFacts, &remaining)
+	stats.TextFactsTrimmed += textTrimmed
+	stats.SourceRefsTrimmed += sourceTrimmed
+	compacted.Skills, textTrimmed, sourceTrimmed = compactProfileFacts(compacted.Skills, profileMaxSkillFacts, &remaining)
+	stats.TextFactsTrimmed += textTrimmed
+	stats.SourceRefsTrimmed += sourceTrimmed
+	compacted.Opinions, textTrimmed, sourceTrimmed = compactProfileFacts(compacted.Opinions, profileMaxOpinionFacts, &remaining)
+	stats.TextFactsTrimmed += textTrimmed
+	stats.SourceRefsTrimmed += sourceTrimmed
+	compacted.Relationships, textTrimmed, sourceTrimmed = compactProfileFacts(compacted.Relationships, profileMaxRelationshipFacts, &remaining)
+	stats.TextFactsTrimmed += textTrimmed
+	stats.SourceRefsTrimmed += sourceTrimmed
+	compacted.Other, textTrimmed, sourceTrimmed = compactProfileFacts(compacted.Other, profileMaxOtherFacts, &remaining)
+	stats.TextFactsTrimmed += textTrimmed
+	stats.SourceRefsTrimmed += sourceTrimmed
+	stats.After = countProfileFacts(compacted)
+	return compacted, stats
+}
+
+func compactProfileFacts(facts []ProfileFact, maxFacts int, remainingTotal *int) ([]ProfileFact, int, int) {
+	limit := maxFacts
+	if *remainingTotal < limit {
+		limit = *remainingTotal
+	}
+	if limit <= 0 {
+		return []ProfileFact{}, 0, 0
+	}
+
+	normalized := normalizeProfileFacts(facts)
+	if len(normalized) > limit {
+		normalized = rankProfileFacts(normalized)
+	}
+	out := make([]ProfileFact, 0, len(normalized))
+	textTrimmed := 0
+	sourceTrimmed := 0
+	for _, fact := range normalized {
+		text, trimmedText := compactFactText(fact.Text)
+		if text == "" {
+			continue
+		}
+		if trimmedText {
+			textTrimmed++
+		}
+
+		sourceNoteIDs := dedupeInt64s(fact.SourceNoteIDs)
+		if len(sourceNoteIDs) > profileMaxSourceNoteIDs {
+			sourceNoteIDs = append([]int64(nil), sourceNoteIDs[:profileMaxSourceNoteIDs]...)
+			sourceTrimmed++
+		} else {
+			sourceNoteIDs = append([]int64(nil), sourceNoteIDs...)
+		}
+
+		out = append(out, ProfileFact{
+			Text:          text,
+			SourceNoteIDs: sourceNoteIDs,
+		})
+		if len(out) >= limit {
+			break
+		}
+	}
+
+	*remainingTotal -= len(out)
+	return out, textTrimmed, sourceTrimmed
+}
+
+func compactFactText(text string) (string, bool) {
+	words := strings.Fields(strings.TrimSpace(text))
+	if len(words) == 0 {
+		return "", false
+	}
+	if len(words) <= profileMaxFactWords {
+		return strings.Join(words, " "), false
+	}
+	return strings.Join(words[:profileMaxFactWords], " ") + "...", true
+}
+
+func rankProfileFacts(facts []ProfileFact) []ProfileFact {
+	ranked := append([]ProfileFact(nil), facts...)
+	sort.SliceStable(ranked, func(i, j int) bool {
+		return len(dedupeInt64s(ranked[i].SourceNoteIDs)) > len(dedupeInt64s(ranked[j].SourceNoteIDs))
+	})
+	return ranked
 }
 
 func marshalProfileFacts(facts []ProfileFact) string {

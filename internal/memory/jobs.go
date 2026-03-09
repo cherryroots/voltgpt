@@ -253,6 +253,7 @@ func rebuildDirtyProfiles(guildID string) error {
 }
 
 func rebuildOneGuildProfile(guildID string, userID int64) error {
+	startedAt := time.Now()
 	user, err := getUserIdentityByID(userID)
 	if err != nil {
 		return err
@@ -274,11 +275,23 @@ func rebuildOneGuildProfile(guildID string, userID int64) error {
 	if err != nil {
 		return err
 	}
+	finalCounts := countProfileFacts(compactProfile(profile))
 	profile.GuildID = guildID
 	profile.UserID = userID
 	profile.IsDirty = false
 	profile.LastFullRebuildAt = time.Now().UTC().Format(time.RFC3339Nano)
-	return writeGuildUserProfile(profile)
+	if err := writeGuildUserProfile(profile); err != nil {
+		return err
+	}
+	log.Printf(
+		"memory: profile_rebuild guild=%s user=%d notes=%d %s duration_ms=%d",
+		guildID,
+		userID,
+		len(notes),
+		profileCountLogFields("", finalCounts),
+		time.Since(startedAt).Milliseconds(),
+	)
+	return nil
 }
 
 func runStartupCatchUp() error {
