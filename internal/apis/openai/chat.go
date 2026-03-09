@@ -195,20 +195,23 @@ func StreamMessageResponse(s *discordgo.Session, c *oa.Client, m *discordgo.Mess
 	streamer.Start()
 	defer streamer.Stop()
 
-	systemMessageText := config.SystemMessage
-	systemMessageText = strings.ReplaceAll(systemMessageText, "{TIME}", time.Now().Format("2006-01-02 15:04:05"))
 	channel, err := s.Channel(m.ChannelID)
 	if err != nil {
 		channel = &discordgo.Channel{Name: "Unknown"}
 	}
-	systemMessageText = strings.ReplaceAll(systemMessageText, "{CHANNEL}", channel.Name)
-	systemMessageText = strings.ReplaceAll(systemMessageText, "{BACKGROUND_FACTS}", backgroundFacts)
+
+	contextText := fmt.Sprintf(
+		"\n\n# [Ephemeral context for this turn only]\nCurrent time: %s\nChannel: %s\nRelevant memory/context:\n```xml\n%s\n```",
+		time.Now().Format("2006-01-02 15:04:05"),
+		channel.Name,
+		backgroundFacts,
+	)
 
 	params := responses.ResponseNewParams{
 		Input: responses.ResponseNewParamsInputUnion{
 			OfInputItemList: responses.ResponseInputParam(input),
 		},
-		Instructions:      oa.String(systemMessageText),
+		Instructions:      oa.String(config.SystemMessage + contextText),
 		Model:             responses.ChatModel(chatModel),
 		Store:             oa.Bool(true),
 		Temperature:       oa.Float(1),
@@ -218,7 +221,8 @@ func StreamMessageResponse(s *discordgo.Session, c *oa.Client, m *discordgo.Mess
 		ToolChoice: responses.ResponseNewParamsToolChoiceUnion{
 			OfToolChoiceMode: param.NewOpt(responses.ToolChoiceOptionsAuto),
 		},
-		Tools: builtInTools(),
+		Tools:          builtInTools(),
+		PromptCacheKey: oa.String("discord:" + m.ChannelID),
 	}
 	if previousResponseID != "" {
 		params.PreviousResponseID = oa.String(previousResponseID)
