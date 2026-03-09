@@ -36,7 +36,7 @@ const (
 	recentUserFallbackNoteLimit        = 3
 	minBufferedContentLength           = 100
 	minClusterInputNotes               = 3
-	bufferInactivityWindow             = 30 * time.Minute
+	bufferInactivityWindow             = 40 * time.Minute
 	bufferMaxAge                       = 2 * time.Hour
 	bufferMaxMessages                  = 100
 	maintenanceSchedulerInterval       = 1 * time.Hour

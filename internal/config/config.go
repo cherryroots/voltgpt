@@ -32,8 +32,9 @@ var (
 	Admins          = []string{"102087943627243520", "123116664207179777", "95681688914366464"}
 	MainServer      = "122962330165313536"
 	MemoryBlacklist = map[string]bool{
-		"850179179281776670":  true,
-		"1194031828126924831": true,
+		"850179179281776670":  true, // #food-and-domestic
+		"1194031828126924831": true, // #weddingbabes
+		"1008450469313663077": true, // #skynet
 	}
 
 	DefaultTemp = 0.8

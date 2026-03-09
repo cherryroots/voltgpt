@@ -199,3 +199,115 @@ func TestCheckCache(t *testing.T) {
 		}
 	})
 }
+
+func TestMessageMentionsUser(t *testing.T) {
+	t.Run("mentions target user", func(t *testing.T) {
+		message := &discordgo.Message{
+			Mentions: []*discordgo.User{
+				{ID: "bot-1"},
+			},
+		}
+
+		if !MessageMentionsUser(message, "bot-1") {
+			t.Fatal("MessageMentionsUser() = false, want true")
+		}
+	})
+
+	t.Run("ignores other mentions", func(t *testing.T) {
+		message := &discordgo.Message{
+			Mentions: []*discordgo.User{
+				{ID: "user-1"},
+			},
+		}
+
+		if MessageMentionsUser(message, "bot-1") {
+			t.Fatal("MessageMentionsUser() = true, want false")
+		}
+	})
+}
+
+func TestIsReplyToUser(t *testing.T) {
+	t.Run("reply targets referenced user", func(t *testing.T) {
+		message := &discordgo.Message{
+			MessageReference: &discordgo.MessageReference{MessageID: "m1"},
+			ReferencedMessage: &discordgo.Message{
+				ID:     "m1",
+				Author: &discordgo.User{ID: "bot-1"},
+			},
+		}
+
+		if !IsReplyToUser(message, "bot-1", nil) {
+			t.Fatal("IsReplyToUser() = false, want true")
+		}
+	})
+
+	t.Run("reply can resolve from cache", func(t *testing.T) {
+		message := &discordgo.Message{
+			MessageReference: &discordgo.MessageReference{MessageID: "m1"},
+		}
+		cache := []*discordgo.Message{
+			{
+				ID:     "m1",
+				Author: &discordgo.User{ID: "bot-1"},
+			},
+		}
+
+		if !IsReplyToUser(message, "bot-1", cache) {
+			t.Fatal("IsReplyToUser() = false, want true")
+		}
+	})
+
+	t.Run("reply to someone else is false", func(t *testing.T) {
+		message := &discordgo.Message{
+			MessageReference: &discordgo.MessageReference{MessageID: "m1"},
+			ReferencedMessage: &discordgo.Message{
+				ID:     "m1",
+				Author: &discordgo.User{ID: "user-1"},
+			},
+		}
+
+		if IsReplyToUser(message, "bot-1", nil) {
+			t.Fatal("IsReplyToUser() = true, want false")
+		}
+	})
+}
+
+func TestIsBotDirectedMessage(t *testing.T) {
+	t.Run("mention counts as bot-directed", func(t *testing.T) {
+		message := &discordgo.Message{
+			Mentions: []*discordgo.User{
+				{ID: "bot-1"},
+			},
+		}
+
+		if !IsBotDirectedMessage(message, "bot-1", nil) {
+			t.Fatal("IsBotDirectedMessage() = false, want true")
+		}
+	})
+
+	t.Run("reply counts as bot-directed", func(t *testing.T) {
+		message := &discordgo.Message{
+			MessageReference: &discordgo.MessageReference{MessageID: "m1"},
+			ReferencedMessage: &discordgo.Message{
+				ID:     "m1",
+				Author: &discordgo.User{ID: "bot-1"},
+			},
+		}
+
+		if !IsBotDirectedMessage(message, "bot-1", nil) {
+			t.Fatal("IsBotDirectedMessage() = false, want true")
+		}
+	})
+
+	t.Run("ordinary channel message is not bot-directed", func(t *testing.T) {
+		message := &discordgo.Message{
+			Mentions: []*discordgo.User{
+				{ID: "user-1"},
+			},
+		}
+
+		if IsBotDirectedMessage(message, "bot-1", nil) {
+			t.Fatal("IsBotDirectedMessage() = true, want false")
+		}
+	})
+}

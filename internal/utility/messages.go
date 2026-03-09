@@ -302,6 +302,37 @@ func GetReferencedMessage(s *discordgo.Session, message *discordgo.Message, cach
 	return nil
 }
 
+func MessageMentionsUser(message *discordgo.Message, userID string) bool {
+	if message == nil || strings.TrimSpace(userID) == "" {
+		return false
+	}
+
+	for _, mention := range message.Mentions {
+		if mention != nil && mention.ID == userID {
+			return true
+		}
+	}
+
+	return false
+}
+
+func IsReplyToUser(message *discordgo.Message, userID string, cache []*discordgo.Message) bool {
+	if message == nil || strings.TrimSpace(userID) == "" || message.MessageReference == nil {
+		return false
+	}
+
+	reference := message.ReferencedMessage
+	if reference == nil {
+		reference = checkCache(cache, message.MessageReference.MessageID)
+	}
+
+	return reference != nil && reference.Author != nil && reference.Author.ID == userID
+}
+
+func IsBotDirectedMessage(message *discordgo.Message, botUserID string, cache []*discordgo.Message) bool {
+	return MessageMentionsUser(message, botUserID) || IsReplyToUser(message, botUserID, cache)
+}
+
 func checkCache(cache []*discordgo.Message, messageID string) *discordgo.Message {
 	for _, message := range cache {
 		if message.ID == messageID {

@@ -41,8 +41,15 @@ func HandleMessage(s *discordgo.Session, m *discordgo.MessageCreate) {
 		return
 	}
 
+	botUserID := ""
+	if s != nil && s.State != nil && s.State.User != nil {
+		botUserID = s.State.User.ID
+	}
+	isMentioned := utility.MessageMentionsUser(m.Message, botUserID)
+	isBotDirected := utility.IsBotDirectedMessage(m.Message, botUserID, nil)
+
 	skipMemory := utility.ShouldSkipMemory(m.Content)
-	if !skipMemory && !config.MemoryBlacklist[m.ChannelID] && m.Message.GuildID == config.MainServer {
+	if !skipMemory && !isBotDirected && !config.MemoryBlacklist[m.ChannelID] && m.Message.GuildID == config.MainServer {
 		captureText := utility.ResolveMentions(m.Content, m.Mentions)
 		go memory.BufferMessage(m.ChannelID, m.GuildID, m.Author.ID, m.Author.Username, m.Author.GlobalName, captureText, m.ID)
 	}
@@ -56,14 +63,7 @@ func HandleMessage(s *discordgo.Session, m *discordgo.MessageCreate) {
 	var chatMessages []responses.ResponseInputItemUnionParam
 	var cache []*discordgo.Message
 	var previousResponseID string
-	var isMentioned, isReply bool
-
-	for _, mention := range m.Mentions {
-		if mention.ID == s.State.User.ID {
-			isMentioned = true
-			break
-		}
-	}
+	var isReply bool
 
 	if m.Type == discordgo.MessageTypeReply && isMentioned {
 		cache, _ = utility.GetMessagesBefore(s, m.ChannelID, 100, m.ID)
