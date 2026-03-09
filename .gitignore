@@ -11,5 +11,5 @@ voltgpt.db*
 /.idea/vcs.xml
 /.idea/voltgpt.iml
 /.vscode
-/backup
 .claude/worktrees/
+.backup

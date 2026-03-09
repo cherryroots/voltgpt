@@ -4,6 +4,7 @@ import (
 	"encoding/base64"
 	"fmt"
 	"log"
+	"maps"
 	"strings"
 	"time"
 
@@ -115,9 +116,7 @@ func HandleMessage(s *discordgo.Session, m *discordgo.MessageCreate) {
 
 	users := map[string]string{m.Author.ID: m.Author.Username}
 	if isReply {
-		for discordID, username := range utility.ReplyChainUsers(s, m.Message, cache) {
-			users[discordID] = username
-		}
+		maps.Copy(users, utility.ReplyChainUsers(s, m.Message, cache))
 	}
 	mentionedUsers := make(map[string]string)
 	for _, mention := range m.Mentions {
