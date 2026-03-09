@@ -205,6 +205,92 @@ func TestWriteGuildUserProfileCompactsOversizedProfile(t *testing.T) {
 	}
 }
 
+func TestMarkGuildUserProfileDirtyCreatesDirtyPlaceholder(t *testing.T) {
+	setupTestDB(t)
+
+	if err := MarkGuildUserProfileDirty("guild-dirty", "discord-dirty", "dirtyuser", "Dirty User"); err != nil {
+		t.Fatalf("MarkGuildUserProfileDirty: %v", err)
+	}
+
+	profile, err := GetGuildUserProfile("guild-dirty", "discord-dirty")
+	if err != nil {
+		t.Fatalf("GetGuildUserProfile: %v", err)
+	}
+	if profile == nil || !profile.IsDirty {
+		t.Fatalf("expected dirty placeholder profile, got %+v", profile)
+	}
+	if profileHasContent(profile) {
+		t.Fatalf("expected empty placeholder profile, got %+v", profile)
+	}
+}
+
+func TestMarkAllGuildProfilesDirty(t *testing.T) {
+	setupTestDB(t)
+
+	userA, _, err := upsertUser("discord-dirty-a", "dirtya", "Dirty A")
+	if err != nil {
+		t.Fatalf("upsertUser A: %v", err)
+	}
+	userB, _, err := upsertUser("discord-dirty-b", "dirtyb", "Dirty B")
+	if err != nil {
+		t.Fatalf("upsertUser B: %v", err)
+	}
+	userOther, _, err := upsertUser("discord-dirty-other", "dirtyother", "Dirty Other")
+	if err != nil {
+		t.Fatalf("upsertUser other: %v", err)
+	}
+
+	profileA := emptyProfile("guild-dirty-all", userA)
+	profileA.Bio = []ProfileFact{{Text: "Lives in Austin.", SourceNoteIDs: []int64{1}}}
+	if err := writeGuildUserProfile(profileA); err != nil {
+		t.Fatalf("writeGuildUserProfile A: %v", err)
+	}
+
+	profileB := emptyProfile("guild-dirty-all", userB)
+	profileB.Other = []ProfileFact{{Text: "Builds keyboards.", SourceNoteIDs: []int64{2}}}
+	if err := writeGuildUserProfile(profileB); err != nil {
+		t.Fatalf("writeGuildUserProfile B: %v", err)
+	}
+
+	profileOther := emptyProfile("guild-untouched", userOther)
+	profileOther.Other = []ProfileFact{{Text: "Plays RTS games.", SourceNoteIDs: []int64{3}}}
+	if err := writeGuildUserProfile(profileOther); err != nil {
+		t.Fatalf("writeGuildUserProfile other: %v", err)
+	}
+
+	count, err := MarkAllGuildProfilesDirty("guild-dirty-all")
+	if err != nil {
+		t.Fatalf("MarkAllGuildProfilesDirty: %v", err)
+	}
+	if count != 2 {
+		t.Fatalf("MarkAllGuildProfilesDirty count = %d, want 2", count)
+	}
+
+	dirtyA, err := GetGuildUserProfile("guild-dirty-all", "discord-dirty-a")
+	if err != nil {
+		t.Fatalf("GetGuildUserProfile A: %v", err)
+	}
+	if dirtyA == nil || !dirtyA.IsDirty {
+		t.Fatalf("expected guild-dirty-all profile A to be dirty, got %+v", dirtyA)
+	}
+
+	dirtyB, err := GetGuildUserProfile("guild-dirty-all", "discord-dirty-b")
+	if err != nil {
+		t.Fatalf("GetGuildUserProfile B: %v", err)
+	}
+	if dirtyB == nil || !dirtyB.IsDirty {
+		t.Fatalf("expected guild-dirty-all profile B to be dirty, got %+v", dirtyB)
+	}
+
+	untouched, err := GetGuildUserProfile("guild-untouched", "discord-dirty-other")
+	if err != nil {
+		t.Fatalf("GetGuildUserProfile other: %v", err)
+	}
+	if untouched == nil || untouched.IsDirty {
+		t.Fatalf("expected guild-untouched profile to remain clean, got %+v", untouched)
+	}
+}
+
 func TestBufferFlushCreatesConversationNoteAndProfile(t *testing.T) {
 	setupTestDB(t)
 

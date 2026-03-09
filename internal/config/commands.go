@@ -239,6 +239,20 @@ var (
 			},
 		},
 		{
+			Name:                     "memory_admin_dirty",
+			Description:              "Mark cached guild-scoped profiles dirty (admin only)",
+			DefaultMemberPermissions: &writePermission,
+			DMPermission:             &dmPermission,
+			Options: []*discordgo.ApplicationCommandOption{
+				{
+					Type:        discordgo.ApplicationCommandOptionUser,
+					Name:        "user",
+					Description: "User to mark dirty (omit for the whole guild)",
+					Required:    false,
+				},
+			},
+		},
+		{
 			Name:                     "memory_self",
 			Description:              "See your guild-scoped memory profile",
 			DefaultMemberPermissions: &writePermission,

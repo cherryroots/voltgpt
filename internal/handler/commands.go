@@ -751,6 +751,50 @@ var Commands = map[string]func(s *discordgo.Session, i *discordgo.InteractionCre
 			log.Println(err)
 		}
 	},
+	"memory_admin_dirty": func(s *discordgo.Session, i *discordgo.InteractionCreate) {
+		log.Printf("Received interaction: %s by %s", i.ApplicationCommandData().Name, i.Interaction.Member.User.Username)
+		discord.DeferEphemeralResponse(s, i)
+
+		if !utility.IsAdmin(i.Interaction.Member.User.ID) {
+			_, err := discord.SendFollowup(s, i, "Only admins can use this command!")
+			if err != nil {
+				log.Println(err)
+			}
+			return
+		}
+
+		var user *discordgo.User
+		for _, option := range i.ApplicationCommandData().Options {
+			if option.Name == "user" {
+				user = option.UserValue(s)
+			}
+		}
+
+		var (
+			err     error
+			message string
+		)
+		if user != nil {
+			err = memory.MarkGuildUserProfileDirty(i.GuildID, user.ID, user.Username, user.GlobalName)
+			message = fmt.Sprintf("Marked the cached guild-scoped profile dirty for %s.", user.Username)
+		} else {
+			var count int64
+			count, err = memory.MarkAllGuildProfilesDirty(i.GuildID)
+			message = fmt.Sprintf("Marked %d cached guild-scoped profile(s) dirty.", count)
+		}
+		if err != nil {
+			_, err := discord.SendFollowup(s, i, fmt.Sprintf("Error: %v", err))
+			if err != nil {
+				log.Println(err)
+			}
+			return
+		}
+
+		_, err = discord.SendFollowup(s, i, message)
+		if err != nil {
+			log.Println(err)
+		}
+	},
 	"memory_self": func(s *discordgo.Session, i *discordgo.InteractionCreate) {
 		log.Printf("Received interaction: %s by %s", i.ApplicationCommandData().Name, i.Interaction.Member.User.Username)
 		discord.DeferEphemeralResponse(s, i)

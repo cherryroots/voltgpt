@@ -180,6 +180,58 @@ func markProfileDirty(guildID string, userID int64) error {
 	return err
 }
 
+func MarkGuildUserProfileDirty(guildID, discordID, username, displayName string) error {
+	if database == nil {
+		return fmt.Errorf("memory system not initialized")
+	}
+
+	user, err := getUserIdentityByDiscordID(discordID)
+	if err != nil {
+		return err
+	}
+
+	var userID int64
+	if user == nil {
+		userID, _, err = upsertUser(discordID, username, displayName)
+		if err != nil {
+			return err
+		}
+	} else {
+		userID = user.UserID
+	}
+
+	if err := markProfileDirty(guildID, userID); err != nil {
+		return err
+	}
+
+	log.Printf("memory: profile_dirty reason=admin_user guild=%s user=%d", guildID, userID)
+	return nil
+}
+
+func MarkAllGuildProfilesDirty(guildID string) (int64, error) {
+	if database == nil {
+		return 0, fmt.Errorf("memory system not initialized")
+	}
+
+	res, err := database.Exec(`
+		UPDATE guild_user_profiles
+		SET is_dirty = 1,
+		    updated_at = CURRENT_TIMESTAMP
+		WHERE guild_id = ?
+	`, guildID)
+	if err != nil {
+		return 0, err
+	}
+
+	count, err := res.RowsAffected()
+	if err != nil {
+		return 0, err
+	}
+
+	log.Printf("memory: profile_dirty reason=admin_guild guild=%s count=%d", guildID, count)
+	return count, nil
+}
+
 func clearProfileDirty(guildID string, userID int64) error {
 	_, err := database.Exec(`
 		UPDATE guild_user_profiles
