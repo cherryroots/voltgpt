@@ -1,8 +1,10 @@
 package memory
 
 import (
+	"bytes"
 	"context"
 	"encoding/binary"
+	"log"
 	"strconv"
 	"strings"
 	"testing"
@@ -554,6 +556,55 @@ func TestBuildPromptContextGuildScoped(t *testing.T) {
 	}
 	if strings.Contains(got, "This should not appear.") {
 		t.Fatalf("prompt context leaked another guild: %s", got)
+	}
+}
+
+func TestBuildPromptContextLogsDuration(t *testing.T) {
+	setupTestDB(t)
+
+	setEmbedText(t, func(context.Context, string) ([]float32, error) {
+		return testEmbedding(), nil
+	})
+
+	userID, _, err := upsertUser("discord-5", "casey", "Casey")
+	if err != nil {
+		t.Fatalf("upsertUser: %v", err)
+	}
+
+	noteID, err := insertNote(InteractionNote{
+		GuildID:   "guild-1",
+		ChannelID: "channel-1",
+		NoteType:  noteTypeConversation,
+		Title:     "Prompt context log",
+		Summary:   "Casey talked about duration logging.",
+		NoteDate:  "2026-02-25",
+	}, []int64{userID}, testEmbedding())
+	if err != nil {
+		t.Fatalf("insertNote: %v", err)
+	}
+
+	profile := emptyProfile("guild-1", userID)
+	profile.Other = []ProfileFact{{Text: "Asked for duration logging.", SourceNoteIDs: []int64{noteID}}}
+	if err := writeGuildUserProfile(profile); err != nil {
+		t.Fatalf("writeGuildUserProfile: %v", err)
+	}
+
+	var logBuf bytes.Buffer
+	previousWriter := log.Writer()
+	log.SetOutput(&logBuf)
+	t.Cleanup(func() { log.SetOutput(previousWriter) })
+
+	got := BuildPromptContext(RetrieveRequest{
+		GuildID:           "guild-1",
+		ChannelID:         "channel-1",
+		Query:             "duration logging",
+		ConversationUsers: map[string]string{"discord-5": "casey"},
+	})
+	if got == "" {
+		t.Fatal("expected prompt context, got empty string")
+	}
+	if !strings.Contains(logBuf.String(), "duration_ms=") {
+		t.Fatalf("expected duration_ms in prompt_context log, got %q", logBuf.String())
 	}
 }
 

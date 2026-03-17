@@ -7,6 +7,7 @@ import (
 	"log"
 	"sort"
 	"strings"
+	"time"
 )
 
 type noteMatch struct {
@@ -22,6 +23,7 @@ func BuildPromptContext(req RetrieveRequest) string {
 		return ""
 	}
 
+	startedAt := time.Now()
 	ctx := context.Background()
 	embedding, err := embedText(ctx, req.Query)
 	if err != nil {
@@ -111,7 +113,7 @@ func BuildPromptContext(req RetrieveRequest) string {
 
 	contextText := renderPromptContext(renderedUsers, topics, renderedNotes)
 	log.Printf(
-		"memory: prompt_context guild=%s channel=%s users=%d %s topics=%d notes=%d fallback_users=%d rebuilds_queued=%d bytes=%d",
+		"memory: prompt_context guild=%s channel=%s users=%d %s topics=%d notes=%d fallback_users=%d rebuilds_queued=%d bytes=%d duration_ms=%d",
 		req.GuildID,
 		req.ChannelID,
 		len(renderedUsers),
@@ -121,6 +123,7 @@ func BuildPromptContext(req RetrieveRequest) string {
 		fallbackUsers,
 		rebuildsQueued,
 		len(contextText),
+		time.Since(startedAt).Milliseconds(),
 	)
 	return contextText
 }
