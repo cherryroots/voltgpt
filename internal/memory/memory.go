@@ -22,10 +22,14 @@ import (
 const (
 	embeddingModel                            = oa.EmbeddingModelTextEmbedding3Small
 	embeddingDimensions                 int64 = 1536
-	noteGenerationModel                       = "gpt-5-mini"
-	incrementalUpdateModel                    = "gpt-5-mini"
+	noteGenerationModel                       = "gpt-5.4-nano"
+	noteGenerationReasoning                   = shared.ReasoningEffort("xhigh")
+	incrementalUpdateModel                    = "gpt-5.4-nano"
+	incrementalUpdateReasoning                = shared.ReasoningEffort("xhigh")
 	clusteringModel                           = "gpt-5.4"
+	clusteringReasoning                       = shared.ReasoningEffortMedium
 	fullRebuildModel                          = "gpt-5.4"
+	fullRebuildReasoning                      = shared.ReasoningEffortMedium
 	strictRetrievalDistance                   = 0.45
 	fallbackRetrievalDistance                 = 0.62
 	retrievalCandidateMultiplier              = 12
@@ -192,7 +196,7 @@ func Shutdown() {
 	database = nil
 }
 
-func generateJSON(ctx context.Context, model, systemPrompt, userPrompt string, schema shared.ResponseFormatJSONSchemaJSONSchemaParam) (string, error) {
+func generateJSON(ctx context.Context, model, systemPrompt, userPrompt string, reasoning shared.ReasoningEffort, schema shared.ResponseFormatJSONSchemaJSONSchemaParam) (string, error) {
 	if client == nil {
 		return "", fmt.Errorf("chat completion: OpenAI client is not initialized")
 	}
@@ -202,7 +206,8 @@ func generateJSON(ctx context.Context, model, systemPrompt, userPrompt string, s
 			oa.DeveloperMessage(systemPrompt),
 			oa.UserMessage(userPrompt),
 		},
-		Model: oa.ChatModel(model),
+		Model:           oa.ChatModel(model),
+		ReasoningEffort: reasoning,
 		ResponseFormat: oa.ChatCompletionNewParamsResponseFormatUnion{
 			OfJSONSchema: &shared.ResponseFormatJSONSchemaParam{
 				JSONSchema: schema,

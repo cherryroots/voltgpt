@@ -417,7 +417,7 @@ func incrementalProfileUpdateOpenAI(ctx context.Context, current GuildUserProfil
 		jsonString(note),
 	)
 
-	responseText, err := generateJSON(ctx, incrementalUpdateModel, incrementalProfileSystemPrompt(), prompt, profileResponseSchema)
+	responseText, err := generateJSON(ctx, incrementalUpdateModel, incrementalProfileSystemPrompt(), prompt, incrementalUpdateReasoning, profileResponseSchema)
 	if err != nil {
 		return profileUpdateResult{}, err
 	}
@@ -456,7 +456,7 @@ func rebuildGuildProfileOpenAI(ctx context.Context, guildID string, target userI
 		jsonString(notes),
 	)
 
-	responseText, err := generateJSON(ctx, fullRebuildModel, rebuildProfileSystemPrompt(), prompt, profileResponseSchema)
+	responseText, err := generateJSON(ctx, fullRebuildModel, rebuildProfileSystemPrompt(), prompt, fullRebuildReasoning, profileResponseSchema)
 	if err != nil {
 		return GuildUserProfile{}, err
 	}

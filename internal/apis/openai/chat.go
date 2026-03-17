@@ -234,7 +234,7 @@ func StreamMessageResponse(s *discordgo.Session, c *oa.Client, m *discordgo.Mess
 		Model:             responses.ChatModel(chatModel),
 		Store:             oa.Bool(true),
 		Temperature:       oa.Float(1),
-		Reasoning:         shared.ReasoningParam{Effort: "medium"},
+		Reasoning:         shared.ReasoningParam{Effort: "high"},
 		Truncation:        responses.ResponseNewParamsTruncationAuto,
 		ParallelToolCalls: oa.Bool(true),
 		ToolChoice: responses.ResponseNewParamsToolChoiceUnion{

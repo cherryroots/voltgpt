@@ -466,7 +466,7 @@ func generateConversationNoteOpenAI(ctx context.Context, guildID, channelID stri
 	}
 
 	prompt := fmt.Sprintf("Guild: %s\nChannel: %s\n\nTranscript:\n%s", guildID, channelID, transcript.String())
-	responseText, err := generateJSON(ctx, noteGenerationModel, conversationNoteSystemPrompt, prompt, conversationNoteResponseSchema)
+	responseText, err := generateJSON(ctx, noteGenerationModel, conversationNoteSystemPrompt, prompt, noteGenerationReasoning, conversationNoteResponseSchema)
 	if err != nil {
 		return generatedConversationNote{}, err
 	}
