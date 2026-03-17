@@ -38,8 +38,10 @@ type Streamer struct {
 	Message          *discordgo.Message
 	Buffer           string
 	ThoughtSignature []byte
+	hasOutput        bool
 	mu               sync.Mutex
 	done             chan bool
+	stopOnce         sync.Once
 	ticker           *time.Ticker
 }
 
@@ -72,6 +74,9 @@ func (s *Streamer) Start() {
 func (s *Streamer) Update(content string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if utility.HasVisibleContent(content) {
+		s.hasOutput = true
+	}
 	s.Buffer += content
 }
 
@@ -84,9 +89,18 @@ func (s *Streamer) SetThoughtSignature(signature []byte) {
 
 // Stop stops the streamer and performs a final flush.
 func (s *Streamer) Stop() {
-	s.done <- true
-	s.Flush()
-	s.EmbedThoughtSignature()
+	s.stopOnce.Do(func() {
+		s.done <- true
+		s.Flush()
+		s.EmbedThoughtSignature()
+	})
+}
+
+func (s *Streamer) HasVisibleOutput() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	return s.hasOutput
 }
 
 // EmbedThoughtSignature embeds the thought signature into the message.
@@ -203,6 +217,15 @@ func StreamMessageResponse(s *discordgo.Session, c *genai.Client, m *discordgo.M
 				}
 			}
 		}
+	}
+
+	streamer.Stop()
+	if !streamer.HasVisibleOutput() {
+		emptyMsg, err := discord.EditMessage(s, streamer.Message, utility.EmptyResponseEmoji)
+		if err != nil {
+			return fmt.Errorf("set empty response emoji: %v", err)
+		}
+		streamer.Message = emptyMsg
 	}
 
 	return nil

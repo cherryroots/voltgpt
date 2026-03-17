@@ -11,6 +11,12 @@ import (
 	"voltgpt/internal/discord"
 )
 
+const EmptyResponseEmoji = "<:empty:344930923717984276>"
+
+func HasVisibleContent(message string) bool {
+	return strings.TrimSpace(message) != ""
+}
+
 func SplitParagraph(message string) (firstPart string, lastPart string) {
 	primarySeparator := "\n\n"
 	secondarySeparator := "\n"

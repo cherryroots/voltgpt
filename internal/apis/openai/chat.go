@@ -94,6 +94,7 @@ type Streamer struct {
 	Session    *discordgo.Session
 	Message    *discordgo.Message
 	Buffer     string
+	hasOutput  bool
 	mu         sync.Mutex
 	done       chan struct{}
 	stopOnce   sync.Once
@@ -102,11 +103,16 @@ type Streamer struct {
 }
 
 func NewStreamer(s *discordgo.Session, m *discordgo.Message) *Streamer {
+	messageIDs := make([]string, 0, 1)
+	if m != nil && m.ID != "" {
+		messageIDs = append(messageIDs, m.ID)
+	}
+
 	return &Streamer{
 		Session:    s,
 		Message:    m,
 		done:       make(chan struct{}),
-		messageIDs: []string{m.ID},
+		messageIDs: messageIDs,
 	}
 }
 
@@ -128,6 +134,9 @@ func (s *Streamer) Start() {
 func (s *Streamer) Update(content string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if utility.HasVisibleContent(content) {
+		s.hasOutput = true
+	}
 	s.Buffer += content
 }
 
@@ -148,12 +157,22 @@ func (s *Streamer) MessageIDs() []string {
 }
 
 func (s *Streamer) rememberMessageID(id string) {
+	if id == "" {
+		return
+	}
 	for _, existing := range s.messageIDs {
 		if existing == id {
 			return
 		}
 	}
 	s.messageIDs = append(s.messageIDs, id)
+}
+
+func (s *Streamer) HasVisibleOutput() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	return s.hasOutput
 }
 
 func (s *Streamer) Flush() {
@@ -253,6 +272,13 @@ func StreamMessageResponse(s *discordgo.Session, c *oa.Client, m *discordgo.Mess
 	}
 
 	streamer.Stop()
+	if !streamer.HasVisibleOutput() {
+		emptyMsg, err := discord.EditMessage(s, streamer.Message, utility.EmptyResponseEmoji)
+		if err != nil {
+			return fmt.Errorf("set empty response emoji: %w", err)
+		}
+		streamer.Message = emptyMsg
+	}
 
 	if responseID == "" {
 		return fmt.Errorf("missing response ID from OpenAI stream")

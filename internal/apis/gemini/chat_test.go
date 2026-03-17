@@ -151,6 +151,20 @@ func TestStreamer_Update(t *testing.T) {
 	}
 }
 
+func TestStreamer_HasVisibleOutput(t *testing.T) {
+	s := NewStreamer(nil, nil)
+
+	s.Update(" \n\t ")
+	if s.HasVisibleOutput() {
+		t.Fatal("HasVisibleOutput() = true, want false for whitespace-only output")
+	}
+
+	s.Update("hello")
+	if !s.HasVisibleOutput() {
+		t.Fatal("HasVisibleOutput() = false, want true after visible output")
+	}
+}
+
 func TestStreamer_Flush_EmptyBuffer(t *testing.T) {
 	// Flush on an empty buffer should be a no-op — no panic with nil Session/Message.
 	s := NewStreamer(nil, nil)

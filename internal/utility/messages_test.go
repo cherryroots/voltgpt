@@ -151,6 +151,27 @@ func TestSplitMessageSlices(t *testing.T) {
 	})
 }
 
+func TestHasVisibleContent(t *testing.T) {
+	tests := []struct {
+		name    string
+		message string
+		want    bool
+	}{
+		{name: "empty", message: "", want: false},
+		{name: "whitespace only", message: " \n\t ", want: false},
+		{name: "text", message: "hello", want: true},
+		{name: "text with whitespace", message: "\n hello \t", want: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := HasVisibleContent(tt.message); got != tt.want {
+				t.Fatalf("HasVisibleContent(%q) = %v, want %v", tt.message, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestCheckCache(t *testing.T) {
 	msg1 := &discordgo.Message{ID: "111"}
 	msg2 := &discordgo.Message{ID: "222"}
