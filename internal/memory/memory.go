@@ -23,12 +23,12 @@ const (
 	embeddingModel                            = oa.EmbeddingModelTextEmbedding3Small
 	embeddingDimensions                 int64 = 1536
 	noteGenerationModel                       = "gpt-5.4-nano"
-	noteGenerationReasoning                   = shared.ReasoningEffort("xhigh")
+	noteGenerationReasoning                   = shared.ReasoningEffortHigh
 	incrementalUpdateModel                    = "gpt-5.4-nano"
-	incrementalUpdateReasoning                = shared.ReasoningEffort("xhigh")
-	clusteringModel                           = "gpt-5.4"
+	incrementalUpdateReasoning                = shared.ReasoningEffortHigh
+	clusteringModel                           = "gpt-5.4-mini"
 	clusteringReasoning                       = shared.ReasoningEffortMedium
-	fullRebuildModel                          = "gpt-5.4"
+	fullRebuildModel                          = "gpt-5.4-mini"
 	fullRebuildReasoning                      = shared.ReasoningEffortMedium
 	strictRetrievalDistance                   = 0.45
 	fallbackRetrievalDistance                 = 0.62

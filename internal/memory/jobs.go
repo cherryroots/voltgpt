@@ -409,6 +409,10 @@ func runScheduledMaintenanceSweep() error {
 	}
 
 	for _, guildID := range guildIDs {
+		status, err := getJobStatus(guildID, today, jobPhaseProfileMaintenance)
+		if err == nil && status == jobStatusCompleted {
+			continue
+		}
 		if err := runProfileMaintenancePhase(guildID, today); err != nil {
 			log.Printf("memory: scheduled profile maintenance failed for guild %s: %v", guildID, err)
 		}

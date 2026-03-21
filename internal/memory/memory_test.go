@@ -796,7 +796,9 @@ func TestRunScheduledMaintenanceSweep(t *testing.T) {
 			SourceNoteIDs: []int64{notes[0].ID, notes[1].ID, notes[2].ID},
 		}}, nil
 	})
+	profileRebuildCalls := 0
 	setProfileRebuilder(t, func(_ context.Context, guildID string, target userIdentity, notes []InteractionNote) (GuildUserProfile, error) {
+		profileRebuildCalls++
 		profile := emptyProfile(guildID, target.UserID)
 		profile.Other = []ProfileFact{{Text: "Tweaks game settings.", SourceNoteIDs: []int64{notes[0].ID}}}
 		return profile, nil
@@ -847,6 +849,19 @@ func TestRunScheduledMaintenanceSweep(t *testing.T) {
 	}
 	if clusterCalls == 0 {
 		t.Fatal("expected scheduled maintenance sweep to call clusterer")
+	}
+	if profileRebuildCalls != 1 {
+		t.Fatalf("profile rebuild calls after first sweep = %d, want 1", profileRebuildCalls)
+	}
+
+	if err := runScheduledMaintenanceSweep(); err != nil {
+		t.Fatalf("second runScheduledMaintenanceSweep: %v", err)
+	}
+	if clusterCalls != 1 {
+		t.Fatalf("cluster calls after second sweep = %d, want 1", clusterCalls)
+	}
+	if profileRebuildCalls != 1 {
+		t.Fatalf("profile rebuild calls after second sweep = %d, want 1", profileRebuildCalls)
 	}
 
 	profile, err := GetGuildUserProfile("guild-scheduler", "discord-s1")
