@@ -46,13 +46,16 @@ func buildGambleStatusMessageEditLocked(channelID, messageID string, round int) 
 		round = currentGambleRoundNumberLocked()
 	}
 
-	embed := gamble.GameState.StatusEmbed(gamble.GameState.Round(round))
+	statusRound := gamble.GameState.Round(round)
+	embed := gamble.GameState.StatusEmbed(statusRound)
 	embeds := []*discordgo.MessageEmbed{&embed}
 	components := gamble.RoundMessageComponents
+	content := ""
 
 	return &discordgo.MessageEdit{
 		Channel:    channelID,
 		ID:         messageID,
+		Content:    &content,
 		Embeds:     &embeds,
 		Components: &components,
 	}

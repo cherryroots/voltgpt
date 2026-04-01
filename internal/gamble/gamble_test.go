@@ -810,7 +810,45 @@ func TestStatusEmbedShowsRoundStateAndPlaceholders(t *testing.T) {
 	}
 }
 
-func TestStatusEmbedOrdersOutcomesWonLostTaxed(t *testing.T) {
+func TestResolvedOutcomeGroupsOrderWonLostTaxed(t *testing.T) {
+	setupGame()
+	alice := makePlayer("1", "Alice")
+	bob := makePlayer("2", "Bob")
+	charlie := makePlayer("3", "Charlie")
+
+	GameState.AddPlayer(alice)
+	GameState.AddPlayer(bob)
+	GameState.AddPlayer(charlie)
+	GameState.AddWheelOption(alice)
+	GameState.AddWheelOption(bob)
+	GameState.AddWheelOption(charlie)
+
+	GameState.AddRound()
+	GameState.Rounds[0].AddClaim(alice)
+	GameState.Rounds[0].AddClaim(bob)
+	GameState.Rounds[0].AddClaim(charlie)
+	GameState.Rounds[0].Bets = []Bet{
+		{Amount: 20, By: alice, On: bob},
+		{Amount: 15, By: bob, On: alice},
+	}
+	GameState.Rounds[0].SetWinner(bob)
+
+	wonOutcome, _, lostOutcome, _, taxedOutcome, _ := GameState.resolvedOutcomeGroups(GameState.Rounds[0])
+	outcomeField := wonOutcome + lostOutcome + taxedOutcome
+
+	wonIdx := strings.Index(outcomeField, "Won:")
+	lostIdx := strings.Index(outcomeField, "Lost:")
+	taxedIdx := strings.Index(outcomeField, "Taxed:")
+
+	if wonIdx == -1 || lostIdx == -1 || taxedIdx == -1 {
+		t.Fatalf("outcome field = %q, want Won/Lost/Taxed entries", outcomeField)
+	}
+	if !(wonIdx < lostIdx && lostIdx < taxedIdx) {
+		t.Fatalf("outcome field order = %q, want Won before Lost before Taxed", outcomeField)
+	}
+}
+
+func TestResolvedStatusUsesSpoileredDeltaContent(t *testing.T) {
 	setupGame()
 	alice := makePlayer("1", "Alice")
 	bob := makePlayer("2", "Bob")
@@ -834,16 +872,19 @@ func TestStatusEmbedOrdersOutcomesWonLostTaxed(t *testing.T) {
 	GameState.Rounds[0].SetWinner(bob)
 
 	embed := GameState.StatusEmbed(GameState.Rounds[0])
-	outcomeField := embed.Fields[9].Value
-
-	wonIdx := strings.Index(outcomeField, "Won:")
-	lostIdx := strings.Index(outcomeField, "Lost:")
-	taxedIdx := strings.Index(outcomeField, "Taxed:")
-
-	if wonIdx == -1 || lostIdx == -1 || taxedIdx == -1 {
-		t.Fatalf("outcome field = %q, want Won/Lost/Taxed entries", outcomeField)
+	if !strings.Contains(embed.Fields[0].Value, "Winner: ||"+bob.User.Mention()+"||") {
+		t.Fatalf("round status field = %q, want spoilered winner mention", embed.Fields[0].Value)
 	}
-	if !(wonIdx < lostIdx && lostIdx < taxedIdx) {
-		t.Fatalf("outcome field order = %q, want Won before Lost before Taxed", outcomeField)
+	if embed.Fields[9].Value != "Won: Alice\nLost: Bob\nTaxed: Charlie" {
+		t.Fatalf("outcome field = %q, want visible outcome rows", embed.Fields[9].Value)
+	}
+	if embed.Fields[10].Value != "+40\n-15\n-30" {
+		t.Fatalf("amount field = %q, want signed amount column", embed.Fields[10].Value)
+	}
+	if embed.Fields[11].Value != "100 -> 140\n100 -> 85\n100 -> 70" {
+		t.Fatalf("delta field = %q, want before/after column", embed.Fields[11].Value)
+	}
+	if len(embed.Fields) != 12 {
+		t.Fatalf("resolved embed field count = %d, want 12 with outcome/amount/delta columns", len(embed.Fields))
 	}
 }

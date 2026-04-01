@@ -498,7 +498,8 @@ var Commands = map[string]func(s *discordgo.Session, i *discordgo.InteractionCre
 			round = gamble.GameState.CurrentRound().ID + 1
 		}
 
-		embed := gamble.GameState.StatusEmbed(gamble.GameState.Round(round))
+		statusRound := gamble.GameState.Round(round)
+		embed := gamble.GameState.StatusEmbed(statusRound)
 		_, err := s.FollowupMessageCreate(i.Interaction, true, &discordgo.WebhookParams{
 			Embeds:     []*discordgo.MessageEmbed{&embed},
 			Components: gamble.RoundMessageComponents,

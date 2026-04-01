@@ -386,6 +386,13 @@ func (g *game) RoundState(r round) string {
 	return "Open"
 }
 
+func (g *game) winnerStatus(r round) string {
+	if r.HasWinner() {
+		return "Winner: ||" + r.Winner.User.Mention() + "||"
+	}
+	return "Winner: _Not set_"
+}
+
 func placeholderValue(value string, empty string) string {
 	if strings.TrimSpace(value) == "" {
 		return empty
@@ -436,18 +443,94 @@ func ParseBetAmountInput(input string, maxStake int) (int, error) {
 	return strconv.Atoi(input)
 }
 
+func (g *game) resolvedOutcomeGroups(r round) (string, string, string, string, string, string) {
+	var wonOutcome, wonAmount string
+	var lostOutcome, lostAmount string
+	var taxedOutcome, taxedAmount string
+
+	options := len(g.wheelOptions(r))
+	for _, result := range r.roundOutcome() {
+		if result.won {
+			wonOutcome += fmt.Sprintf("Won: %s\n", result.player.User.DisplayName())
+			wonAmount += strconv.Itoa(result.bet.Amount*max(options-1, 0)) + "\n"
+		} else {
+			lostOutcome += fmt.Sprintf("Lost: %s\n", result.player.User.DisplayName())
+			lostAmount += strconv.Itoa(-result.bet.Amount) + "\n"
+		}
+	}
+	for _, player := range g.underThresholdPlayers(r) {
+		taxedOutcome += fmt.Sprintf("Taxed: %s\n", player.User.DisplayName())
+		taxedAmount += "-" + strconv.Itoa(g.playerTax(player, r)) + "\n"
+	}
+
+	return wonOutcome, wonAmount, lostOutcome, lostAmount, taxedOutcome, taxedAmount
+}
+
+func formatSignedAmount(amount int) string {
+	if amount > 0 {
+		return "+" + strconv.Itoa(amount)
+	}
+	return strconv.Itoa(amount)
+}
+
+func (g *game) resolvedOutcomeColumns(r round) (string, string, string) {
+	if !r.HasWinner() {
+		return "", "", ""
+	}
+
+	currentBalances := make(map[string]int, len(g.Players))
+	for _, player := range g.Players {
+		currentBalances[player.ID()] = g.playerMoney(player, r)
+	}
+
+	options := len(g.wheelOptions(r))
+	var outcomes []string
+	var amounts []string
+	var deltas []string
+
+	for _, result := range r.roundOutcome() {
+		if !result.won {
+			continue
+		}
+		before := currentBalances[result.player.ID()]
+		delta := result.bet.Amount * max(options-1, 0)
+		after := before + delta
+		outcomes = append(outcomes, fmt.Sprintf("Won: %s", result.player.User.DisplayName()))
+		amounts = append(amounts, formatSignedAmount(delta))
+		deltas = append(deltas, fmt.Sprintf("%d -> %d", before, after))
+		currentBalances[result.player.ID()] = after
+	}
+	for _, result := range r.roundOutcome() {
+		if result.won {
+			continue
+		}
+		before := currentBalances[result.player.ID()]
+		delta := -result.bet.Amount
+		after := before + delta
+		outcomes = append(outcomes, fmt.Sprintf("Lost: %s", result.player.User.DisplayName()))
+		amounts = append(amounts, formatSignedAmount(delta))
+		deltas = append(deltas, fmt.Sprintf("%d -> %d", before, after))
+		currentBalances[result.player.ID()] = after
+	}
+	for _, player := range g.underThresholdPlayers(r) {
+		before := currentBalances[player.ID()]
+		delta := -g.playerTax(player, r)
+		after := before + delta
+		outcomes = append(outcomes, fmt.Sprintf("Taxed: %s", player.User.DisplayName()))
+		amounts = append(amounts, formatSignedAmount(delta))
+		deltas = append(deltas, fmt.Sprintf("%d -> %d", before, after))
+		currentBalances[player.ID()] = after
+	}
+
+	return strings.Join(outcomes, "\n"), strings.Join(amounts, "\n"), strings.Join(deltas, "\n")
+}
+
 func (g *game) StatusEmbed(r round) discordgo.MessageEmbed {
 	embed := discordgo.MessageEmbed{
 		Author: &discordgo.MessageEmbedAuthor{},
 		Color:  0x00ff00,
 		Title:  "Round " + strconv.Itoa(r.ID+1),
 		Fields: []*discordgo.MessageEmbedField{},
-	}
-	var winner string
-	if r.HasWinner() {
-		winner = "Winner: " + r.Winner.User.Mention()
-	} else {
-		winner = "Winner: _Not set_"
 	}
 	var playerNames, playerMoney, betPercentage string
 	for _, player := range g.Players {
@@ -474,28 +557,12 @@ func (g *game) StatusEmbed(r round) discordgo.MessageEmbed {
 		PlayerBetsOn += bet.On.User.Username + "\n"
 		PlayerBetsAmount += strconv.Itoa(bet.Amount) + "\n"
 	}
-	var wonOutcome, wonAmount string
-	var lostOutcome, lostAmount string
-	var taxedOutcome, taxedAmount string
-	options := len(g.wheelOptions(r))
-	for _, result := range r.roundOutcome() {
-		if result.won {
-			wonOutcome += fmt.Sprintf("Won: %s\n", result.player.User.DisplayName())
-			wonAmount += strconv.Itoa(result.bet.Amount*max(options-1, 0)) + "\n"
-		} else {
-			lostOutcome += fmt.Sprintf("Lost: %s\n", result.player.User.DisplayName())
-			lostAmount += strconv.Itoa(-result.bet.Amount) + "\n"
-		}
-	}
-	for _, player := range g.underThresholdPlayers(r) {
-		taxedOutcome += fmt.Sprintf("Taxed: %s\n", player.User.DisplayName())
-		taxedAmount += "-" + strconv.Itoa(g.playerTax(player, r)) + "\n"
-	}
+	wonOutcome, wonAmount, lostOutcome, lostAmount, taxedOutcome, taxedAmount := g.resolvedOutcomeGroups(r)
 	outcome := wonOutcome + lostOutcome + taxedOutcome
 	outcomeAmount := wonAmount + lostAmount + taxedAmount
 	embed.Fields = append(embed.Fields, &discordgo.MessageEmbedField{
 		Name:  "✨ Round Status ✨",
-		Value: fmt.Sprintf("State: %s\n%s", g.RoundState(r), winner),
+		Value: fmt.Sprintf("State: %s\n%s", g.RoundState(r), g.winnerStatus(r)),
 	})
 	embed.Fields = append(embed.Fields, &discordgo.MessageEmbedField{
 		Name:   "Players",
@@ -541,11 +608,27 @@ func (g *game) StatusEmbed(r round) discordgo.MessageEmbed {
 		Value:  placeholderValue(outcome, "_No outcomes yet_"),
 		Inline: true,
 	})
-	embed.Fields = append(embed.Fields, &discordgo.MessageEmbedField{
-		Name:   "Amount",
-		Value:  placeholderValue(outcomeAmount, "_No outcomes yet_"),
-		Inline: true,
-	})
+	if r.HasWinner() {
+		outcomeCol, amountCol, deltaCol := g.resolvedOutcomeColumns(r)
+		embed.Fields[len(embed.Fields)-1].Value = placeholderValue(outcomeCol, "_No outcomes yet_")
+		embed.Fields[len(embed.Fields)-1].Inline = true
+		embed.Fields = append(embed.Fields, &discordgo.MessageEmbedField{
+			Name:   "Amount",
+			Value:  placeholderValue(amountCol, "_No outcomes yet_"),
+			Inline: true,
+		})
+		embed.Fields = append(embed.Fields, &discordgo.MessageEmbedField{
+			Name:   "Delta",
+			Value:  placeholderValue(deltaCol, "_No outcomes yet_"),
+			Inline: true,
+		})
+	} else {
+		embed.Fields = append(embed.Fields, &discordgo.MessageEmbedField{
+			Name:   "Amount",
+			Value:  placeholderValue(outcomeAmount, "_No outcomes yet_"),
+			Inline: true,
+		})
+	}
 	return embed
 }
 
