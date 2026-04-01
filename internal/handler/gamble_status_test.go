@@ -58,3 +58,17 @@ func TestGambleStatusComponentsLockedResolvedRound(t *testing.T) {
 		t.Fatalf("resolved button = %#v, want button_currentround", row.Components[0])
 	}
 }
+
+func TestGambleStatusComponentsLockedCurrentRound(t *testing.T) {
+	gamble.GameState.ResetWheel()
+	gamble.GameState.AddRound()
+
+	components := gambleStatusComponentsLocked(1)
+	row, ok := components[0].(*discordgo.ActionsRow)
+	if !ok {
+		t.Fatalf("components[0] = %#v, want action row", components[0])
+	}
+	if len(row.Components) != 4 {
+		t.Fatalf("current round buttons = %d, want 4", len(row.Components))
+	}
+}

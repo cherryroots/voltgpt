@@ -773,6 +773,26 @@ func TestMenuPlayersForRoundRemove(t *testing.T) {
 	}
 }
 
+func TestMenuPlayersForRoundSortedAlphabetically(t *testing.T) {
+	setupGame()
+	alice := makePlayer("1", "Alice")
+	zed := makePlayer("2", "Zed")
+	bob := makePlayer("3", "Bob")
+
+	GameState.AddWheelOption(zed)
+	GameState.AddWheelOption(alice)
+	GameState.AddWheelOption(bob)
+	GameState.AddRound()
+
+	got := GameState.menuPlayersForRound(alice, GameState.Rounds[0], false, false)
+	if len(got) != 3 {
+		t.Fatalf("menuPlayersForRound() len = %d, want 3", len(got))
+	}
+	if got[0].User.DisplayName() != "Alice" || got[1].User.DisplayName() != "Bob" || got[2].User.DisplayName() != "Zed" {
+		t.Fatalf("menuPlayersForRound() order = %q, %q, %q; want Alice, Bob, Zed", got[0].User.DisplayName(), got[1].User.DisplayName(), got[2].User.DisplayName())
+	}
+}
+
 func TestParseBetAmountInputPercent(t *testing.T) {
 	amount, err := ParseBetAmountInput("25%", 80)
 	if err != nil {
@@ -807,6 +827,9 @@ func TestStatusEmbedShowsRoundStateAndPlaceholders(t *testing.T) {
 	}
 	if !strings.Contains(embed.Fields[1].Value, "_No players yet_") {
 		t.Fatalf("players field = %q, want placeholder", embed.Fields[1].Value)
+	}
+	if embed.Color != 0x00ff00 {
+		t.Fatalf("embed color = %#x, want green", embed.Color)
 	}
 }
 
@@ -892,6 +915,9 @@ func TestResolvedStatusUsesSpoileredDeltaContent(t *testing.T) {
 	if embed.Footer == nil || embed.Footer.Text != "3 claims • 2 bets • 1 wins • 1 losses • 1 taxed" {
 		t.Fatalf("footer = %#v, want resolved summary counts", embed.Footer)
 	}
+	if embed.Color != 0xff0000 {
+		t.Fatalf("resolved embed color = %#x, want red", embed.Color)
+	}
 }
 
 func TestStatusEmbedSortsPlayersByBankrollAndBoldsThreshold(t *testing.T) {
@@ -934,5 +960,20 @@ func TestStatusEmbedSortsPlayersByBankrollAndBoldsThreshold(t *testing.T) {
 	}
 	if embed.Footer == nil || embed.Footer.Text != "1 claims • 1 bets • 2 taxed" {
 		t.Fatalf("footer = %#v, want open round summary counts", embed.Footer)
+	}
+}
+
+func TestStatusEmbedSortsClaimsAlphabetically(t *testing.T) {
+	setupGame()
+	GameState.AddRound()
+	GameState.Rounds[0].AddClaim(makePlayer("4", "Delta"))
+	GameState.Rounds[0].AddClaim(makePlayer("2", "Bravo"))
+	GameState.Rounds[0].AddClaim(makePlayer("5", "Echo"))
+	GameState.Rounds[0].AddClaim(makePlayer("1", "Alpha"))
+	GameState.Rounds[0].AddClaim(makePlayer("3", "Charlie"))
+
+	embed := GameState.StatusEmbed(GameState.Rounds[0])
+	if embed.Fields[4].Value != "Alpha, Bravo, Charlie, Delta\nEcho" {
+		t.Fatalf("claims field = %q, want alphabetical wrapped claims", embed.Fields[4].Value)
 	}
 }

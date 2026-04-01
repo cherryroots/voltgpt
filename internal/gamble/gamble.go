@@ -425,6 +425,13 @@ func placeholderValue(value string, empty string) string {
 }
 
 func (g *game) menuPlayersForRound(actor Player, r round, remove bool, winner bool) []Player {
+	sortPlayers := func(players []Player) []Player {
+		sort.SliceStable(players, func(i, j int) bool {
+			return players[i].User.DisplayName() < players[j].User.DisplayName()
+		})
+		return players
+	}
+
 	if remove {
 		targets := make(map[string]struct{})
 		for _, bet := range r.Bets {
@@ -439,14 +446,14 @@ func (g *game) menuPlayersForRound(actor Player, r round, remove bool, winner bo
 				players = append(players, player)
 			}
 		}
-		return players
+		return sortPlayers(players)
 	}
 
 	if winner {
-		return g.wheelOptions(r)
+		return sortPlayers(g.wheelOptions(r))
 	}
 
-	return g.wheelOptions(r)
+	return sortPlayers(g.wheelOptions(r))
 }
 
 func ParseBetAmountInput(input string, maxStake int) (int, error) {
@@ -619,9 +626,14 @@ func (g *game) footerText(r round) string {
 }
 
 func (g *game) StatusEmbed(r round) discordgo.MessageEmbed {
+	color := 0x00ff00
+	if r.HasWinner() {
+		color = 0xff0000
+	}
+
 	embed := discordgo.MessageEmbed{
 		Author: &discordgo.MessageEmbedAuthor{},
-		Color:  0x00ff00,
+		Color:  color,
 		Title:  "Round " + strconv.Itoa(r.ID+1),
 		Fields: []*discordgo.MessageEmbedField{},
 		Footer: &discordgo.MessageEmbedFooter{
@@ -639,13 +651,19 @@ func (g *game) StatusEmbed(r round) discordgo.MessageEmbed {
 		betPercentage += betPct + "\n"
 	}
 	var claims []string
+	var claimNames []string
+	for _, claim := range r.Claims {
+		claimNames = append(claimNames, claim.User.DisplayName())
+	}
+	sort.Strings(claimNames)
+
 	var temp string
-	for i, claim := range r.Claims {
+	for i, claimName := range claimNames {
 		if i%4 == 0 && i > 0 && len(temp) > 0 {
 			claims = append(claims, temp[:len(temp)-2])
 			temp = ""
 		}
-		temp += claim.User.Username + ", "
+		temp += claimName + ", "
 	}
 	if len(temp) > 0 {
 		claims = append(claims, temp[:len(temp)-2])
