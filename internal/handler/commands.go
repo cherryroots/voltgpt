@@ -502,7 +502,7 @@ var Commands = map[string]func(s *discordgo.Session, i *discordgo.InteractionCre
 		embed := gamble.GameState.StatusEmbed(statusRound)
 		_, err := s.FollowupMessageCreate(i.Interaction, true, &discordgo.WebhookParams{
 			Embeds:     []*discordgo.MessageEmbed{&embed},
-			Components: gamble.RoundMessageComponents,
+			Components: gambleStatusComponentsLocked(round),
 			Flags:      1 << 12,
 		})
 		if err != nil {

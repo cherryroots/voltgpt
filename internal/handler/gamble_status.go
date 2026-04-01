@@ -41,6 +41,19 @@ func gambleRoundIsCurrentLocked(round int) bool {
 	return round == currentGambleRoundNumberLocked()
 }
 
+func gambleStatusComponentsLocked(round int) []discordgo.MessageComponent {
+	if round <= 0 {
+		round = currentGambleRoundNumberLocked()
+	}
+
+	currentRound := currentGambleRoundNumberLocked()
+	statusRound := gamble.GameState.Round(round)
+	if statusRound.HasWinner() && round != currentRound {
+		return gamble.ResolvedRoundMessageComponents
+	}
+	return gamble.RoundMessageComponents
+}
+
 func buildGambleStatusMessageEditLocked(channelID, messageID string, round int) *discordgo.MessageEdit {
 	if round <= 0 {
 		round = currentGambleRoundNumberLocked()
@@ -49,7 +62,7 @@ func buildGambleStatusMessageEditLocked(channelID, messageID string, round int) 
 	statusRound := gamble.GameState.Round(round)
 	embed := gamble.GameState.StatusEmbed(statusRound)
 	embeds := []*discordgo.MessageEmbed{&embed}
-	components := gamble.RoundMessageComponents
+	components := gambleStatusComponentsLocked(round)
 	content := ""
 
 	return &discordgo.MessageEdit{

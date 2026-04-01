@@ -105,6 +105,14 @@ type outcomeEntry struct {
 	after  int
 }
 
+var ResolvedRoundMessageComponents = []discordgo.MessageComponent{
+	&discordgo.ActionsRow{
+		Components: []discordgo.MessageComponent{
+			makeButton(discordgo.PrimaryButton, "View Current Round", "🎯", "button_currentround"),
+		},
+	},
+}
+
 type Player struct {
 	User *discordgo.User `json:"user"`
 }
@@ -578,12 +586,47 @@ func (g *game) resolvedOutcomeColumns(r round) (string, string, string) {
 	return strings.Join(outcomes, "\n"), strings.Join(amounts, "\n"), strings.Join(deltas, "\n")
 }
 
+func (g *game) outcomeSummaryCounts(r round) (wins, losses, taxed int) {
+	for _, entry := range g.resolvedOutcomeEntries(r) {
+		switch entry.label {
+		case "Won":
+			wins++
+		case "Lost":
+			losses++
+		case "Taxed":
+			taxed++
+		}
+	}
+	return wins, losses, taxed
+}
+
+func (g *game) footerText(r round) string {
+	parts := []string{
+		fmt.Sprintf("%d claims", len(r.Claims)),
+		fmt.Sprintf("%d bets", len(r.Bets)),
+	}
+	if r.HasWinner() {
+		wins, losses, _ := g.outcomeSummaryCounts(r)
+		parts = append(parts,
+			fmt.Sprintf("%d wins", wins),
+			fmt.Sprintf("%d losses", losses),
+			fmt.Sprintf("%d taxed", len(g.underThresholdPlayers(r))),
+		)
+	} else {
+		parts = append(parts, fmt.Sprintf("%d taxed", len(g.underThresholdPlayers(r))))
+	}
+	return strings.Join(parts, " • ")
+}
+
 func (g *game) StatusEmbed(r round) discordgo.MessageEmbed {
 	embed := discordgo.MessageEmbed{
 		Author: &discordgo.MessageEmbedAuthor{},
 		Color:  0x00ff00,
 		Title:  "Round " + strconv.Itoa(r.ID+1),
 		Fields: []*discordgo.MessageEmbedField{},
+		Footer: &discordgo.MessageEmbedFooter{
+			Text: g.footerText(r),
+		},
 	}
 	var playerNames, playerMoney, betPercentage string
 	for _, row := range g.statusPlayerRows(r) {
@@ -670,7 +713,7 @@ func (g *game) StatusEmbed(r round) discordgo.MessageEmbed {
 		embed.Fields[len(embed.Fields)-1].Value = placeholderValue(outcomeCol, "_No outcomes yet_")
 		embed.Fields[len(embed.Fields)-1].Inline = true
 		embed.Fields = append(embed.Fields, &discordgo.MessageEmbedField{
-			Name:   "Amount",
+			Name:   "Payout",
 			Value:  placeholderValue(amountCol, "_No outcomes yet_"),
 			Inline: true,
 		})

@@ -3,6 +3,8 @@ package handler
 import (
 	"testing"
 
+	"voltgpt/internal/gamble"
+
 	"github.com/bwmarrin/discordgo"
 )
 
@@ -33,5 +35,26 @@ func TestParseGambleModalCustomID(t *testing.T) {
 	userID, round, messageID := parseGambleModalCustomID("modal_bet-998877-4-1234567890")
 	if userID != "998877" || round != 4 || messageID != "1234567890" {
 		t.Fatalf("parseGambleModalCustomID() = %q, %d, %q", userID, round, messageID)
+	}
+}
+
+func TestGambleStatusComponentsLockedResolvedRound(t *testing.T) {
+	gamble.GameState.ResetWheel()
+	gamble.GameState.AddRound()
+	gamble.GameState.AddRound()
+	gamble.GameState.Rounds[0].SetWinner(gamble.Player{User: &discordgo.User{ID: "1", Username: "winner", GlobalName: "Winner"}})
+
+	components := gambleStatusComponentsLocked(1)
+	if len(components) != 1 {
+		t.Fatalf("len(components) = %d, want 1", len(components))
+	}
+
+	row, ok := components[0].(*discordgo.ActionsRow)
+	if !ok || len(row.Components) != 1 {
+		t.Fatalf("resolved components = %#v, want single button row", components[0])
+	}
+	button, ok := row.Components[0].(*discordgo.Button)
+	if !ok || button.CustomID != "button_currentround" {
+		t.Fatalf("resolved button = %#v, want button_currentround", row.Components[0])
 	}
 }

@@ -877,6 +877,9 @@ func TestResolvedStatusUsesSpoileredDeltaContent(t *testing.T) {
 	if embed.Fields[9].Value != "Won: Alice\nLost: Bob\nTaxed: Charlie" {
 		t.Fatalf("outcome field = %q, want visible outcome rows", embed.Fields[9].Value)
 	}
+	if embed.Fields[10].Name != "Payout" {
+		t.Fatalf("payout field name = %q, want Payout", embed.Fields[10].Name)
+	}
 	if embed.Fields[10].Value != "+40\n-15\n-30" {
 		t.Fatalf("amount field = %q, want signed amount column", embed.Fields[10].Value)
 	}
@@ -885,6 +888,9 @@ func TestResolvedStatusUsesSpoileredDeltaContent(t *testing.T) {
 	}
 	if len(embed.Fields) != 12 {
 		t.Fatalf("resolved embed field count = %d, want 12 with outcome/amount/delta columns", len(embed.Fields))
+	}
+	if embed.Footer == nil || embed.Footer.Text != "3 claims • 2 bets • 1 wins • 1 losses • 1 taxed" {
+		t.Fatalf("footer = %#v, want resolved summary counts", embed.Footer)
 	}
 }
 
@@ -925,5 +931,8 @@ func TestStatusEmbedSortsPlayersByBankrollAndBoldsThreshold(t *testing.T) {
 	}
 	if embed.Fields[3].Value != "12%\n**0%**\n**0%**\n" {
 		t.Fatalf("bet%% field = %q, want under-threshold values bolded", embed.Fields[3].Value)
+	}
+	if embed.Footer == nil || embed.Footer.Text != "1 claims • 1 bets • 2 taxed" {
+		t.Fatalf("footer = %#v, want open round summary counts", embed.Footer)
 	}
 }
