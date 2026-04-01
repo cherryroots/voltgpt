@@ -541,7 +541,7 @@ func (g *game) StatusEmbed(r round) discordgo.MessageEmbed {
 	var claims []string
 	var temp string
 	for i, claim := range r.Claims {
-		if i%3 == 0 && i > 0 && len(temp) > 0 {
+		if i%4 == 0 && i > 0 && len(temp) > 0 {
 			claims = append(claims, temp[:len(temp)-2])
 			temp = ""
 		}
