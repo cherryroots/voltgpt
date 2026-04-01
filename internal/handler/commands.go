@@ -847,29 +847,7 @@ var Commands = map[string]func(s *discordgo.Session, i *discordgo.InteractionCre
 			return
 		}
 
-		notes, err := memory.GetRecentGuildNotes(i.GuildID, 10)
-		if err != nil {
-			_, err := discord.SendFollowup(s, i, fmt.Sprintf("Error: %v", err))
-			if err != nil {
-				log.Println(err)
-			}
-			return
-		}
-		if len(notes) == 0 {
-			_, err := discord.SendFollowup(s, i, "No guild-scoped memory has been captured yet.")
-			if err != nil {
-				log.Println(err)
-			}
-			return
-		}
-
-		message := memory.RenderNotesMarkdown(notes)
-		if len(message) > 2000 {
-			message = message[:1997] + "..."
-		}
-
-		_, err = discord.SendFollowup(s, i, message)
-		if err != nil {
+		if err := sendMemoryDigestPage(s, i, 1); err != nil {
 			log.Println(err)
 		}
 	},

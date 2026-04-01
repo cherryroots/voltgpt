@@ -16,6 +16,7 @@ import (
 	openaiapi "voltgpt/internal/apis/openai"
 
 	oa "github.com/openai/openai-go"
+	"github.com/openai/openai-go/responses"
 	"github.com/openai/openai-go/shared"
 )
 
@@ -196,34 +197,49 @@ func Shutdown() {
 	database = nil
 }
 
-func generateJSON(ctx context.Context, model, systemPrompt, userPrompt string, reasoning shared.ReasoningEffort, schema shared.ResponseFormatJSONSchemaJSONSchemaParam) (string, error) {
+func generateJSON(ctx context.Context, model, systemPrompt, userPrompt, responseType string, reasoning shared.ReasoningEffort, schema shared.ResponseFormatJSONSchemaJSONSchemaParam) (string, error) {
 	if client == nil {
-		return "", fmt.Errorf("chat completion: OpenAI client is not initialized")
+		return "", fmt.Errorf("responses API client is not initialized")
 	}
 
-	resp, err := client.Chat.Completions.New(ctx, oa.ChatCompletionNewParams{
-		Messages: []oa.ChatCompletionMessageParamUnion{
-			oa.DeveloperMessage(systemPrompt),
-			oa.UserMessage(userPrompt),
+	resp, err := client.Responses.New(ctx, responses.ResponseNewParams{
+		Input: responses.ResponseNewParamsInputUnion{
+			OfInputItemList: responses.ResponseInputParam([]responses.ResponseInputItemUnionParam{
+				responses.ResponseInputItemParamOfMessage(
+					responses.ResponseInputMessageContentListParam{
+						responses.ResponseInputContentParamOfInputText(systemPrompt),
+					},
+					responses.EasyInputMessageRoleSystem,
+				),
+				responses.ResponseInputItemParamOfMessage(
+					responses.ResponseInputMessageContentListParam{
+						responses.ResponseInputContentParamOfInputText(userPrompt),
+					},
+					responses.EasyInputMessageRoleUser,
+				),
+			}),
 		},
-		Model:           oa.ChatModel(model),
-		ReasoningEffort: reasoning,
-		ResponseFormat: oa.ChatCompletionNewParamsResponseFormatUnion{
-			OfJSONSchema: &shared.ResponseFormatJSONSchemaParam{
-				JSONSchema: schema,
+		Metadata:  openaiapi.ResponseMetadata(responseType),
+		Model:     responses.ChatModel(model),
+		Reasoning: shared.ReasoningParam{Effort: reasoning},
+		Text: responses.ResponseTextConfigParam{
+			Format: responses.ResponseFormatTextConfigUnionParam{
+				OfJSONSchema: &responses.ResponseFormatTextJSONSchemaConfigParam{
+					Name:        schema.Name,
+					Schema:      schema.Schema.(map[string]any),
+					Strict:      schema.Strict,
+					Description: schema.Description,
+				},
 			},
 		},
 	})
 	if err != nil {
 		return "", err
 	}
-	if len(resp.Choices) == 0 {
-		return "", fmt.Errorf("chat completion returned no choices")
-	}
 
-	content := strings.TrimSpace(resp.Choices[0].Message.Content)
+	content := strings.TrimSpace(resp.OutputText())
 	if content == "" {
-		return "", fmt.Errorf("chat completion returned empty content")
+		return "", fmt.Errorf("responses API returned empty content")
 	}
 	return content, nil
 }

@@ -205,7 +205,7 @@ func clusterGuildDayOpenAI(ctx context.Context, guildID, date string, notes []In
 	}
 
 	prompt := fmt.Sprintf("Guild: %s\nDate: %s\nConversation notes JSON:\n%s", guildID, date, jsonString(notes))
-	responseText, err := generateJSON(ctx, clusteringModel, clusterSystemPrompt, prompt, clusteringReasoning, clusterResponseSchema)
+	responseText, err := generateJSON(ctx, clusteringModel, clusterSystemPrompt, prompt, "topic_cluster", clusteringReasoning, clusterResponseSchema)
 	if err != nil {
 		return nil, err
 	}

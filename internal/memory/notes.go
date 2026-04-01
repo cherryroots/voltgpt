@@ -281,6 +281,40 @@ func GetRecentGuildNotes(guildID string, limit int) ([]InteractionNote, error) {
 	return attachNoteParticipants(notes)
 }
 
+func GetRecentGuildNotesPage(guildID string, limit, offset int) ([]InteractionNote, error) {
+	if limit <= 0 {
+		limit = 10
+	}
+	if offset < 0 {
+		offset = 0
+	}
+
+	rows, err := database.Query(`
+		SELECT id, guild_id, COALESCE(channel_id, ''), note_type, title, summary, source_note_ids, note_date, created_at
+		FROM interaction_notes
+		WHERE guild_id = ?
+		ORDER BY note_date DESC, created_at DESC
+		LIMIT ? OFFSET ?
+	`, guildID, limit, offset)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var notes []InteractionNote
+	for rows.Next() {
+		note, err := scanInteractionNote(rows)
+		if err != nil {
+			return nil, err
+		}
+		notes = append(notes, note)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return attachNoteParticipants(notes)
+}
+
 func CountGuildNotes(guildID string) int {
 	if database == nil {
 		return 0

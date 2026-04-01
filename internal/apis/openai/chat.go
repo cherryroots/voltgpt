@@ -231,6 +231,7 @@ func StreamMessageResponse(s *discordgo.Session, c *oa.Client, m *discordgo.Mess
 			OfInputItemList: responses.ResponseInputParam(input),
 		},
 		Instructions:      oa.String(config.SystemMessage + contextText),
+		Metadata:          ResponseMetadata("chat"),
 		Model:             responses.ChatModel(chatModel),
 		Store:             oa.Bool(true),
 		Temperature:       oa.Float(1),

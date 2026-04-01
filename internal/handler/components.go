@@ -199,4 +199,20 @@ var Components = map[string]func(s *discordgo.Session, i *discordgo.InteractionC
 			discord.UpdateResponse(s, i, "Reminder not found (it may have already fired).")
 		}
 	},
+	"memorydigest": func(s *discordgo.Session, i *discordgo.InteractionCreate) {
+		log.Printf("Received interaction: %s by %s", i.MessageComponentData().CustomID, i.Interaction.Member.User.Username)
+
+		if !utility.IsAdmin(i.Interaction.Member.User.ID) {
+			discord.DeferEphemeralResponse(s, i)
+			_, err := discord.SendFollowup(s, i, "Only admins can use this command!")
+			if err != nil {
+				log.Println(err)
+			}
+			return
+		}
+
+		if err := updateMemoryDigestPage(s, i, parseMemoryDigestPage(i.MessageComponentData().CustomID)); err != nil {
+			log.Println(err)
+		}
+	},
 }
