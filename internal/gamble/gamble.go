@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -87,6 +88,21 @@ type result struct {
 	player Player
 	bet    Bet
 	won    bool
+}
+
+type statusPlayerRow struct {
+	player         Player
+	money          int
+	betPercentage  int
+	underThreshold bool
+}
+
+type outcomeEntry struct {
+	label  string
+	player Player
+	amount int
+	before int
+	after  int
 }
 
 type Player struct {
@@ -443,29 +459,6 @@ func ParseBetAmountInput(input string, maxStake int) (int, error) {
 	return strconv.Atoi(input)
 }
 
-func (g *game) resolvedOutcomeGroups(r round) (string, string, string, string, string, string) {
-	var wonOutcome, wonAmount string
-	var lostOutcome, lostAmount string
-	var taxedOutcome, taxedAmount string
-
-	options := len(g.wheelOptions(r))
-	for _, result := range r.roundOutcome() {
-		if result.won {
-			wonOutcome += fmt.Sprintf("Won: %s\n", result.player.User.DisplayName())
-			wonAmount += strconv.Itoa(result.bet.Amount*max(options-1, 0)) + "\n"
-		} else {
-			lostOutcome += fmt.Sprintf("Lost: %s\n", result.player.User.DisplayName())
-			lostAmount += strconv.Itoa(-result.bet.Amount) + "\n"
-		}
-	}
-	for _, player := range g.underThresholdPlayers(r) {
-		taxedOutcome += fmt.Sprintf("Taxed: %s\n", player.User.DisplayName())
-		taxedAmount += "-" + strconv.Itoa(g.playerTax(player, r)) + "\n"
-	}
-
-	return wonOutcome, wonAmount, lostOutcome, lostAmount, taxedOutcome, taxedAmount
-}
-
 func formatSignedAmount(amount int) string {
 	if amount > 0 {
 		return "+" + strconv.Itoa(amount)
@@ -473,9 +466,31 @@ func formatSignedAmount(amount int) string {
 	return strconv.Itoa(amount)
 }
 
-func (g *game) resolvedOutcomeColumns(r round) (string, string, string) {
+func (g *game) statusPlayerRows(r round) []statusPlayerRow {
+	rows := make([]statusPlayerRow, 0, len(g.Players))
+	for _, player := range g.Players {
+		betPercentage := g.betsPercentage(player, r)
+		rows = append(rows, statusPlayerRow{
+			player:         player,
+			money:          g.playerMoney(player, r),
+			betPercentage:  betPercentage,
+			underThreshold: betPercentage < 10,
+		})
+	}
+
+	sort.SliceStable(rows, func(i, j int) bool {
+		if rows[i].money != rows[j].money {
+			return rows[i].money > rows[j].money
+		}
+		return rows[i].player.User.DisplayName() < rows[j].player.User.DisplayName()
+	})
+
+	return rows
+}
+
+func (g *game) resolvedOutcomeEntries(r round) []outcomeEntry {
 	if !r.HasWinner() {
-		return "", "", ""
+		return nil
 	}
 
 	currentBalances := make(map[string]int, len(g.Players))
@@ -484,42 +499,80 @@ func (g *game) resolvedOutcomeColumns(r round) (string, string, string) {
 	}
 
 	options := len(g.wheelOptions(r))
+	var entries []outcomeEntry
+	for _, result := range r.roundOutcome() {
+		delta := -result.bet.Amount
+		label := "Lost"
+		if result.won {
+			label = "Won"
+			delta = result.bet.Amount * max(options-1, 0)
+		}
+		before := currentBalances[result.player.ID()]
+		after := before + delta
+		entries = append(entries, outcomeEntry{
+			label:  label,
+			player: result.player,
+			amount: delta,
+			before: before,
+			after:  after,
+		})
+		currentBalances[result.player.ID()] = after
+	}
+	for _, player := range g.underThresholdPlayers(r) {
+		delta := -g.playerTax(player, r)
+		before := currentBalances[player.ID()]
+		after := before + delta
+		entries = append(entries, outcomeEntry{
+			label:  "Taxed",
+			player: player,
+			amount: delta,
+			before: before,
+			after:  after,
+		})
+		currentBalances[player.ID()] = after
+	}
+
+	sort.SliceStable(entries, func(i, j int) bool {
+		if entries[i].amount != entries[j].amount {
+			return entries[i].amount > entries[j].amount
+		}
+		return entries[i].player.User.DisplayName() < entries[j].player.User.DisplayName()
+	})
+
+	return entries
+}
+
+func (g *game) resolvedOutcomeGroups(r round) (string, string, string, string, string, string) {
+	var wonOutcome, wonAmount string
+	var lostOutcome, lostAmount string
+	var taxedOutcome, taxedAmount string
+
+	for _, entry := range g.resolvedOutcomeEntries(r) {
+		switch entry.label {
+		case "Won":
+			wonOutcome += fmt.Sprintf("Won: %s\n", entry.player.User.DisplayName())
+			wonAmount += formatSignedAmount(entry.amount) + "\n"
+		case "Lost":
+			lostOutcome += fmt.Sprintf("Lost: %s\n", entry.player.User.DisplayName())
+			lostAmount += formatSignedAmount(entry.amount) + "\n"
+		case "Taxed":
+			taxedOutcome += fmt.Sprintf("Taxed: %s\n", entry.player.User.DisplayName())
+			taxedAmount += formatSignedAmount(entry.amount) + "\n"
+		}
+	}
+
+	return wonOutcome, wonAmount, lostOutcome, lostAmount, taxedOutcome, taxedAmount
+}
+
+func (g *game) resolvedOutcomeColumns(r round) (string, string, string) {
 	var outcomes []string
 	var amounts []string
 	var deltas []string
 
-	for _, result := range r.roundOutcome() {
-		if !result.won {
-			continue
-		}
-		before := currentBalances[result.player.ID()]
-		delta := result.bet.Amount * max(options-1, 0)
-		after := before + delta
-		outcomes = append(outcomes, fmt.Sprintf("Won: %s", result.player.User.DisplayName()))
-		amounts = append(amounts, formatSignedAmount(delta))
-		deltas = append(deltas, fmt.Sprintf("%d -> %d", before, after))
-		currentBalances[result.player.ID()] = after
-	}
-	for _, result := range r.roundOutcome() {
-		if result.won {
-			continue
-		}
-		before := currentBalances[result.player.ID()]
-		delta := -result.bet.Amount
-		after := before + delta
-		outcomes = append(outcomes, fmt.Sprintf("Lost: %s", result.player.User.DisplayName()))
-		amounts = append(amounts, formatSignedAmount(delta))
-		deltas = append(deltas, fmt.Sprintf("%d -> %d", before, after))
-		currentBalances[result.player.ID()] = after
-	}
-	for _, player := range g.underThresholdPlayers(r) {
-		before := currentBalances[player.ID()]
-		delta := -g.playerTax(player, r)
-		after := before + delta
-		outcomes = append(outcomes, fmt.Sprintf("Taxed: %s", player.User.DisplayName()))
-		amounts = append(amounts, formatSignedAmount(delta))
-		deltas = append(deltas, fmt.Sprintf("%d -> %d", before, after))
-		currentBalances[player.ID()] = after
+	for _, entry := range g.resolvedOutcomeEntries(r) {
+		outcomes = append(outcomes, fmt.Sprintf("%s: %s", entry.label, entry.player.User.DisplayName()))
+		amounts = append(amounts, formatSignedAmount(entry.amount))
+		deltas = append(deltas, fmt.Sprintf("%d -> %d", entry.before, entry.after))
 	}
 
 	return strings.Join(outcomes, "\n"), strings.Join(amounts, "\n"), strings.Join(deltas, "\n")
@@ -533,10 +586,14 @@ func (g *game) StatusEmbed(r round) discordgo.MessageEmbed {
 		Fields: []*discordgo.MessageEmbedField{},
 	}
 	var playerNames, playerMoney, betPercentage string
-	for _, player := range g.Players {
-		playerNames += player.User.DisplayName() + "\n"
-		playerMoney += strconv.Itoa(g.playerMoney(player, r)) + "\n"
-		betPercentage += strconv.Itoa(g.betsPercentage(player, r)) + "%" + "\n"
+	for _, row := range g.statusPlayerRows(r) {
+		playerNames += row.player.User.DisplayName() + "\n"
+		playerMoney += strconv.Itoa(row.money) + "\n"
+		betPct := strconv.Itoa(row.betPercentage) + "%"
+		if row.underThreshold {
+			betPct = "**" + betPct + "**"
+		}
+		betPercentage += betPct + "\n"
 	}
 	var claims []string
 	var temp string
@@ -553,8 +610,8 @@ func (g *game) StatusEmbed(r round) discordgo.MessageEmbed {
 
 	var PlayerBetsBy, PlayerBetsOn, PlayerBetsAmount string
 	for _, bet := range r.Bets {
-		PlayerBetsBy += bet.By.User.Username + "\n"
-		PlayerBetsOn += bet.On.User.Username + "\n"
+		PlayerBetsBy += bet.By.User.DisplayName() + "\n"
+		PlayerBetsOn += bet.On.User.DisplayName() + "\n"
 		PlayerBetsAmount += strconv.Itoa(bet.Amount) + "\n"
 	}
 	wonOutcome, wonAmount, lostOutcome, lostAmount, taxedOutcome, taxedAmount := g.resolvedOutcomeGroups(r)

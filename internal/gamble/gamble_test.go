@@ -810,41 +810,40 @@ func TestStatusEmbedShowsRoundStateAndPlaceholders(t *testing.T) {
 	}
 }
 
-func TestResolvedOutcomeGroupsOrderWonLostTaxed(t *testing.T) {
+func TestResolvedOutcomeColumnsOrderByAmount(t *testing.T) {
 	setupGame()
 	alice := makePlayer("1", "Alice")
 	bob := makePlayer("2", "Bob")
 	charlie := makePlayer("3", "Charlie")
+	dana := makePlayer("4", "Dana")
 
 	GameState.AddPlayer(alice)
 	GameState.AddPlayer(bob)
 	GameState.AddPlayer(charlie)
+	GameState.AddPlayer(dana)
 	GameState.AddWheelOption(alice)
 	GameState.AddWheelOption(bob)
 	GameState.AddWheelOption(charlie)
+	GameState.AddWheelOption(dana)
 
 	GameState.AddRound()
 	GameState.Rounds[0].AddClaim(alice)
 	GameState.Rounds[0].AddClaim(bob)
 	GameState.Rounds[0].AddClaim(charlie)
+	GameState.Rounds[0].AddClaim(dana)
 	GameState.Rounds[0].Bets = []Bet{
-		{Amount: 20, By: alice, On: bob},
+		{Amount: 20, By: alice, On: bob}, // +60
+		{Amount: 10, By: dana, On: bob},  // +30
 		{Amount: 15, By: bob, On: alice},
 	}
 	GameState.Rounds[0].SetWinner(bob)
 
-	wonOutcome, _, lostOutcome, _, taxedOutcome, _ := GameState.resolvedOutcomeGroups(GameState.Rounds[0])
-	outcomeField := wonOutcome + lostOutcome + taxedOutcome
-
-	wonIdx := strings.Index(outcomeField, "Won:")
-	lostIdx := strings.Index(outcomeField, "Lost:")
-	taxedIdx := strings.Index(outcomeField, "Taxed:")
-
-	if wonIdx == -1 || lostIdx == -1 || taxedIdx == -1 {
-		t.Fatalf("outcome field = %q, want Won/Lost/Taxed entries", outcomeField)
+	outcomes, amounts, _ := GameState.resolvedOutcomeColumns(GameState.Rounds[0])
+	if outcomes != "Won: Alice\nWon: Dana\nLost: Bob\nTaxed: Charlie" {
+		t.Fatalf("outcomes = %q", outcomes)
 	}
-	if !(wonIdx < lostIdx && lostIdx < taxedIdx) {
-		t.Fatalf("outcome field order = %q, want Won before Lost before Taxed", outcomeField)
+	if amounts != "+60\n+30\n-15\n-30" {
+		t.Fatalf("amounts = %q", amounts)
 	}
 }
 
@@ -886,5 +885,45 @@ func TestResolvedStatusUsesSpoileredDeltaContent(t *testing.T) {
 	}
 	if len(embed.Fields) != 12 {
 		t.Fatalf("resolved embed field count = %d, want 12 with outcome/amount/delta columns", len(embed.Fields))
+	}
+}
+
+func TestStatusEmbedSortsPlayersByBankrollAndBoldsThreshold(t *testing.T) {
+	setupGame()
+	alice := makePlayer("1", "Alice")
+	bob := makePlayer("2", "Bob")
+	charlie := makePlayer("3", "Charlie")
+
+	GameState.AddPlayer(alice)
+	GameState.AddPlayer(bob)
+	GameState.AddPlayer(charlie)
+	GameState.AddWheelOption(alice)
+	GameState.AddWheelOption(bob)
+	GameState.AddWheelOption(charlie)
+
+	GameState.AddRound()
+	GameState.Rounds[0].AddClaim(alice)
+	GameState.Rounds[0].AddClaim(bob)
+	GameState.Rounds[0].AddClaim(charlie)
+	GameState.Rounds[0].Bets = []Bet{
+		{Amount: 20, By: alice, On: bob},
+	}
+	GameState.Rounds[0].SetWinner(bob)
+
+	GameState.AddRound()
+	GameState.Rounds[1].AddClaim(alice)
+	GameState.Rounds[1].Bets = []Bet{
+		{Amount: 30, By: alice, On: bob},
+	}
+
+	embed := GameState.StatusEmbed(GameState.Rounds[1])
+	if embed.Fields[1].Value != "Alice\nBob\nCharlie\n" {
+		t.Fatalf("players field = %q, want bankroll-desc order", embed.Fields[1].Value)
+	}
+	if embed.Fields[2].Value != "240\n70\n70\n" {
+		t.Fatalf("money field = %q, want bankroll-desc values", embed.Fields[2].Value)
+	}
+	if embed.Fields[3].Value != "12%\n**0%**\n**0%**\n" {
+		t.Fatalf("bet%% field = %q, want under-threshold values bolded", embed.Fields[3].Value)
 	}
 }
