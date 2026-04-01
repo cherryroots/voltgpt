@@ -474,21 +474,25 @@ func (g *game) StatusEmbed(r round) discordgo.MessageEmbed {
 		PlayerBetsOn += bet.On.User.Username + "\n"
 		PlayerBetsAmount += strconv.Itoa(bet.Amount) + "\n"
 	}
-	var outcome, outcomeAmount string
+	var wonOutcome, wonAmount string
+	var lostOutcome, lostAmount string
+	var taxedOutcome, taxedAmount string
 	options := len(g.wheelOptions(r))
 	for _, result := range r.roundOutcome() {
 		if result.won {
-			outcome += fmt.Sprintf("Won: %s\n", result.player.User.DisplayName())
-			outcomeAmount += strconv.Itoa(result.bet.Amount*max(options-1, 0)) + "\n"
+			wonOutcome += fmt.Sprintf("Won: %s\n", result.player.User.DisplayName())
+			wonAmount += strconv.Itoa(result.bet.Amount*max(options-1, 0)) + "\n"
 		} else {
-			outcome += fmt.Sprintf("Lost: %s\n", result.player.User.DisplayName())
-			outcomeAmount += strconv.Itoa(-result.bet.Amount) + "\n"
+			lostOutcome += fmt.Sprintf("Lost: %s\n", result.player.User.DisplayName())
+			lostAmount += strconv.Itoa(-result.bet.Amount) + "\n"
 		}
 	}
 	for _, player := range g.underThresholdPlayers(r) {
-		outcome += fmt.Sprintf("Taxed: %s\n", player.User.DisplayName())
-		outcomeAmount += "-" + strconv.Itoa(g.playerTax(player, r)) + "\n"
+		taxedOutcome += fmt.Sprintf("Taxed: %s\n", player.User.DisplayName())
+		taxedAmount += "-" + strconv.Itoa(g.playerTax(player, r)) + "\n"
 	}
+	outcome := wonOutcome + lostOutcome + taxedOutcome
+	outcomeAmount := wonAmount + lostAmount + taxedAmount
 	embed.Fields = append(embed.Fields, &discordgo.MessageEmbedField{
 		Name:  "✨ Round Status ✨",
 		Value: fmt.Sprintf("State: %s\n%s", g.RoundState(r), winner),

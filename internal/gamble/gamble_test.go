@@ -809,3 +809,41 @@ func TestStatusEmbedShowsRoundStateAndPlaceholders(t *testing.T) {
 		t.Fatalf("players field = %q, want placeholder", embed.Fields[1].Value)
 	}
 }
+
+func TestStatusEmbedOrdersOutcomesWonLostTaxed(t *testing.T) {
+	setupGame()
+	alice := makePlayer("1", "Alice")
+	bob := makePlayer("2", "Bob")
+	charlie := makePlayer("3", "Charlie")
+
+	GameState.AddPlayer(alice)
+	GameState.AddPlayer(bob)
+	GameState.AddPlayer(charlie)
+	GameState.AddWheelOption(alice)
+	GameState.AddWheelOption(bob)
+	GameState.AddWheelOption(charlie)
+
+	GameState.AddRound()
+	GameState.Rounds[0].AddClaim(alice)
+	GameState.Rounds[0].AddClaim(bob)
+	GameState.Rounds[0].AddClaim(charlie)
+	GameState.Rounds[0].Bets = []Bet{
+		{Amount: 20, By: alice, On: bob},
+		{Amount: 15, By: bob, On: alice},
+	}
+	GameState.Rounds[0].SetWinner(bob)
+
+	embed := GameState.StatusEmbed(GameState.Rounds[0])
+	outcomeField := embed.Fields[9].Value
+
+	wonIdx := strings.Index(outcomeField, "Won:")
+	lostIdx := strings.Index(outcomeField, "Lost:")
+	taxedIdx := strings.Index(outcomeField, "Taxed:")
+
+	if wonIdx == -1 || lostIdx == -1 || taxedIdx == -1 {
+		t.Fatalf("outcome field = %q, want Won/Lost/Taxed entries", outcomeField)
+	}
+	if !(wonIdx < lostIdx && lostIdx < taxedIdx) {
+		t.Fatalf("outcome field order = %q, want Won before Lost before Taxed", outcomeField)
+	}
+}
