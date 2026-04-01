@@ -1,6 +1,7 @@
 package gamble
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/bwmarrin/discordgo"
@@ -20,9 +21,9 @@ func setupGame() {
 func makePlayer(id, name string) Player {
 	return Player{
 		User: &discordgo.User{
-			ID:          id,
-			Username:    name,
-			GlobalName:  name,
+			ID:         id,
+			Username:   name,
+			GlobalName: name,
 		},
 	}
 }
@@ -555,8 +556,8 @@ func TestRoundOutcome(t *testing.T) {
 		ID:     0,
 		Winner: bob,
 		Bets: []Bet{
-			{Amount: 50, By: alice, On: bob},  // win
-			{Amount: 30, By: bob, On: alice},  // loss
+			{Amount: 50, By: alice, On: bob}, // win
+			{Amount: 30, By: bob, On: alice}, // loss
 		},
 	}
 
@@ -748,5 +749,63 @@ func TestPlayerTax_OverBetIsZeroNotNegative(t *testing.T) {
 	tax := GameState.playerTax(alice, GameState.Rounds[0])
 	if tax < 0 {
 		t.Errorf("playerTax returned negative value %d, want >= 0", tax)
+	}
+}
+
+func TestMenuPlayersForRoundRemove(t *testing.T) {
+	setupGame()
+	alice := makePlayer("1", "Alice")
+	bob := makePlayer("2", "Bob")
+	charlie := makePlayer("3", "Charlie")
+
+	GameState.AddWheelOption(alice)
+	GameState.AddWheelOption(bob)
+	GameState.AddWheelOption(charlie)
+	GameState.AddRound()
+	GameState.Rounds[0].Bets = []Bet{
+		{Amount: 20, By: alice, On: bob},
+		{Amount: 10, By: charlie, On: bob},
+	}
+
+	got := GameState.menuPlayersForRound(alice, GameState.Rounds[0], true, false)
+	if len(got) != 1 || got[0].ID() != bob.ID() {
+		t.Fatalf("menuPlayersForRound(remove) = %+v, want only Bob", got)
+	}
+}
+
+func TestParseBetAmountInputPercent(t *testing.T) {
+	amount, err := ParseBetAmountInput("25%", 80)
+	if err != nil {
+		t.Fatalf("ParseBetAmountInput percent: %v", err)
+	}
+	if amount != 20 {
+		t.Fatalf("ParseBetAmountInput 25%% = %d, want 20", amount)
+	}
+
+	amount, err = ParseBetAmountInput("100%", 37)
+	if err != nil {
+		t.Fatalf("ParseBetAmountInput 100%%: %v", err)
+	}
+	if amount != 37 {
+		t.Fatalf("ParseBetAmountInput 100%% = %d, want 37", amount)
+	}
+}
+
+func TestStatusEmbedShowsRoundStateAndPlaceholders(t *testing.T) {
+	setupGame()
+	GameState.AddRound()
+
+	embed := GameState.StatusEmbed(GameState.Rounds[0])
+	if len(embed.Fields) == 0 {
+		t.Fatal("StatusEmbed returned no fields")
+	}
+	if !strings.Contains(embed.Fields[0].Value, "State: Open") {
+		t.Fatalf("round status field = %q, want open state", embed.Fields[0].Value)
+	}
+	if !strings.Contains(embed.Fields[0].Value, "Winner: _Not set_") {
+		t.Fatalf("round status field = %q, want unset winner", embed.Fields[0].Value)
+	}
+	if !strings.Contains(embed.Fields[1].Value, "_No players yet_") {
+		t.Fatalf("players field = %q, want placeholder", embed.Fields[1].Value)
 	}
 }

@@ -379,6 +379,63 @@ func (r *round) AddClaim(player Player) {
 	saveToDB()
 }
 
+func (g *game) RoundState(r round) string {
+	if r.HasWinner() {
+		return "Resolved"
+	}
+	return "Open"
+}
+
+func placeholderValue(value string, empty string) string {
+	if strings.TrimSpace(value) == "" {
+		return empty
+	}
+	return value
+}
+
+func (g *game) menuPlayersForRound(actor Player, r round, remove bool, winner bool) []Player {
+	if remove {
+		targets := make(map[string]struct{})
+		for _, bet := range r.Bets {
+			if bet.By.ID() == actor.ID() {
+				targets[bet.On.ID()] = struct{}{}
+			}
+		}
+
+		var players []Player
+		for _, player := range g.wheelOptions(r) {
+			if _, ok := targets[player.ID()]; ok {
+				players = append(players, player)
+			}
+		}
+		return players
+	}
+
+	if winner {
+		return g.wheelOptions(r)
+	}
+
+	return g.wheelOptions(r)
+}
+
+func ParseBetAmountInput(input string, maxStake int) (int, error) {
+	input = strings.TrimSpace(input)
+	if input == "" {
+		return 0, fmt.Errorf("empty amount")
+	}
+
+	if strings.HasSuffix(input, "%") {
+		percentageInput := strings.TrimSpace(strings.TrimSuffix(input, "%"))
+		percentage, err := strconv.Atoi(percentageInput)
+		if err != nil {
+			return 0, err
+		}
+		return (maxStake*percentage + 99) / 100, nil
+	}
+
+	return strconv.Atoi(input)
+}
+
 func (g *game) StatusEmbed(r round) discordgo.MessageEmbed {
 	embed := discordgo.MessageEmbed{
 		Author: &discordgo.MessageEmbedAuthor{},
@@ -389,6 +446,8 @@ func (g *game) StatusEmbed(r round) discordgo.MessageEmbed {
 	var winner string
 	if r.HasWinner() {
 		winner = "Winner: " + r.Winner.User.Mention()
+	} else {
+		winner = "Winner: _Not set_"
 	}
 	var playerNames, playerMoney, betPercentage string
 	for _, player := range g.Players {
@@ -431,27 +490,27 @@ func (g *game) StatusEmbed(r round) discordgo.MessageEmbed {
 		outcomeAmount += "-" + strconv.Itoa(g.playerTax(player, r)) + "\n"
 	}
 	embed.Fields = append(embed.Fields, &discordgo.MessageEmbedField{
-		Name:  "✨ Player Statuses ✨",
-		Value: winner,
+		Name:  "✨ Round Status ✨",
+		Value: fmt.Sprintf("State: %s\n%s", g.RoundState(r), winner),
 	})
 	embed.Fields = append(embed.Fields, &discordgo.MessageEmbedField{
 		Name:   "Players",
-		Value:  playerNames,
+		Value:  placeholderValue(playerNames, "_No players yet_"),
 		Inline: true,
 	})
 	embed.Fields = append(embed.Fields, &discordgo.MessageEmbedField{
 		Name:   "Money",
-		Value:  playerMoney,
+		Value:  placeholderValue(playerMoney, "_No balances yet_"),
 		Inline: true,
 	})
 	embed.Fields = append(embed.Fields, &discordgo.MessageEmbedField{
 		Name:   "Bet%",
-		Value:  betPercentage,
+		Value:  placeholderValue(betPercentage, "_No bets yet_"),
 		Inline: true,
 	})
 	embed.Fields = append(embed.Fields, &discordgo.MessageEmbedField{
 		Name:   "Claims (100)",
-		Value:  strings.Join(claims, "\n"),
+		Value:  placeholderValue(strings.Join(claims, "\n"), "_No claims yet_"),
 		Inline: false,
 	})
 	embed.Fields = append(embed.Fields, &discordgo.MessageEmbedField{
@@ -460,35 +519,37 @@ func (g *game) StatusEmbed(r round) discordgo.MessageEmbed {
 	})
 	embed.Fields = append(embed.Fields, &discordgo.MessageEmbedField{
 		Name:   "By",
-		Value:  PlayerBetsBy,
+		Value:  placeholderValue(PlayerBetsBy, "_No bets yet_"),
 		Inline: true,
 	})
 	embed.Fields = append(embed.Fields, &discordgo.MessageEmbedField{
 		Name:   "On",
-		Value:  PlayerBetsOn,
+		Value:  placeholderValue(PlayerBetsOn, "_No bets yet_"),
 		Inline: true,
 	})
 	embed.Fields = append(embed.Fields, &discordgo.MessageEmbedField{
 		Name:   "Amount",
-		Value:  PlayerBetsAmount,
+		Value:  placeholderValue(PlayerBetsAmount, "_No bets yet_"),
 		Inline: true,
 	})
 	embed.Fields = append(embed.Fields, &discordgo.MessageEmbedField{
 		Name:   "Outcome",
-		Value:  outcome,
+		Value:  placeholderValue(outcome, "_No outcomes yet_"),
 		Inline: true,
 	})
 	embed.Fields = append(embed.Fields, &discordgo.MessageEmbedField{
 		Name:   "Amount",
-		Value:  outcomeAmount,
+		Value:  placeholderValue(outcomeAmount, "_No outcomes yet_"),
 		Inline: true,
 	})
 	return embed
 }
 
 func (g *game) SendMenu(s *discordgo.Session, i *discordgo.InteractionCreate, remove bool, winner bool, round int, messageID string) {
+	targetRound := g.Round(round)
+	actor := Player{User: i.Interaction.Member.User}
 	var options []discordgo.SelectMenuOption
-	for _, player := range g.CurrentWheelOptions() {
+	for _, player := range g.menuPlayersForRound(actor, targetRound, remove, winner) {
 		options = append(options, discordgo.SelectMenuOption{
 			Label: player.User.DisplayName(),
 			Value: player.ID(),
@@ -496,7 +557,14 @@ func (g *game) SendMenu(s *discordgo.Session, i *discordgo.InteractionCreate, re
 	}
 	if len(options) == 0 {
 		discord.DeferEphemeralResponse(s, i)
-		_, err := discord.SendFollowup(s, i, "No players available")
+		message := "No players available"
+		if remove {
+			message = "You don't have any bets to remove in this round."
+		}
+		if winner {
+			message = "No eligible winners are available for this round."
+		}
+		_, err := discord.SendFollowup(s, i, message)
 		if err != nil {
 			log.Println(err)
 		}
@@ -505,13 +573,16 @@ func (g *game) SendMenu(s *discordgo.Session, i *discordgo.InteractionCreate, re
 
 	customID := fmt.Sprintf("menu_bet-place-%d-%s", round, messageID)
 	content := "Place a Bet"
+	placeholder := "Select a player to bet on"
 	if remove {
 		customID = fmt.Sprintf("menu_bet-remove-%d-%s", round, messageID)
 		content = "Remove a Bet"
+		placeholder = "Select a bet to remove"
 	}
 	if winner {
 		customID = fmt.Sprintf("menu_bet-winner-%d-%s", round, messageID)
 		content = "Pick a Winner"
+		placeholder = "Select the winner"
 	}
 
 	err := s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
@@ -525,7 +596,7 @@ func (g *game) SendMenu(s *discordgo.Session, i *discordgo.InteractionCreate, re
 						discordgo.SelectMenu{
 							MenuType:    discordgo.StringSelectMenu,
 							CustomID:    customID,
-							Placeholder: "Select a player",
+							Placeholder: placeholder,
 							Options:     options,
 						},
 					},
@@ -551,7 +622,7 @@ func (g *game) SendModal(s *discordgo.Session, i *discordgo.InteractionCreate, u
 							CustomID:    "amount",
 							Label:       "Amount",
 							Style:       discordgo.TextInputShort,
-							Placeholder: "Amount",
+							Placeholder: "10%, 25%, 50%, 100%, or exact amount",
 						},
 					},
 				},

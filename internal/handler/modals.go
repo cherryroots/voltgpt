@@ -3,7 +3,6 @@ package handler
 import (
 	"fmt"
 	"log"
-	"strconv"
 
 	"voltgpt/internal/discord"
 	"voltgpt/internal/gamble"
@@ -56,21 +55,6 @@ var Modals = map[string]func(s *discordgo.Session, i *discordgo.InteractionCreat
 		}
 		modalInput := textInput.Value
 
-		amount, err := strconv.Atoi(modalInput)
-		if err != nil {
-			err := discord.UpdateResponse(s, i, "Invalid amount")
-			if err != nil {
-				log.Println(err)
-			}
-			return
-		}
-
-		bet := gamble.Bet{
-			By:     byPlayer,
-			On:     onPlayer,
-			Amount: amount,
-		}
-
 		gamble.Mu.Lock()
 		if !gambleRoundIsCurrentLocked(targetRound) {
 			gamble.Mu.Unlock()
@@ -87,10 +71,29 @@ var Modals = map[string]func(s *discordgo.Session, i *discordgo.InteractionCreat
 		}
 
 		currentRoundID := targetRound - 1
-		existingBet, hasBet := gamble.GameState.Rounds[currentRoundID].HasBet(bet)
+		existingBet, hasBet := gamble.GameState.Rounds[currentRoundID].HasBet(gamble.Bet{
+			By: byPlayer,
+			On: onPlayer,
+		})
 		existingAmount := 0
 		if hasBet {
 			existingAmount = existingBet.Amount
+		}
+
+		amount, err := gamble.ParseBetAmountInput(modalInput, gamble.GameState.PlayerUsableMoney(byPlayer)+existingAmount)
+		if err != nil {
+			gamble.Mu.Unlock()
+			err := discord.UpdateResponse(s, i, "Invalid amount")
+			if err != nil {
+				log.Println(err)
+			}
+			return
+		}
+
+		bet := gamble.Bet{
+			By:     byPlayer,
+			On:     onPlayer,
+			Amount: amount,
 		}
 
 		options := len(gamble.GameState.CurrentWheelOptions())
