@@ -575,7 +575,6 @@ func makeButton(style discordgo.ButtonStyle, label string, emoji string, customI
 var RoundMessageComponents = []discordgo.MessageComponent{
 	&discordgo.ActionsRow{
 		Components: []discordgo.MessageComponent{
-			makeButton(discordgo.PrimaryButton, "", "🔄", "button_refresh"),
 			makeButton(discordgo.PrimaryButton, "Claim!", "📈", "button_claim"),
 			makeButton(discordgo.SecondaryButton, "Place Bet!", "💸", "button_bet"),
 			makeButton(discordgo.SecondaryButton, "Remove Bet!", "💰", "button_bet-remove"),

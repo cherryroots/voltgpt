@@ -15,23 +15,6 @@ import (
 )
 
 var Components = map[string]func(s *discordgo.Session, i *discordgo.InteractionCreate){
-	"button_refresh": func(s *discordgo.Session, i *discordgo.InteractionCreate) {
-		log.Printf("Received interaction: %s by %s", i.MessageComponentData().CustomID, i.Interaction.Member.User.Username)
-		gamble.Mu.Lock()
-		edit := buildGambleStatusMessageEditLocked(i.ChannelID, i.Message.ID, gambleRoundNumberFromMessage(i.Message))
-		gamble.Mu.Unlock()
-
-		err := s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
-			Type: discordgo.InteractionResponseUpdateMessage,
-			Data: &discordgo.InteractionResponseData{
-				Embeds:     *edit.Embeds,
-				Components: *edit.Components,
-			},
-		})
-		if err != nil {
-			log.Println(err)
-		}
-	},
 	"button_claim": func(s *discordgo.Session, i *discordgo.InteractionCreate) {
 		log.Printf("Received interaction: %s by %s", i.MessageComponentData().CustomID, i.Interaction.Member.User.Username)
 		discord.DeferEphemeralResponse(s, i)
