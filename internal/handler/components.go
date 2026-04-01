@@ -18,23 +18,15 @@ var Components = map[string]func(s *discordgo.Session, i *discordgo.InteractionC
 	"button_refresh": func(s *discordgo.Session, i *discordgo.InteractionCreate) {
 		log.Printf("Received interaction: %s by %s", i.MessageComponentData().CustomID, i.Interaction.Member.User.Username)
 		gamble.Mu.Lock()
-		defer gamble.Mu.Unlock()
+		edit := buildGambleStatusMessageEditLocked(i.ChannelID, i.Message.ID, gambleRoundNumberFromMessage(i.Message))
+		gamble.Mu.Unlock()
 
-		s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+		err := s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 			Type: discordgo.InteractionResponseUpdateMessage,
-		})
-
-		if len(gamble.GameState.Rounds) == 0 {
-			gamble.GameState.AddRound()
-		}
-
-		embed := gamble.GameState.StatusEmbed(gamble.GameState.CurrentRound())
-
-		_, err := s.ChannelMessageEditComplex(&discordgo.MessageEdit{
-			Channel:    i.ChannelID,
-			ID:         i.Message.ID,
-			Embeds:     &[]*discordgo.MessageEmbed{&embed},
-			Components: &gamble.RoundMessageComponents,
+			Data: &discordgo.InteractionResponseData{
+				Embeds:     *edit.Embeds,
+				Components: *edit.Components,
+			},
 		})
 		if err != nil {
 			log.Println(err)
@@ -45,15 +37,21 @@ var Components = map[string]func(s *discordgo.Session, i *discordgo.InteractionC
 		discord.DeferEphemeralResponse(s, i)
 
 		gamble.Mu.Lock()
-		defer gamble.Mu.Unlock()
-
-		player := gamble.Player{
-			User: i.Interaction.Member.User,
+		targetRound := gambleRoundNumberFromMessage(i.Message)
+		if !gambleRoundIsCurrentLocked(targetRound) {
+			gamble.Mu.Unlock()
+			_, err := discord.SendFollowup(s, i, "Only the current round can be claimed from this embed.")
+			if err != nil {
+				log.Println(err)
+			}
+			return
 		}
 
+		player := gamble.Player{User: i.Interaction.Member.User}
 		gamble.GameState.AddPlayer(player)
 
 		if len(gamble.GameState.Rounds) == 0 {
+			gamble.Mu.Unlock()
 			_, err := discord.SendFollowup(s, i, "No active rounds!")
 			if err != nil {
 				log.Println(err)
@@ -73,9 +71,16 @@ var Components = map[string]func(s *discordgo.Session, i *discordgo.InteractionC
 			}
 		}
 
+		var edit *discordgo.MessageEdit
 		if !hasClaimed {
 			gamble.GameState.Rounds[currentRoundID].AddClaim(player)
 			message = "Claimed 100!"
+			edit = buildGambleStatusMessageEditLocked(i.ChannelID, i.Message.ID, targetRound)
+		}
+		gamble.Mu.Unlock()
+
+		if err := updateGambleStatusMessage(s, edit); err != nil {
+			log.Println(err)
 		}
 
 		_, err := discord.SendFollowup(s, i, message)
@@ -87,15 +92,33 @@ var Components = map[string]func(s *discordgo.Session, i *discordgo.InteractionC
 		log.Printf("Received interaction: %s by %s", i.MessageComponentData().CustomID, i.Interaction.Member.User.Username)
 
 		gamble.Mu.Lock()
-		defer gamble.Mu.Unlock()
-
-		gamble.GameState.AddPlayer(gamble.Player{User: i.Interaction.Member.User})
+		targetRound := gambleRoundNumberFromMessage(i.Message)
+		if !gambleRoundIsCurrentLocked(targetRound) {
+			gamble.Mu.Unlock()
+			discord.DeferEphemeralResponse(s, i)
+			_, err := discord.SendFollowup(s, i, "Only the current round can be changed from this embed.")
+			if err != nil {
+				log.Println(err)
+			}
+			return
+		}
 
 		var remove bool
 		if strings.Contains(i.MessageComponentData().CustomID, "remove") {
 			remove = true
 		}
-		gamble.GameState.SendMenu(s, i, remove, false)
+		var edit *discordgo.MessageEdit
+		if !remove {
+			gamble.GameState.AddPlayer(gamble.Player{User: i.Interaction.Member.User})
+			edit = buildGambleStatusMessageEditLocked(i.ChannelID, i.Message.ID, targetRound)
+		}
+
+		gamble.GameState.SendMenu(s, i, remove, false, targetRound, i.Message.ID)
+		gamble.Mu.Unlock()
+
+		if err := updateGambleStatusMessage(s, edit); err != nil {
+			log.Println(err)
+		}
 	},
 	"button_winner": func(s *discordgo.Session, i *discordgo.InteractionCreate) {
 		log.Printf("Received interaction: %s by %s", i.MessageComponentData().CustomID, i.Interaction.Member.User.Username)
@@ -109,27 +132,62 @@ var Components = map[string]func(s *discordgo.Session, i *discordgo.InteractionC
 		}
 
 		gamble.Mu.Lock()
-		defer gamble.Mu.Unlock()
+		targetRound := gambleRoundNumberFromMessage(i.Message)
+		if !gambleRoundIsCurrentLocked(targetRound) {
+			gamble.Mu.Unlock()
+			discord.DeferEphemeralResponse(s, i)
+			_, err := discord.SendFollowup(s, i, "Only the current round can be changed from this embed.")
+			if err != nil {
+				log.Println(err)
+			}
+			return
+		}
 
-		gamble.GameState.SendMenu(s, i, false, true)
+		gamble.GameState.SendMenu(s, i, false, true, targetRound, i.Message.ID)
+		gamble.Mu.Unlock()
 	},
 	"menu_bet": func(s *discordgo.Session, i *discordgo.InteractionCreate) {
 		log.Printf("Received interaction: %s by %s", i.MessageComponentData().CustomID, i.Interaction.Member.User.Username)
 
 		gamble.Mu.Lock()
-		defer gamble.Mu.Unlock()
-
+		action, targetRound, targetMessageID := parseGambleMenuCustomID(i.MessageComponentData().CustomID)
+		if action == "" || targetRound <= 0 || targetMessageID == "" {
+			gamble.Mu.Unlock()
+			err := discord.UpdateResponse(s, i, "Invalid bet menu state.")
+			if err != nil {
+				log.Println(err)
+			}
+			return
+		}
+		if !gambleRoundIsCurrentLocked(targetRound) {
+			gamble.Mu.Unlock()
+			err := discord.UpdateResponse(s, i, "Only the current round can be changed from this embed.")
+			if err != nil {
+				log.Println(err)
+			}
+			return
+		}
 		if len(gamble.GameState.Rounds) == 0 {
+			gamble.Mu.Unlock()
 			discord.UpdateResponse(s, i, "No active rounds!")
 			return
 		}
 
 		selectedUser := i.MessageComponentData().Values
-		round := gamble.GameState.CurrentRound().ID
+		if len(selectedUser) == 0 {
+			gamble.Mu.Unlock()
+			err := discord.UpdateResponse(s, i, "No user selected.")
+			if err != nil {
+				log.Println(err)
+			}
+			return
+		}
+		round := targetRound - 1
 
-		if strings.Contains(i.MessageComponentData().CustomID, "remove") {
+		if action == "remove" {
 			member, err := s.GuildMember(i.GuildID, selectedUser[0])
 			if err != nil || member == nil {
+				gamble.Mu.Unlock()
 				discord.UpdateResponse(s, i, "User is not in the server!")
 				return
 			}
@@ -140,15 +198,21 @@ var Components = map[string]func(s *discordgo.Session, i *discordgo.InteractionC
 				User: member.User,
 			}
 			gamble.GameState.Rounds[round].RemoveBet(by, on)
+			edit := buildGambleStatusMessageEditLocked(i.ChannelID, targetMessageID, targetRound)
+			gamble.Mu.Unlock()
 			err = discord.UpdateResponse(s, i, "Removed bet!")
 			if err != nil {
 				log.Println(err)
 			}
+			if err := updateGambleStatusMessage(s, edit); err != nil {
+				log.Println(err)
+			}
 			return
 		}
-		if strings.Contains(i.MessageComponentData().CustomID, "winner") {
+		if action == "winner" {
 			member, err := s.GuildMember(i.GuildID, selectedUser[0])
 			if err != nil || member == nil {
+				gamble.Mu.Unlock()
 				discord.UpdateResponse(s, i, "User is not in the server!")
 				return
 			}
@@ -157,6 +221,7 @@ var Components = map[string]func(s *discordgo.Session, i *discordgo.InteractionC
 			}
 
 			if len(gamble.GameState.Rounds[round].Bets) == 0 {
+				gamble.Mu.Unlock()
 				err := discord.UpdateResponse(s, i, "No bets!")
 				if err != nil {
 					log.Println(err)
@@ -169,14 +234,20 @@ var Components = map[string]func(s *discordgo.Session, i *discordgo.InteractionC
 			}
 
 			gamble.GameState.Rounds[round].SetWinner(player)
+			edit := buildGambleStatusMessageEditLocked(i.ChannelID, targetMessageID, targetRound)
+			gamble.Mu.Unlock()
 			err = discord.UpdateResponse(s, i, "Set winner!")
 			if err != nil {
+				log.Println(err)
+			}
+			if err := updateGambleStatusMessage(s, edit); err != nil {
 				log.Println(err)
 			}
 			return
 		}
 
-		gamble.GameState.SendModal(s, i, selectedUser[0])
+		gamble.GameState.SendModal(s, i, selectedUser[0], targetRound, targetMessageID)
+		gamble.Mu.Unlock()
 	},
 	"reminder": func(s *discordgo.Session, i *discordgo.InteractionCreate) {
 		log.Printf("Received interaction: %s by %s", i.MessageComponentData().CustomID, i.Interaction.Member.User.Username)
@@ -200,8 +271,6 @@ var Components = map[string]func(s *discordgo.Session, i *discordgo.InteractionC
 		}
 	},
 	"memorydigest": func(s *discordgo.Session, i *discordgo.InteractionCreate) {
-		log.Printf("Received interaction: %s by %s", i.MessageComponentData().CustomID, i.Interaction.Member.User.Username)
-
 		if !utility.IsAdmin(i.Interaction.Member.User.ID) {
 			discord.DeferEphemeralResponse(s, i)
 			_, err := discord.SendFollowup(s, i, "Only admins can use this command!")

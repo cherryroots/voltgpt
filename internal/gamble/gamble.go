@@ -486,7 +486,7 @@ func (g *game) StatusEmbed(r round) discordgo.MessageEmbed {
 	return embed
 }
 
-func (g *game) SendMenu(s *discordgo.Session, i *discordgo.InteractionCreate, remove bool, winner bool) {
+func (g *game) SendMenu(s *discordgo.Session, i *discordgo.InteractionCreate, remove bool, winner bool, round int, messageID string) {
 	var options []discordgo.SelectMenuOption
 	for _, player := range g.CurrentWheelOptions() {
 		options = append(options, discordgo.SelectMenuOption{
@@ -503,14 +503,14 @@ func (g *game) SendMenu(s *discordgo.Session, i *discordgo.InteractionCreate, re
 		return
 	}
 
-	customID := "menu_bet"
+	customID := fmt.Sprintf("menu_bet-place-%d-%s", round, messageID)
 	content := "Place a Bet"
 	if remove {
-		customID = "menu_bet-remove"
+		customID = fmt.Sprintf("menu_bet-remove-%d-%s", round, messageID)
 		content = "Remove a Bet"
 	}
 	if winner {
-		customID = "menu_bet-winner"
+		customID = fmt.Sprintf("menu_bet-winner-%d-%s", round, messageID)
 		content = "Pick a Winner"
 	}
 
@@ -538,11 +538,11 @@ func (g *game) SendMenu(s *discordgo.Session, i *discordgo.InteractionCreate, re
 	}
 }
 
-func (g *game) SendModal(s *discordgo.Session, i *discordgo.InteractionCreate, userID string) {
+func (g *game) SendModal(s *discordgo.Session, i *discordgo.InteractionCreate, userID string, round int, messageID string) {
 	err := s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 		Type: discordgo.InteractionResponseModal,
 		Data: &discordgo.InteractionResponseData{
-			CustomID: "modal_bet-" + userID,
+			CustomID: fmt.Sprintf("modal_bet-%s-%d-%s", userID, round, messageID),
 			Title:    "Place a Bet",
 			Components: []discordgo.MessageComponent{
 				discordgo.ActionsRow{
