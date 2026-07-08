@@ -372,6 +372,13 @@ func profileFactLengthRule() string {
 	)
 }
 
+func profileCoverageRule() string {
+	return `- Aim for a usefully complete profile when the notes support it.
+- Include multiple distinct facts from the same section when each adds meaningful context.
+- Prefer specific, evidence-backed details over vague umbrella summaries.
+- Do not collapse several supported details into one generic fact just to be sparse.`
+}
+
 func incrementalProfileSystemPrompt() string {
 	return `You update one guild-scoped user profile using a single new conversation note.` + profileSectionGuidance + `
 
@@ -383,6 +390,7 @@ Rules:
 - Use concise third-person facts.
 - Prefer durable, high-signal facts over stale or transient trivia.
 - Order facts within each section from most durable/high-signal to least.
+` + profileCoverageRule() + `
 ` + profileCompactnessRule("Keep the profile") + `
 ` + profileFactLengthRule() + `
 - If a new note is weak, one-off, or ambiguous, prefer not to promote it into the profile.
@@ -400,7 +408,8 @@ Rules:
 - Prefer concise, merged facts over duplicates.
 - Drop stale or transient trivia in favor of durable preferences, recurring patterns, stable relationships, and capabilities.
 - Order facts within each section from most durable/high-signal to least.
-- Keep only durable, high-signal facts when space is tight.
+- When space is tight, drop weaker trivia before dropping well-supported durable details.
+` + profileCoverageRule() + `
 ` + profileCompactnessRule("Keep the rebuilt profile") + `
 ` + profileFactLengthRule() + `
 - Prefer recurring patterns and stable traits over isolated anecdotes.

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/binary"
+	"fmt"
 	"log"
 	"strconv"
 	"strings"
@@ -181,7 +182,7 @@ func TestWriteGuildUserProfileCompactsOversizedProfile(t *testing.T) {
 	for i := 0; i < profileMaxBioFacts+1; i++ {
 		profile.Bio = append(profile.Bio, ProfileFact{
 			Text:          longFact,
-			SourceNoteIDs: []int64{1, 2, 3, 4, 5, 5},
+			SourceNoteIDs: []int64{1, 2, 3, 4, 5, 6, 7, 7},
 		})
 	}
 
@@ -204,6 +205,23 @@ func TestWriteGuildUserProfileCompactsOversizedProfile(t *testing.T) {
 	}
 	if got := len(loaded.Bio[0].SourceNoteIDs); got != profileMaxSourceNoteIDs {
 		t.Fatalf("source note IDs after compaction = %d, want %d", got, profileMaxSourceNoteIDs)
+	}
+}
+
+func TestRebuildProfileSystemPromptEncouragesFullerProfiles(t *testing.T) {
+	prompt := rebuildProfileSystemPrompt()
+
+	for _, fragment := range []string{
+		"Aim for a usefully complete profile when the notes support it.",
+		"Do not collapse several supported details into one generic fact just to be sparse.",
+		fmt.Sprintf("bio<=%d", profileMaxBioFacts),
+		fmt.Sprintf("other<=%d", profileMaxOtherFacts),
+		fmt.Sprintf("%d words or fewer", profileMaxFactWords),
+		fmt.Sprintf("%d note IDs or fewer", profileMaxSourceNoteIDs),
+	} {
+		if !strings.Contains(prompt, fragment) {
+			t.Fatalf("rebuildProfileSystemPrompt missing %q", fragment)
+		}
 	}
 }
 
@@ -691,7 +709,7 @@ func TestRebuildDirtyProfilesCompactsOversizedRebuildOutput(t *testing.T) {
 		for i := 0; i < profileMaxOtherFacts+2; i++ {
 			profile.Other = append(profile.Other, ProfileFact{
 				Text:          longFact,
-				SourceNoteIDs: []int64{noteID, noteID + 1, noteID + 2, noteID + 3, noteID + 4},
+				SourceNoteIDs: []int64{noteID, noteID + 1, noteID + 2, noteID + 3, noteID + 4, noteID + 5, noteID + 6},
 			})
 		}
 		return profile, nil

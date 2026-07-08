@@ -262,7 +262,7 @@ func rebuildOneGuildProfile(guildID string, userID int64) error {
 		return nil
 	}
 
-	notes, err := getRecentConversationNotesForUser(guildID, userID, 1000)
+	notes, err := getRecentConversationNotesForUser(guildID, userID, profileRebuildNoteLimit)
 	if err != nil {
 		return err
 	}
