@@ -142,9 +142,19 @@ func (g *game) RemoveWheelOption(option Player) {
 }
 
 func (g *game) ResetWheel() {
+	g.resetWheel(false)
+}
+
+func (g *game) ResetWheelKeepOptions() {
+	g.resetWheel(true)
+}
+
+func (g *game) resetWheel(keepOptions bool) {
 	g.Rounds = []round{}
-	g.BetOptions = []Player{}
 	g.Players = []Player{}
+	if !keepOptions {
+		g.BetOptions = []Player{}
+	}
 	saveToDB()
 }
 

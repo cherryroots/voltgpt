@@ -624,7 +624,7 @@ var Commands = map[string]func(s *discordgo.Session, i *discordgo.InteractionCre
 			log.Println(err)
 		}
 	},
-	"wheel_reset": func(s *discordgo.Session, i *discordgo.InteractionCreate) {
+	"reset_wheel": func(s *discordgo.Session, i *discordgo.InteractionCreate) {
 		log.Printf("Recieved interaction: %s by %s", i.ApplicationCommandData().Name, i.Interaction.Member.User.Username)
 		discord.DeferEphemeralResponse(s, i)
 
@@ -639,8 +639,22 @@ var Commands = map[string]func(s *discordgo.Session, i *discordgo.InteractionCre
 		gamble.Mu.Lock()
 		defer gamble.Mu.Unlock()
 
-		gamble.GameState.ResetWheel()
-		_, err := discord.SendFollowup(s, i, "Wheel reset!")
+		var keepOptions bool
+		for _, option := range i.ApplicationCommandData().Options {
+			if option.Name == "keep_options" {
+				keepOptions = option.BoolValue()
+			}
+		}
+
+		message := "Wheel reset!"
+		if keepOptions {
+			gamble.GameState.ResetWheelKeepOptions()
+			message = "Wheel rounds reset. Bet options kept."
+		} else {
+			gamble.GameState.ResetWheel()
+		}
+
+		_, err := discord.SendFollowup(s, i, message)
 		if err != nil {
 			log.Println(err)
 		}

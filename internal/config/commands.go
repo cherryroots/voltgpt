@@ -197,6 +197,14 @@ var (
 			Description:              "Reset the wheel",
 			DefaultMemberPermissions: &writePermission,
 			DMPermission:             &dmPermission,
+			Options: []*discordgo.ApplicationCommandOption{
+				{
+					Type:        discordgo.ApplicationCommandOptionBoolean,
+					Name:        "keep_options",
+					Description: "Only clear rounds and keep current wheel options",
+					Required:    false,
+				},
+			},
 		},
 		{
 			Name: "TTS",

@@ -194,6 +194,29 @@ func TestResetWheel(t *testing.T) {
 	}
 }
 
+func TestResetWheelKeepOptions(t *testing.T) {
+	setupGame()
+	alice := makePlayer("1", "Alice")
+	GameState.AddRound()
+	GameState.AddWheelOption(alice)
+	GameState.AddPlayer(makePlayer("2", "Bob"))
+
+	GameState.ResetWheelKeepOptions()
+
+	if len(GameState.Rounds) != 0 {
+		t.Errorf("after keep-options reset Rounds len = %d, want 0", len(GameState.Rounds))
+	}
+	if len(GameState.BetOptions) != 1 {
+		t.Fatalf("after keep-options reset BetOptions len = %d, want 1", len(GameState.BetOptions))
+	}
+	if GameState.BetOptions[0].ID() != alice.ID() {
+		t.Errorf("after keep-options reset BetOptions[0] = %q, want %q", GameState.BetOptions[0].ID(), alice.ID())
+	}
+	if len(GameState.Players) != 0 {
+		t.Errorf("after keep-options reset Players len = %d, want 0", len(GameState.Players))
+	}
+}
+
 // TestCurrentWheelOptions verifies that won players are excluded from current options.
 func TestCurrentWheelOptions(t *testing.T) {
 	setupGame()
