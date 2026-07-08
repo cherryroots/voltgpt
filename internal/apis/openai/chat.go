@@ -11,11 +11,11 @@ import (
 	"sync"
 	"time"
 
-	oa "github.com/openai/openai-go"
-	"github.com/openai/openai-go/option"
-	"github.com/openai/openai-go/packages/param"
-	"github.com/openai/openai-go/responses"
-	"github.com/openai/openai-go/shared"
+	oa "github.com/openai/openai-go/v3"
+	"github.com/openai/openai-go/v3/option"
+	"github.com/openai/openai-go/v3/packages/param"
+	"github.com/openai/openai-go/v3/responses"
+	"github.com/openai/openai-go/v3/shared"
 
 	"github.com/bwmarrin/discordgo"
 
@@ -25,7 +25,7 @@ import (
 	"voltgpt/internal/utility"
 )
 
-const chatModel = "gpt-5.4"
+const chatModel = "gpt-5.5"
 
 var (
 	sharedClient           *oa.Client
@@ -234,7 +234,6 @@ func StreamMessageResponse(s *discordgo.Session, c *oa.Client, m *discordgo.Mess
 		Metadata:          ResponseMetadata("chat"),
 		Model:             responses.ChatModel(chatModel),
 		Store:             oa.Bool(true),
-		Temperature:       oa.Float(1),
 		Reasoning:         shared.ReasoningParam{Effort: "high"},
 		Truncation:        responses.ResponseNewParamsTruncationAuto,
 		ParallelToolCalls: oa.Bool(true),

@@ -1,6 +1,6 @@
 module voltgpt
 
-go 1.25.1
+go 1.26.0
 
 require (
 	github.com/asg017/sqlite-vec-go-bindings v0.1.6
@@ -9,7 +9,7 @@ require (
 	github.com/ewohltman/discordgo-mock v0.0.11
 	github.com/joho/godotenv v1.5.1
 	github.com/mattn/go-sqlite3 v1.14.47
-	github.com/openai/openai-go v1.12.0
+	github.com/openai/openai-go/v3 v3.41.1
 	github.com/u2takey/ffmpeg-go v0.5.0
 	golang.org/x/image v0.43.0
 	google.golang.org/genai v1.62.0

@@ -17,7 +17,7 @@ import (
 	"voltgpt/internal/utility"
 
 	"github.com/bwmarrin/discordgo"
-	"github.com/openai/openai-go/responses"
+	"github.com/openai/openai-go/v3/responses"
 )
 
 func HandleMessage(s *discordgo.Session, m *discordgo.MessageCreate) {

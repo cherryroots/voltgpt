@@ -9,8 +9,8 @@ import (
 	"strings"
 	"time"
 
-	oa "github.com/openai/openai-go"
-	"github.com/openai/openai-go/shared"
+	oa "github.com/openai/openai-go/v3"
+	"github.com/openai/openai-go/v3/shared"
 )
 
 type profileLLMResponse struct {
