@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log"
 	"regexp"
+	"slices"
 	"strings"
 
 	"github.com/bwmarrin/discordgo"
@@ -12,12 +13,7 @@ import (
 )
 
 func IsAdmin(id string) bool {
-	for _, admin := range config.Admins {
-		if admin == id {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(config.Admins, id)
 }
 
 func LinkFromIMessage(guildID string, m *discordgo.Message) string {
