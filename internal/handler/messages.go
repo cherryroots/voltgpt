@@ -88,7 +88,7 @@ func HandleMessage(ctx context.Context, s *discordgo.Session, m *discordgo.Messa
 		return
 	}
 
-	images, videos, pdfs, _ := utility.GetMessageMediaURL(m.Message)
+	images, videos, _, _ := utility.GetMessageMediaURL(m.Message)
 
 	content := config.RequestContent{
 		Text: strings.TrimSpace(fmt.Sprintf("<user name=\"%s\"> %s %s %s </user>",
@@ -99,7 +99,6 @@ func HandleMessage(ctx context.Context, s *discordgo.Session, m *discordgo.Messa
 		)),
 		Images: images,
 		Videos: videos,
-		PDFs:   pdfs,
 	}
 
 	if skipMemory {

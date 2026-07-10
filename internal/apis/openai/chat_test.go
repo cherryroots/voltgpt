@@ -29,3 +29,19 @@ func TestStreamMessageResponse_CanceledContext(t *testing.T) {
 		t.Fatalf("StreamMessageResponse() error = %v, want context.Canceled", err)
 	}
 }
+
+func TestSafeBaseURLForLog_RedactsCredentialsAndQuery(t *testing.T) {
+	got := safeBaseURLForLog("https://user:secret@example.com/v1?token=secret")
+	if got != "https://example.com" {
+		t.Fatalf("safeBaseURLForLog() = %q, want %q", got, "https://example.com")
+	}
+}
+
+func TestStreamer_StopWaitsForTicker(t *testing.T) {
+	s := newStreamer(nil, nil)
+	s.Start()
+
+	if err := s.Stop(); err != nil {
+		t.Fatalf("Stop() error = %v", err)
+	}
+}

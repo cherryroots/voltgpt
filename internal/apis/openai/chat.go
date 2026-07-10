@@ -4,8 +4,10 @@ import (
 	"context"
 	"database/sql"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"log"
+	"net/url"
 	"os"
 	"strings"
 	"sync"
@@ -47,7 +49,7 @@ func GetClient() (*oa.Client, error) {
 		opts := []option.RequestOption{option.WithAPIKey(token)}
 		if baseURL := chatBaseURL(); baseURL != "" {
 			opts = append(opts, option.WithBaseURL(baseURL))
-			log.Printf("openai: chat client using base URL %s", baseURL)
+			log.Printf("openai: chat client using base URL %s", safeBaseURLForLog(baseURL))
 		}
 
 		client := oa.NewClient(opts...)
@@ -67,6 +69,14 @@ func chatBaseURL() string {
 		baseURL += "/v1"
 	}
 	return baseURL + "/"
+}
+
+func safeBaseURLForLog(baseURL string) string {
+	parsed, err := url.Parse(baseURL)
+	if err != nil || parsed.Scheme == "" || parsed.Host == "" {
+		return "<custom endpoint>"
+	}
+	return parsed.Scheme + "://" + parsed.Host
 }
 
 func GetMemoryClient() (*oa.Client, error) {
@@ -89,10 +99,13 @@ type streamer struct {
 	Buffer     string
 	hasOutput  bool
 	mu         sync.Mutex
+	flushMu    sync.Mutex
 	done       chan struct{}
 	stopOnce   sync.Once
 	ticker     *time.Ticker
+	tickerWG   sync.WaitGroup
 	messageIDs []string
+	flushErr   error
 }
 
 func newStreamer(s *discordgo.Session, m *discordgo.Message) *streamer {
@@ -111,11 +124,13 @@ func newStreamer(s *discordgo.Session, m *discordgo.Message) *streamer {
 
 func (s *streamer) Start() {
 	s.ticker = time.NewTicker(1 * time.Second)
+	s.tickerWG.Add(1)
 	go func() {
+		defer s.tickerWG.Done()
 		for {
 			select {
 			case <-s.ticker.C:
-				s.Flush()
+				_ = s.Flush()
 			case <-s.done:
 				s.ticker.Stop()
 				return
@@ -133,11 +148,21 @@ func (s *streamer) Update(content string) {
 	s.Buffer += content
 }
 
-func (s *streamer) Stop() {
+func (s *streamer) Stop() error {
+	stopped := false
 	s.stopOnce.Do(func() {
+		stopped = true
 		close(s.done)
-		s.Flush()
+		s.tickerWG.Wait()
+		_ = s.Flush()
 	})
+	if !stopped {
+		return nil
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.flushErr
 }
 
 func (s *streamer) MessageIDs() []string {
@@ -168,29 +193,41 @@ func (s *streamer) HasVisibleOutput() bool {
 	return s.hasOutput
 }
 
-func (s *streamer) Flush() {
+func (s *streamer) Flush() error {
+	s.flushMu.Lock()
+	defer s.flushMu.Unlock()
+
+	s.mu.Lock()
+	buffer := s.Buffer
+	message := s.Message
+	if buffer == "" || strings.TrimSpace(buffer) == "" {
+		err := s.flushErr
+		s.mu.Unlock()
+		return err
+	}
+	s.mu.Unlock()
+
+	newBuffer, newMsg, err := utility.SplitSend(s.Session, message, buffer)
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
-
-	if s.Buffer == "" {
-		return
-	}
-
-	if strings.TrimSpace(s.Buffer) == "" {
-		return
-	}
-
-	newBuffer, newMsg, err := utility.SplitSend(s.Session, s.Message, s.Buffer)
 	if err != nil {
 		log.Printf("openai: error sending message update: %v", err)
-		return
+		if s.flushErr == nil {
+			s.flushErr = fmt.Errorf("send Discord message update: %w", err)
+		}
+		return s.flushErr
 	}
 
 	if newMsg != nil {
 		s.Message = newMsg
 		s.rememberMessageID(newMsg.ID)
 	}
-	s.Buffer = newBuffer
+	if strings.HasPrefix(s.Buffer, buffer) {
+		s.Buffer = newBuffer + strings.TrimPrefix(s.Buffer, buffer)
+	}
+	s.flushErr = nil
+	return nil
 }
 
 func builtInTools() []responses.ToolUnionParam {
@@ -200,7 +237,7 @@ func builtInTools() []responses.ToolUnionParam {
 	}
 }
 
-func StreamMessageResponse(ctx context.Context, s *discordgo.Session, c *oa.Client, m *discordgo.Message, input []responses.ResponseInputItemUnionParam, previousResponseID, backgroundFacts string) error {
+func StreamMessageResponse(ctx context.Context, s *discordgo.Session, c *oa.Client, m *discordgo.Message, input []responses.ResponseInputItemUnionParam, previousResponseID, backgroundFacts string) (retErr error) {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -215,7 +252,17 @@ func StreamMessageResponse(ctx context.Context, s *discordgo.Session, c *oa.Clie
 
 	streamer := newStreamer(s, msg)
 	streamer.Start()
-	defer streamer.Stop()
+	defer func() {
+		if err := streamer.Stop(); err != nil {
+			retErr = errors.Join(retErr, err)
+		}
+		if retErr != nil && !errors.Is(retErr, context.Canceled) {
+			_, err := discord.EditMessage(s, streamer.Message, "⚠️ Something went wrong while generating this response.")
+			if err != nil {
+				retErr = errors.Join(retErr, fmt.Errorf("set Discord error state: %w", err))
+			}
+		}
+	}()
 
 	channel, err := s.Channel(m.ChannelID)
 	if err != nil {
@@ -277,7 +324,9 @@ func StreamMessageResponse(ctx context.Context, s *discordgo.Session, c *oa.Clie
 		return fmt.Errorf("stream error: %w", err)
 	}
 
-	streamer.Stop()
+	if err := streamer.Stop(); err != nil {
+		return err
+	}
 	if !streamer.HasVisibleOutput() {
 		emptyMsg, err := discord.EditMessage(s, streamer.Message, utility.EmptyResponseEmoji)
 		if err != nil {
@@ -341,7 +390,7 @@ func PrependReplyMessages(s *discordgo.Session, _ *discordgo.Member, message *di
 
 	reply := utility.CleanMessage(s, reference)
 	reply.Content = utility.ResolveMentions(reply.Content, reply.Mentions)
-	images, videos, pdfs, _ := utility.GetMessageMediaURL(reply)
+	images, videos, _, _ := utility.GetMessageMediaURL(reply)
 
 	replyContent := config.RequestContent{
 		Text: strings.TrimSpace(fmt.Sprintf("%s%s%s",
@@ -351,7 +400,6 @@ func PrependReplyMessages(s *discordgo.Session, _ *discordgo.Member, message *di
 		)),
 		Images: images,
 		Videos: videos,
-		PDFs:   pdfs,
 	}
 
 	role := "user"
@@ -371,6 +419,7 @@ func PrependReplyMessages(s *discordgo.Session, _ *discordgo.Member, message *di
 
 func CreateContent(role string, content config.RequestContent) responses.ResponseInputItemUnionParam {
 	var parts responses.ResponseInputMessageContentListParam
+	// PDFs are intentionally omitted because this OpenAI chat path does not support them.
 
 	if strings.TrimSpace(content.Text) != "" {
 		parts = append(parts, responses.ResponseInputContentParamOfInputText(content.Text))
