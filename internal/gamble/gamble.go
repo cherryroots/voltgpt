@@ -835,7 +835,7 @@ func (g *game) SendModal(s *discordgo.Session, i *discordgo.InteractionCreate, u
 					Components: []discordgo.MessageComponent{
 						discordgo.TextInput{
 							CustomID:    "amount",
-							Label:       "Amount",
+							Label:       "Amount (10% tax threshold)",
 							Style:       discordgo.TextInputShort,
 							Placeholder: "10%, 25%, 50%, 100%, or exact amount",
 						},

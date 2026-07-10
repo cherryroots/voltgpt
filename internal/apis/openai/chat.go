@@ -25,7 +25,7 @@ import (
 	"voltgpt/internal/utility"
 )
 
-const chatModel = "gpt-5.5"
+const chatModel = "gpt-5.6-sol"
 
 var (
 	sharedClient           *oa.Client
@@ -35,13 +35,6 @@ var (
 	sharedMemoryClientErr  error
 	sharedMemoryClientOnce sync.Once
 )
-
-func builtInTools() []responses.ToolUnionParam {
-	return []responses.ToolUnionParam{
-		responses.ToolParamOfWebSearchPreview("web_search"),
-		responses.ToolParamOfCodeInterpreter(responses.ToolCodeInterpreterContainerCodeInterpreterContainerAutoParam{}),
-	}
-}
 
 func GetClient() (*oa.Client, error) {
 	sharedClientOnce.Do(func() {
@@ -63,6 +56,19 @@ func GetClient() (*oa.Client, error) {
 	return sharedClient, sharedClientErr
 }
 
+func chatBaseURL() string {
+	baseURL := strings.TrimSpace(os.Getenv("OPENAI_BASE"))
+	if baseURL == "" {
+		return ""
+	}
+
+	baseURL = strings.TrimRight(baseURL, "/")
+	if !strings.HasSuffix(baseURL, "/v1") {
+		baseURL += "/v1"
+	}
+	return baseURL + "/"
+}
+
 func GetMemoryClient() (*oa.Client, error) {
 	sharedMemoryClientOnce.Do(func() {
 		token := strings.TrimSpace(os.Getenv("MEMORY_OPENAI_TOKEN"))
@@ -77,20 +83,7 @@ func GetMemoryClient() (*oa.Client, error) {
 	return sharedMemoryClient, sharedMemoryClientErr
 }
 
-func chatBaseURL() string {
-	baseURL := strings.TrimSpace(os.Getenv("OPENAI_BASE"))
-	if baseURL == "" {
-		return ""
-	}
-
-	baseURL = strings.TrimRight(baseURL, "/")
-	if !strings.HasSuffix(baseURL, "/v1") {
-		baseURL += "/v1"
-	}
-	return baseURL + "/"
-}
-
-type Streamer struct {
+type streamer struct {
 	Session    *discordgo.Session
 	Message    *discordgo.Message
 	Buffer     string
@@ -102,13 +95,13 @@ type Streamer struct {
 	messageIDs []string
 }
 
-func NewStreamer(s *discordgo.Session, m *discordgo.Message) *Streamer {
+func newStreamer(s *discordgo.Session, m *discordgo.Message) *streamer {
 	messageIDs := make([]string, 0, 1)
 	if m != nil && m.ID != "" {
 		messageIDs = append(messageIDs, m.ID)
 	}
 
-	return &Streamer{
+	return &streamer{
 		Session:    s,
 		Message:    m,
 		done:       make(chan struct{}),
@@ -116,7 +109,7 @@ func NewStreamer(s *discordgo.Session, m *discordgo.Message) *Streamer {
 	}
 }
 
-func (s *Streamer) Start() {
+func (s *streamer) Start() {
 	s.ticker = time.NewTicker(1 * time.Second)
 	go func() {
 		for {
@@ -131,7 +124,7 @@ func (s *Streamer) Start() {
 	}()
 }
 
-func (s *Streamer) Update(content string) {
+func (s *streamer) Update(content string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if utility.HasVisibleContent(content) {
@@ -140,14 +133,14 @@ func (s *Streamer) Update(content string) {
 	s.Buffer += content
 }
 
-func (s *Streamer) Stop() {
+func (s *streamer) Stop() {
 	s.stopOnce.Do(func() {
 		close(s.done)
 		s.Flush()
 	})
 }
 
-func (s *Streamer) MessageIDs() []string {
+func (s *streamer) MessageIDs() []string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -156,7 +149,7 @@ func (s *Streamer) MessageIDs() []string {
 	return ids
 }
 
-func (s *Streamer) rememberMessageID(id string) {
+func (s *streamer) rememberMessageID(id string) {
 	if id == "" {
 		return
 	}
@@ -168,14 +161,14 @@ func (s *Streamer) rememberMessageID(id string) {
 	s.messageIDs = append(s.messageIDs, id)
 }
 
-func (s *Streamer) HasVisibleOutput() bool {
+func (s *streamer) HasVisibleOutput() bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	return s.hasOutput
 }
 
-func (s *Streamer) Flush() {
+func (s *streamer) Flush() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -200,6 +193,13 @@ func (s *Streamer) Flush() {
 	s.Buffer = newBuffer
 }
 
+func builtInTools() []responses.ToolUnionParam {
+	return []responses.ToolUnionParam{
+		responses.ToolParamOfWebSearch("web_search"),
+		responses.ToolParamOfCodeInterpreter(responses.ToolCodeInterpreterContainerCodeInterpreterContainerAutoParam{}),
+	}
+}
+
 func StreamMessageResponse(s *discordgo.Session, c *oa.Client, m *discordgo.Message, input []responses.ResponseInputItemUnionParam, previousResponseID, backgroundFacts string) error {
 	if len(input) == 0 {
 		return fmt.Errorf("no messages to send")
@@ -210,7 +210,7 @@ func StreamMessageResponse(s *discordgo.Session, c *oa.Client, m *discordgo.Mess
 		return fmt.Errorf("failed to send message: %w", err)
 	}
 
-	streamer := NewStreamer(s, msg)
+	streamer := newStreamer(s, msg)
 	streamer.Start()
 	defer streamer.Stop()
 
@@ -234,7 +234,8 @@ func StreamMessageResponse(s *discordgo.Session, c *oa.Client, m *discordgo.Mess
 		Metadata:          ResponseMetadata("chat"),
 		Model:             responses.ChatModel(chatModel),
 		Store:             oa.Bool(true),
-		Reasoning:         shared.ReasoningParam{Effort: "high"},
+		Reasoning:         shared.ReasoningParam{Effort: "medium"},
+		Text:              responses.ResponseTextConfigParam{Verbosity: responses.ResponseTextConfigVerbosityMedium},
 		Truncation:        responses.ResponseNewParamsTruncationAuto,
 		ParallelToolCalls: oa.Bool(true),
 		ToolChoice: responses.ResponseNewParamsToolChoiceUnion{

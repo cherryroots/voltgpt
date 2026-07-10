@@ -3,7 +3,7 @@ package openai
 import "testing"
 
 func TestStreamer_HasVisibleOutput(t *testing.T) {
-	s := NewStreamer(nil, nil)
+	s := newStreamer(nil, nil)
 
 	s.Update(" \n\t ")
 	if s.HasVisibleOutput() {

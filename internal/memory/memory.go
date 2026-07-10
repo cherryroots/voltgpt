@@ -23,10 +23,10 @@ import (
 const (
 	embeddingModel                            = oa.EmbeddingModelTextEmbedding3Small
 	embeddingDimensions                 int64 = 1536
-	noteGenerationModel                       = "gpt-5.4-nano"
-	noteGenerationReasoning                   = shared.ReasoningEffortHigh
-	incrementalUpdateModel                    = "gpt-5.4-nano"
-	incrementalUpdateReasoning                = shared.ReasoningEffortHigh
+	noteGenerationModel                       = "gpt-5.4-mini"
+	noteGenerationReasoning                   = shared.ReasoningEffortMedium
+	incrementalUpdateModel                    = "gpt-5.4-mini"
+	incrementalUpdateReasoning                = shared.ReasoningEffortMedium
 	clusteringModel                           = "gpt-5.4-mini"
 	clusteringReasoning                       = shared.ReasoningEffortMedium
 	fullRebuildModel                          = "gpt-5.4-mini"
@@ -220,9 +220,10 @@ func generateJSON(ctx context.Context, model, systemPrompt, userPrompt, response
 				),
 			}),
 		},
-		Metadata:  openaiapi.ResponseMetadata(responseType),
-		Model:     responses.ChatModel(model),
-		Reasoning: shared.ReasoningParam{Effort: reasoning},
+		Metadata:   openaiapi.ResponseMetadata(responseType),
+		Model:      responses.ChatModel(model),
+		Reasoning:  shared.ReasoningParam{Effort: reasoning},
+		Truncation: responses.ResponseNewParamsTruncationAuto,
 		Text: responses.ResponseTextConfigParam{
 			Format: responses.ResponseFormatTextConfigUnionParam{
 				OfJSONSchema: &responses.ResponseFormatTextJSONSchemaConfigParam{

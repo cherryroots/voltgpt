@@ -11,8 +11,8 @@ require (
 	github.com/mattn/go-sqlite3 v1.14.47
 	github.com/openai/openai-go/v3 v3.41.1
 	github.com/u2takey/ffmpeg-go v0.5.0
-	golang.org/x/image v0.43.0
-	google.golang.org/genai v1.62.0
+	golang.org/x/image v0.44.0
+	google.golang.org/genai v1.63.0
 )
 
 require (
@@ -41,11 +41,11 @@ require (
 	go.opentelemetry.io/otel v1.44.0 // indirect
 	go.opentelemetry.io/otel/metric v1.44.0 // indirect
 	go.opentelemetry.io/otel/trace v1.44.0 // indirect
-	golang.org/x/crypto v0.53.0 // indirect
-	golang.org/x/net v0.56.0 // indirect
-	golang.org/x/sys v0.46.0 // indirect
-	golang.org/x/text v0.39.0 // indirect
-	google.golang.org/api v0.287.1 // indirect
+	golang.org/x/crypto v0.54.0 // indirect
+	golang.org/x/net v0.57.0 // indirect
+	golang.org/x/sys v0.47.0 // indirect
+	golang.org/x/text v0.40.0 // indirect
+	google.golang.org/api v0.288.0 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20260706201446-f0a921348800 // indirect
 	google.golang.org/grpc v1.82.0 // indirect
 	google.golang.org/protobuf v1.36.11 // indirect
