@@ -1,7 +1,9 @@
 package handler
 
 import (
+	"context"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"log"
 	"maps"
@@ -20,11 +22,15 @@ import (
 	"github.com/openai/openai-go/v3/responses"
 )
 
-func HandleMessage(s *discordgo.Session, m *discordgo.MessageCreate) {
+func HandleMessage(ctx context.Context, s *discordgo.Session, m *discordgo.MessageCreate) {
 	// Delay 3 seconds to allow embeds to load
 	if m.Message.GuildID == config.MainServer {
 		go func() {
-			time.Sleep(3 * time.Second)
+			select {
+			case <-time.After(3 * time.Second):
+			case <-ctx.Done():
+				return
+			}
 			fetchedMessage, _ := s.ChannelMessage(m.Message.ChannelID, m.Message.ID)
 			if fetchedMessage == nil {
 				return
@@ -141,8 +147,8 @@ func HandleMessage(s *discordgo.Session, m *discordgo.MessageCreate) {
 		})
 	}
 
-	err = openaiapi.StreamMessageResponse(s, c, m.Message, chatMessages, previousResponseID, backgroundFacts)
-	if err != nil {
+	err = openaiapi.StreamMessageResponse(ctx, s, c, m.Message, chatMessages, previousResponseID, backgroundFacts)
+	if err != nil && !errors.Is(err, context.Canceled) {
 		discord.LogSendErrorMessage(s, m.Message, err.Error())
 	}
 }

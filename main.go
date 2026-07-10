@@ -2,6 +2,7 @@
 package main
 
 import (
+	"context"
 	"log"
 	"os"
 	"os/signal"
@@ -37,6 +38,9 @@ func init() {
 }
 
 func main() {
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM, os.Interrupt)
+	defer stop()
+
 	discordToken := os.Getenv("DISCORD_TOKEN")
 	if discordToken == "" {
 		log.Fatal("DISCORD_TOKEN is not set")
@@ -56,7 +60,7 @@ func main() {
 		switch i.Type {
 		case discordgo.InteractionApplicationCommand:
 			if h, ok := handler.Commands[i.ApplicationCommandData().Name]; ok {
-				go h(s, i)
+				go h(ctx, s, i)
 			}
 		case discordgo.InteractionMessageComponent:
 			split := strings.Split(i.MessageComponentData().CustomID, "-")
@@ -72,7 +76,7 @@ func main() {
 	})
 
 	dg.AddHandler(func(s *discordgo.Session, m *discordgo.MessageCreate) {
-		go handler.HandleMessage(s, m)
+		go handler.HandleMessage(ctx, s, m)
 	})
 
 	dg.AddHandler(func(s *discordgo.Session, _ *discordgo.Ready) {
@@ -117,9 +121,7 @@ func main() {
 
 	log.Println("Bot is now running. Press CTRL-C to exit.")
 
-	sc := make(chan os.Signal, 1)
-	signal.Notify(sc, syscall.SIGINT, syscall.SIGTERM, os.Interrupt)
-	<-sc
+	<-ctx.Done()
 
 	defer db.Close()
 	defer memory.Shutdown()

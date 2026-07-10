@@ -2,6 +2,8 @@ package gemini
 
 import (
 	"bytes"
+	"context"
+	"errors"
 	"image"
 	"image/png"
 	"net/http"
@@ -12,6 +14,16 @@ import (
 
 	"voltgpt/internal/config"
 )
+
+func TestStreamMessageResponse_CanceledContext(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	err := StreamMessageResponse(ctx, nil, nil, nil, nil, "")
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("StreamMessageResponse() error = %v, want context.Canceled", err)
+	}
+}
 
 func TestContentToString_Empty(t *testing.T) {
 	c := &genai.Content{Parts: []*genai.Part{}}

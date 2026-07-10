@@ -2,6 +2,7 @@ package wavespeed
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -15,7 +16,10 @@ import (
 )
 
 // Send sends a request to the wavespeed API
-func Send(model Model, payload any) (*WaveSpeedResponse, error) {
+func Send(ctx context.Context, model Model, payload any) (*WaveSpeedResponse, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	// Get API key from environment
 	apiKey := os.Getenv("WAVESPEED_TOKEN")
 	if apiKey == "" {
@@ -32,7 +36,7 @@ func Send(model Model, payload any) (*WaveSpeedResponse, error) {
 	}
 
 	// Create HTTP request
-	req, err := http.NewRequest("POST", url, bytes.NewBuffer(jsonData))
+	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewBuffer(jsonData))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create HTTP request: %w", err)
 	}
@@ -78,7 +82,10 @@ func Send(model Model, payload any) (*WaveSpeedResponse, error) {
 }
 
 // QueryWaveSpeedResult queries the result of a wavespeed request by ID
-func QueryWaveSpeedResult(id string) (*WaveSpeedResponse, error) {
+func QueryWaveSpeedResult(ctx context.Context, id string) (*WaveSpeedResponse, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	// Get API key from environment
 	apiKey := os.Getenv("WAVESPEED_TOKEN")
 	if apiKey == "" {
@@ -89,7 +96,7 @@ func QueryWaveSpeedResult(id string) (*WaveSpeedResponse, error) {
 	url := fmt.Sprintf("%s/predictions/%s/result", baseURL, id)
 
 	// Create HTTP request
-	req, err := http.NewRequest("GET", url, nil)
+	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create HTTP request: %w", err)
 	}
@@ -130,12 +137,15 @@ func QueryWaveSpeedResult(id string) (*WaveSpeedResponse, error) {
 	return &waveSpeedResp, nil
 }
 
-func WaitForComplete(id string) (*WaveSpeedResponse, error) {
+func WaitForComplete(ctx context.Context, id string) (*WaveSpeedResponse, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	maxRetries := 100
 	retryDelay := 3 * time.Second
 
 	for i := 0; i < maxRetries; i++ {
-		resp, err := QueryWaveSpeedResult(id)
+		resp, err := QueryWaveSpeedResult(ctx, id)
 		if err != nil {
 			return nil, fmt.Errorf("failed to query result: %w", err)
 		}
@@ -149,7 +159,11 @@ func WaitForComplete(id string) (*WaveSpeedResponse, error) {
 		}
 
 		// Wait before retrying
-		time.Sleep(retryDelay)
+		select {
+		case <-time.After(retryDelay):
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
 	}
 
 	return nil, fmt.Errorf("timed out waiting for task completion after %d attempts (%d seconds)", maxRetries, maxRetries*3)

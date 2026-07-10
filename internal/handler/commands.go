@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"math/rand"
@@ -22,8 +23,8 @@ import (
 )
 
 // Commands is a map of command names and their corresponding functions.
-var Commands = map[string]func(s *discordgo.Session, i *discordgo.InteractionCreate){
-	"draw": func(s *discordgo.Session, i *discordgo.InteractionCreate) {
+var Commands = map[string]func(ctx context.Context, s *discordgo.Session, i *discordgo.InteractionCreate){
+	"draw": func(ctx context.Context, s *discordgo.Session, i *discordgo.InteractionCreate) {
 		log.Printf("Received interaction: %s by %s", i.ApplicationCommandData().Name, i.Interaction.Member.User.Username)
 		discord.DeferResponse(s, i)
 
@@ -141,7 +142,7 @@ var Commands = map[string]func(s *discordgo.Session, i *discordgo.InteractionCre
 						Images:   base64Images,
 						SyncMode: &syncMode,
 					}
-					resp, err = wave.Send(wave.SeedDreamEdit, req)
+					resp, err = wave.Send(ctx, wave.SeedDreamEdit, req)
 					if err != nil {
 						log.Println(err)
 						_, err = discord.SendFollowup(s, i, err.Error())
@@ -157,7 +158,7 @@ var Commands = map[string]func(s *discordgo.Session, i *discordgo.InteractionCre
 						SyncMode: &syncMode,
 					}
 
-					resp, err = wave.Send(wave.SeedDream, req)
+					resp, err = wave.Send(ctx, wave.SeedDream, req)
 					if err != nil {
 						log.Println(err)
 						_, err = discord.SendFollowup(s, i, err.Error())
@@ -192,7 +193,7 @@ var Commands = map[string]func(s *discordgo.Session, i *discordgo.InteractionCre
 			log.Println(err)
 		}
 	},
-	"video": func(s *discordgo.Session, i *discordgo.InteractionCreate) {
+	"video": func(ctx context.Context, s *discordgo.Session, i *discordgo.InteractionCreate) {
 		log.Printf("Received interaction: %s by %s", i.ApplicationCommandData().Name, i.Interaction.Member.User.Username)
 		discord.DeferResponse(s, i)
 
@@ -277,7 +278,7 @@ var Commands = map[string]func(s *discordgo.Session, i *discordgo.InteractionCre
 				Seed:           &seed,
 				Resolution:     &i2vSize,
 			}
-			resp, err = wave.Send(wave.WanImage2Video, req)
+			resp, err = wave.Send(ctx, wave.WanImage2Video, req)
 			if err != nil {
 				_, err := discord.SendFollowup(s, i, err.Error())
 				if err != nil {
@@ -293,7 +294,7 @@ var Commands = map[string]func(s *discordgo.Session, i *discordgo.InteractionCre
 				Seed:           &seed,
 				Size:           &t2vSize,
 			}
-			resp, err = wave.Send(wave.WanText2Video, req)
+			resp, err = wave.Send(ctx, wave.WanText2Video, req)
 			if err != nil {
 				_, err := discord.SendFollowup(s, i, err.Error())
 				if err != nil {
@@ -317,7 +318,7 @@ var Commands = map[string]func(s *discordgo.Session, i *discordgo.InteractionCre
 			return
 		}
 
-		resp, err = wave.WaitForComplete(resp.Data.ID)
+		resp, err = wave.WaitForComplete(ctx, resp.Data.ID)
 		if err != nil {
 			log.Println(err)
 			_, err = discord.SendFollowup(s, i, err.Error())
@@ -342,7 +343,7 @@ var Commands = map[string]func(s *discordgo.Session, i *discordgo.InteractionCre
 			log.Println(err)
 		}
 	},
-	"hash_server": func(s *discordgo.Session, i *discordgo.InteractionCreate) {
+	"hash_server": func(ctx context.Context, s *discordgo.Session, i *discordgo.InteractionCreate) {
 		log.Printf("Received interaction: %s by %s", i.ApplicationCommandData().Name, i.Interaction.Member.User.Username)
 		discord.DeferResponse(s, i)
 
@@ -432,7 +433,7 @@ var Commands = map[string]func(s *discordgo.Session, i *discordgo.InteractionCre
 			log.Println(err)
 		}
 	},
-	"CheckSnail": func(s *discordgo.Session, i *discordgo.InteractionCreate) {
+	"CheckSnail": func(ctx context.Context, s *discordgo.Session, i *discordgo.InteractionCreate) {
 		log.Printf("Received interaction: %s by %s", i.ApplicationCommandData().Name, i.Interaction.Member.User.Username)
 		discord.DeferEphemeralResponse(s, i)
 
@@ -459,7 +460,7 @@ var Commands = map[string]func(s *discordgo.Session, i *discordgo.InteractionCre
 			log.Println(err)
 		}
 	},
-	"Hash": func(s *discordgo.Session, i *discordgo.InteractionCreate) {
+	"Hash": func(ctx context.Context, s *discordgo.Session, i *discordgo.InteractionCreate) {
 		log.Printf("Received interaction: %s by %s", i.ApplicationCommandData().Name, i.Interaction.Member.User.Username)
 		discord.DeferEphemeralResponse(s, i)
 
@@ -475,7 +476,7 @@ var Commands = map[string]func(s *discordgo.Session, i *discordgo.InteractionCre
 			log.Println(err)
 		}
 	},
-	"wheel_status": func(s *discordgo.Session, i *discordgo.InteractionCreate) {
+	"wheel_status": func(ctx context.Context, s *discordgo.Session, i *discordgo.InteractionCreate) {
 		log.Printf("Received interaction: %s by %s", i.ApplicationCommandData().Name, i.Interaction.Member.User.Username)
 		discord.DeferResponse(s, i)
 
@@ -509,7 +510,7 @@ var Commands = map[string]func(s *discordgo.Session, i *discordgo.InteractionCre
 			log.Println(err)
 		}
 	},
-	"wheel_add": func(s *discordgo.Session, i *discordgo.InteractionCreate) {
+	"wheel_add": func(ctx context.Context, s *discordgo.Session, i *discordgo.InteractionCreate) {
 		log.Printf("Received interaction: %s by %s", i.ApplicationCommandData().Name, i.Interaction.Member.User.Username)
 		discord.DeferEphemeralResponse(s, i)
 
@@ -553,7 +554,7 @@ var Commands = map[string]func(s *discordgo.Session, i *discordgo.InteractionCre
 			log.Println(err)
 		}
 	},
-	"insert_bet": func(s *discordgo.Session, i *discordgo.InteractionCreate) {
+	"insert_bet": func(ctx context.Context, s *discordgo.Session, i *discordgo.InteractionCreate) {
 		log.Printf("Recieved interaction: %s by %s", i.ApplicationCommandData().Name, i.Interaction.Member.User.Username)
 		discord.DeferEphemeralResponse(s, i)
 
@@ -624,7 +625,7 @@ var Commands = map[string]func(s *discordgo.Session, i *discordgo.InteractionCre
 			log.Println(err)
 		}
 	},
-	"reset_wheel": func(s *discordgo.Session, i *discordgo.InteractionCreate) {
+	"reset_wheel": func(ctx context.Context, s *discordgo.Session, i *discordgo.InteractionCreate) {
 		log.Printf("Recieved interaction: %s by %s", i.ApplicationCommandData().Name, i.Interaction.Member.User.Username)
 		discord.DeferEphemeralResponse(s, i)
 
@@ -659,7 +660,7 @@ var Commands = map[string]func(s *discordgo.Session, i *discordgo.InteractionCre
 			log.Println(err)
 		}
 	},
-	"memory_admin_view": func(s *discordgo.Session, i *discordgo.InteractionCreate) {
+	"memory_admin_view": func(ctx context.Context, s *discordgo.Session, i *discordgo.InteractionCreate) {
 		log.Printf("Received interaction: %s by %s", i.ApplicationCommandData().Name, i.Interaction.Member.User.Username)
 		discord.DeferEphemeralResponse(s, i)
 
@@ -722,7 +723,7 @@ var Commands = map[string]func(s *discordgo.Session, i *discordgo.InteractionCre
 			log.Println(err)
 		}
 	},
-	"memory_admin_delete": func(s *discordgo.Session, i *discordgo.InteractionCreate) {
+	"memory_admin_delete": func(ctx context.Context, s *discordgo.Session, i *discordgo.InteractionCreate) {
 		log.Printf("Received interaction: %s by %s", i.ApplicationCommandData().Name, i.Interaction.Member.User.Username)
 		discord.DeferEphemeralResponse(s, i)
 
@@ -766,7 +767,7 @@ var Commands = map[string]func(s *discordgo.Session, i *discordgo.InteractionCre
 			log.Println(err)
 		}
 	},
-	"memory_admin_dirty": func(s *discordgo.Session, i *discordgo.InteractionCreate) {
+	"memory_admin_dirty": func(ctx context.Context, s *discordgo.Session, i *discordgo.InteractionCreate) {
 		log.Printf("Received interaction: %s by %s", i.ApplicationCommandData().Name, i.Interaction.Member.User.Username)
 		discord.DeferEphemeralResponse(s, i)
 
@@ -810,7 +811,7 @@ var Commands = map[string]func(s *discordgo.Session, i *discordgo.InteractionCre
 			log.Println(err)
 		}
 	},
-	"memory_self": func(s *discordgo.Session, i *discordgo.InteractionCreate) {
+	"memory_self": func(ctx context.Context, s *discordgo.Session, i *discordgo.InteractionCreate) {
 		log.Printf("Received interaction: %s by %s", i.ApplicationCommandData().Name, i.Interaction.Member.User.Username)
 		discord.DeferEphemeralResponse(s, i)
 
@@ -850,7 +851,7 @@ var Commands = map[string]func(s *discordgo.Session, i *discordgo.InteractionCre
 			log.Println(err)
 		}
 	},
-	"memory_admin_digest": func(s *discordgo.Session, i *discordgo.InteractionCreate) {
+	"memory_admin_digest": func(ctx context.Context, s *discordgo.Session, i *discordgo.InteractionCreate) {
 		log.Printf("Received interaction: %s by %s", i.ApplicationCommandData().Name, i.Interaction.Member.User.Username)
 		discord.DeferResponse(s, i)
 
@@ -866,7 +867,7 @@ var Commands = map[string]func(s *discordgo.Session, i *discordgo.InteractionCre
 			log.Println(err)
 		}
 	},
-	"memory_setname": func(s *discordgo.Session, i *discordgo.InteractionCreate) {
+	"memory_setname": func(ctx context.Context, s *discordgo.Session, i *discordgo.InteractionCreate) {
 		log.Printf("Received interaction: %s by %s", i.ApplicationCommandData().Name, i.Interaction.Member.User.Username)
 		discord.DeferEphemeralResponse(s, i)
 
@@ -926,7 +927,7 @@ var Commands = map[string]func(s *discordgo.Session, i *discordgo.InteractionCre
 			log.Println(err)
 		}
 	},
-	"reminders": func(s *discordgo.Session, i *discordgo.InteractionCreate) {
+	"reminders": func(ctx context.Context, s *discordgo.Session, i *discordgo.InteractionCreate) {
 		log.Printf("Received interaction: %s by %s", i.ApplicationCommandData().Name, i.Interaction.Member.User.Username)
 
 		reminders, err := reminder.GetUserReminders(i.Interaction.Member.User.ID)

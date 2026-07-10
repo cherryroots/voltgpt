@@ -200,7 +200,10 @@ func builtInTools() []responses.ToolUnionParam {
 	}
 }
 
-func StreamMessageResponse(s *discordgo.Session, c *oa.Client, m *discordgo.Message, input []responses.ResponseInputItemUnionParam, previousResponseID, backgroundFacts string) error {
+func StreamMessageResponse(ctx context.Context, s *discordgo.Session, c *oa.Client, m *discordgo.Message, input []responses.ResponseInputItemUnionParam, previousResponseID, backgroundFacts string) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	if len(input) == 0 {
 		return fmt.Errorf("no messages to send")
 	}
@@ -248,7 +251,6 @@ func StreamMessageResponse(s *discordgo.Session, c *oa.Client, m *discordgo.Mess
 		params.PreviousResponseID = oa.String(previousResponseID)
 	}
 
-	ctx := context.Background()
 	stream := c.Responses.NewStreaming(ctx, params)
 
 	var responseID string
@@ -269,6 +271,9 @@ func StreamMessageResponse(s *discordgo.Session, c *oa.Client, m *discordgo.Mess
 		}
 	}
 	if err := stream.Err(); err != nil {
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return ctxErr
+		}
 		return fmt.Errorf("stream error: %w", err)
 	}
 

@@ -25,9 +25,9 @@ var (
 )
 
 // GetClient returns a shared Gemini client, initializing it once on first call.
-func GetClient() (*genai.Client, error) {
+func GetClient(ctx context.Context) (*genai.Client, error) {
 	sharedClientOnce.Do(func() {
-		sharedClient, sharedClientErr = genai.NewClient(context.Background(), &genai.ClientConfig{})
+		sharedClient, sharedClientErr = genai.NewClient(ctx, &genai.ClientConfig{})
 	})
 	return sharedClient, sharedClientErr
 }
@@ -148,9 +148,10 @@ func (s *Streamer) Flush() {
 }
 
 // StreamMessageResponse streams the response from Gemini to Discord.
-// TODO: accept a context.Context from the caller to support cancellation (shutdown, message deletion).
-func StreamMessageResponse(s *discordgo.Session, c *genai.Client, m *discordgo.Message, history []*genai.Content, backgroundFacts string) error {
-	ctx := context.Background()
+func StreamMessageResponse(ctx context.Context, s *discordgo.Session, c *genai.Client, m *discordgo.Message, history []*genai.Content, backgroundFacts string) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 
 	// Configure the model
 	modelName := "gemini-3.1-pro-preview"
@@ -201,6 +202,9 @@ func StreamMessageResponse(s *discordgo.Session, c *genai.Client, m *discordgo.M
 	// Consume stream
 	for resp, err := range stream {
 		if err != nil {
+			if ctxErr := ctx.Err(); ctxErr != nil {
+				return ctxErr
+			}
 			return fmt.Errorf("stream error: %v", err)
 		}
 
