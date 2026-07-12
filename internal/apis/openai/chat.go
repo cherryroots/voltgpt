@@ -285,7 +285,7 @@ func StreamMessageResponse(ctx context.Context, s *discordgo.Session, c *oa.Clie
 		Model:             responses.ChatModel(chatModel),
 		Store:             oa.Bool(true),
 		Reasoning:         shared.ReasoningParam{Effort: "medium"},
-		Text:              responses.ResponseTextConfigParam{Verbosity: responses.ResponseTextConfigVerbosityMedium},
+		Text:              responses.ResponseTextConfigParam{Verbosity: responses.ResponseTextConfigVerbosityLow},
 		Truncation:        responses.ResponseNewParamsTruncationAuto,
 		ParallelToolCalls: oa.Bool(true),
 		ToolChoice: responses.ResponseNewParamsToolChoiceUnion{

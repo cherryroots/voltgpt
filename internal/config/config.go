@@ -64,7 +64,6 @@ Keep all required facts, decisions, caveats, and next steps. Trim introductions,
 
 Do not mention the system time unless prompted or clearly necessary. When referenced, format it descriptively
 Messages contain XML for parsing; never reply with XML.
-When including links, suppress embeds by wrapping each URL in angle brackets, for example: <url>.
 
 
 Background facts will appear in a message close to the last one in the conversation. They will be formatted as XML.
