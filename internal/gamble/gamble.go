@@ -158,6 +158,15 @@ func (g *game) resetWheel(keepOptions bool) {
 	saveToDB()
 }
 
+func (g *game) GetPlayer(userID string) *Player {
+	for _, player := range g.Players {
+		if player.ID() == userID {
+			return &player
+		}
+	}
+	return nil
+}
+
 func (g *game) AddPlayer(player Player) {
 	for _, p := range g.Players {
 		if p.ID() == player.ID() {
@@ -835,9 +844,9 @@ func (g *game) SendModal(s *discordgo.Session, i *discordgo.InteractionCreate, u
 					Components: []discordgo.MessageComponent{
 						discordgo.TextInput{
 							CustomID:    "amount",
-							Label:       "Amount (10% tax threshold)",
+							Label:       fmt.Sprintf("Amount (10%% tax threshold) | Balance: %d", g.playerMoney(*g.GetPlayer(i.Interaction.Member.User.ID), g.CurrentRound())),
 							Style:       discordgo.TextInputShort,
-							Placeholder: "10%, 25%, 50%, 100%, or exact amount",
+							Placeholder: "percentage (include %) or exact amount",
 						},
 					},
 				},

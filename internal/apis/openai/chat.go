@@ -27,7 +27,10 @@ import (
 	"voltgpt/internal/utility"
 )
 
-const chatModel = "gpt-5.6-sol"
+const (
+	chatModel       = "gpt-6-astra"
+	reasoningEffort = "medium"
+)
 
 var (
 	sharedClient           *oa.Client
@@ -284,7 +287,7 @@ func StreamMessageResponse(ctx context.Context, s *discordgo.Session, c *oa.Clie
 		Metadata:          ResponseMetadata("chat"),
 		Model:             responses.ChatModel(chatModel),
 		Store:             oa.Bool(true),
-		Reasoning:         shared.ReasoningParam{Effort: "medium"},
+		Reasoning:         shared.ReasoningParam{Effort: reasoningEffort},
 		Text:              responses.ResponseTextConfigParam{Verbosity: responses.ResponseTextConfigVerbosityLow},
 		Truncation:        responses.ResponseNewParamsTruncationAuto,
 		ParallelToolCalls: oa.Bool(true),

@@ -23,13 +23,13 @@ import (
 const (
 	embeddingModel                            = oa.EmbeddingModelTextEmbedding3Small
 	embeddingDimensions                 int64 = 1536
-	noteGenerationModel                       = "gpt-5.4-mini"
+	noteGenerationModel                       = "gpt-5.6-luna"
 	noteGenerationReasoning                   = shared.ReasoningEffortMedium
-	incrementalUpdateModel                    = "gpt-5.4-mini"
+	incrementalUpdateModel                    = "gpt-5.6-luna"
 	incrementalUpdateReasoning                = shared.ReasoningEffortMedium
-	clusteringModel                           = "gpt-5.4-mini"
+	clusteringModel                           = "gpt-5.6-luna"
 	clusteringReasoning                       = shared.ReasoningEffortMedium
-	fullRebuildModel                          = "gpt-5.4-mini"
+	fullRebuildModel                          = "gpt-5.6-luna"
 	fullRebuildReasoning                      = shared.ReasoningEffortMedium
 	strictRetrievalDistance                   = 0.45
 	fallbackRetrievalDistance                 = 0.62
