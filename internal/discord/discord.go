@@ -12,13 +12,31 @@ import (
 
 var urlPattern = regexp.MustCompile(`(^|[^<])https?://[^\s<>]+`)
 
+func formatMessageContent(content string) string {
+	return suppressLinkEmbeds(content)
+}
+
 // suppressLinkEmbeds wraps bare HTTP(S) links in angle brackets, which tells
 // Discord not to generate link previews for them.
 func suppressLinkEmbeds(content string) string {
 	return urlPattern.ReplaceAllStringFunc(content, func(match string) string {
 		linkStart := strings.Index(match, "http")
 		prefix, link := match[:linkStart], match[linkStart:]
-		trimmed := strings.TrimRight(link, ".,!?;:")
+		// Parentheses may belong to a URL (e.g. Wikipedia paths), but an
+		// unmatched closing parenthesis ends a Markdown destination or citation.
+		end, depth := len(link), 0
+		for i, char := range link {
+			if char == '(' {
+				depth++
+			} else if char == ')' {
+				if depth == 0 {
+					end = i
+					break
+				}
+				depth--
+			}
+		}
+		trimmed := strings.TrimRight(link[:end], ".,!?;:")
 		return prefix + "<" + trimmed + ">" + link[len(trimmed):]
 	})
 }
@@ -85,7 +103,7 @@ func EditFollowupFile(s *discordgo.Session, i *discordgo.InteractionCreate, foll
 
 func SendMessage(s *discordgo.Session, m *discordgo.Message, content string) (*discordgo.Message, error) {
 	msg, err := s.ChannelMessageSendComplex(m.ChannelID, &discordgo.MessageSend{
-		Content:   suppressLinkEmbeds(content),
+		Content:   formatMessageContent(content),
 		Reference: m.Reference(),
 	})
 
@@ -94,7 +112,7 @@ func SendMessage(s *discordgo.Session, m *discordgo.Message, content string) (*d
 
 func SendMessageFile(s *discordgo.Session, m *discordgo.Message, content string, files []*discordgo.File) (*discordgo.Message, error) {
 	msg, err := s.ChannelMessageSendComplex(m.ChannelID, &discordgo.MessageSend{
-		Content:   suppressLinkEmbeds(content),
+		Content:   formatMessageContent(content),
 		Reference: m.Reference(),
 		Files:     files,
 	})
@@ -103,7 +121,7 @@ func SendMessageFile(s *discordgo.Session, m *discordgo.Message, content string,
 }
 
 func EditMessage(s *discordgo.Session, m *discordgo.Message, content string) (*discordgo.Message, error) {
-	content = suppressLinkEmbeds(content)
+	content = formatMessageContent(content)
 	msg, err := s.ChannelMessageEditComplex(&discordgo.MessageEdit{
 		Content: &content,
 		ID:      m.ID,
@@ -114,7 +132,7 @@ func EditMessage(s *discordgo.Session, m *discordgo.Message, content string) (*d
 }
 
 func EditMessageFile(s *discordgo.Session, m *discordgo.Message, content string, files []*discordgo.File) (*discordgo.Message, error) {
-	content = suppressLinkEmbeds(content)
+	content = formatMessageContent(content)
 	msg, err := s.ChannelMessageEditComplex(&discordgo.MessageEdit{
 		Content: &content,
 		ID:      m.ID,

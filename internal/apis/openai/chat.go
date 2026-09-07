@@ -9,6 +9,8 @@ import (
 	"log"
 	"net/url"
 	"os"
+	"path"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -109,6 +111,12 @@ type streamer struct {
 	tickerWG   sync.WaitGroup
 	messageIDs []string
 	flushErr   error
+}
+
+type generatedArtifact struct {
+	ContainerID string
+	FileID      string
+	Filename    string
 }
 
 func newStreamer(s *discordgo.Session, m *discordgo.Message) *streamer {
@@ -240,6 +248,114 @@ func builtInTools() []responses.ToolUnionParam {
 	}
 }
 
+func generatedArtifacts(response responses.Response) []generatedArtifact {
+	artifacts := make([]generatedArtifact, 0)
+	seen := make(map[string]struct{})
+
+	for _, output := range response.Output {
+		if output.Type != "message" {
+			continue
+		}
+		for _, content := range output.Content {
+			if content.Type != "output_text" {
+				continue
+			}
+			for _, annotation := range content.Annotations {
+				if annotation.Type != "container_file_citation" || annotation.ContainerID == "" || annotation.FileID == "" {
+					continue
+				}
+
+				key := annotation.ContainerID + "\x00" + annotation.FileID
+				if _, ok := seen[key]; ok {
+					continue
+				}
+				seen[key] = struct{}{}
+				artifacts = append(artifacts, generatedArtifact{
+					ContainerID: annotation.ContainerID,
+					FileID:      annotation.FileID,
+					Filename:    annotation.Filename,
+				})
+			}
+		}
+	}
+
+	return artifacts
+}
+
+func artifactFilename(artifact generatedArtifact) string {
+	filename := path.Base(strings.ReplaceAll(strings.TrimSpace(artifact.Filename), "\\", "/"))
+	if filename == "" || filename == "." || filename == "/" {
+		return artifact.FileID
+	}
+	return filename
+}
+
+func attachGeneratedArtifacts(ctx context.Context, s *discordgo.Session, c *oa.Client, m *discordgo.Message, artifacts []generatedArtifact) ([]*discordgo.MessageAttachment, error) {
+	var files []*discordgo.File
+	var errs []error
+
+	for _, artifact := range artifacts {
+		if len(files)+len(m.Attachments) >= 10 {
+			errs = append(errs, fmt.Errorf("generated files exceed the message attachment limit"))
+			break
+		}
+		response, err := c.Containers.Files.Content.Get(ctx, artifact.ContainerID, artifact.FileID)
+		if err != nil {
+			errs = append(errs, fmt.Errorf("download generated file %s: %w", artifact.FileID, err))
+			continue
+		}
+
+		filename := artifactFilename(artifact)
+		contentType := response.Header.Get("Content-Type")
+		if contentType == "" {
+			contentType = "application/octet-stream"
+		}
+		defer response.Body.Close()
+		files = append(files, &discordgo.File{
+			Name:        filename,
+			ContentType: contentType,
+			Reader:      response.Body,
+		})
+	}
+
+	if len(files) == 0 {
+		return nil, errors.Join(errs...)
+	}
+	// Omitting Content preserves the final streamed text exactly.
+	updated, err := s.ChannelMessageEditComplex(&discordgo.MessageEdit{
+		ID: m.ID, Channel: m.ChannelID, Files: files,
+	}, discordgo.WithContext(ctx))
+	if err != nil {
+		errs = append(errs, fmt.Errorf("attach generated files: %w", err))
+		return nil, errors.Join(errs...)
+	}
+	return updated.Attachments, errors.Join(errs...)
+}
+
+var sandboxDestination = regexp.MustCompile(`sandbox:/[^\s<>\)]+`)
+
+func linkGeneratedArtifacts(content string, attachments []*discordgo.MessageAttachment) string {
+	return sandboxDestination.ReplaceAllStringFunc(content, func(destination string) string {
+		decoded, err := url.PathUnescape(strings.TrimPrefix(destination, "sandbox:"))
+		if err != nil {
+			return destination
+		}
+		var matched string
+		for _, attachment := range attachments {
+			if attachment.Filename == path.Base(decoded) && attachment.URL != "" {
+				if matched != "" { // Ambiguous filenames must not link to the wrong file.
+					return destination
+				}
+				matched = attachment.URL
+			}
+		}
+		if matched != "" {
+			return matched
+		}
+		return destination
+	})
+}
+
 func StreamMessageResponse(ctx context.Context, s *discordgo.Session, c *oa.Client, m *discordgo.Message, input []responses.ResponseInputItemUnionParam, previousResponseID, backgroundFacts string) (retErr error) {
 	if err := ctx.Err(); err != nil {
 		return err
@@ -303,7 +419,7 @@ func StreamMessageResponse(ctx context.Context, s *discordgo.Session, c *oa.Clie
 
 	stream := c.Responses.NewStreaming(ctx, params)
 
-	var responseID string
+	var completedResponse responses.Response
 	for stream.Next() {
 		event := stream.Current()
 
@@ -313,7 +429,7 @@ func StreamMessageResponse(ctx context.Context, s *discordgo.Session, c *oa.Clie
 		case responses.ResponseRefusalDeltaEvent:
 			streamer.Update(e.Delta)
 		case responses.ResponseCompletedEvent:
-			responseID = e.Response.ID
+			completedResponse = e.Response
 		case responses.ResponseErrorEvent:
 			return fmt.Errorf("openai response error: %s", e.Message)
 		case responses.ResponseFailedEvent:
@@ -330,14 +446,42 @@ func StreamMessageResponse(ctx context.Context, s *discordgo.Session, c *oa.Clie
 	if err := streamer.Stop(); err != nil {
 		return err
 	}
+	artifacts := generatedArtifacts(completedResponse)
+	attachments, artifactErr := attachGeneratedArtifacts(ctx, s, c, streamer.Message, artifacts)
+	if artifactErr != nil {
+		log.Printf("openai: generated artifact delivery failed: %v", artifactErr)
+		_, _ = discord.SendMessage(s, m, "⚠️ One or more generated files couldn't be attached.")
+	}
+	if len(attachments) > 0 {
+		for _, id := range streamer.MessageIDs() {
+			message, err := s.ChannelMessage(m.ChannelID, id, discordgo.WithContext(ctx))
+			if err != nil {
+				log.Printf("openai: fetch message for artifact links: %v", err)
+				continue
+			}
+			content := linkGeneratedArtifacts(message.Content, attachments)
+			if content != message.Content {
+				// Send the Markdown unchanged; generic link suppression can alter destinations.
+				if _, err := s.ChannelMessageEditComplex(&discordgo.MessageEdit{ID: id, Channel: m.ChannelID, Content: &content}, discordgo.WithContext(ctx)); err != nil {
+					log.Printf("openai: update artifact links: %v", err)
+				}
+			}
+		}
+	}
+
 	if !streamer.HasVisibleOutput() {
-		emptyMsg, err := discord.EditMessage(s, streamer.Message, utility.EmptyResponseEmoji)
+		emptyContent := utility.EmptyResponseEmoji
+		if len(attachments) > 0 {
+			emptyContent = "Generated files attached."
+		}
+		emptyMsg, err := discord.EditMessage(s, streamer.Message, emptyContent)
 		if err != nil {
 			return fmt.Errorf("set empty response emoji: %w", err)
 		}
 		streamer.Message = emptyMsg
 	}
 
+	responseID := completedResponse.ID
 	if responseID == "" {
 		return fmt.Errorf("missing response ID from OpenAI stream")
 	}
