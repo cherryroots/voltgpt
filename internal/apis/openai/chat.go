@@ -219,6 +219,10 @@ func (s *streamer) Flush() error {
 	s.mu.Unlock()
 
 	newBuffer, newMsg, err := utility.SplitSend(s.Session, message, buffer)
+	if err == nil && newMsg != nil && newMsg.ID != message.ID {
+		setResponsePending(s.Session, newMsg, true)
+		setResponsePending(s.Session, message, false)
+	}
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -356,6 +360,26 @@ func linkGeneratedArtifacts(content string, attachments []*discordgo.MessageAtta
 	})
 }
 
+// Reaction failures should never prevent delivery of the response. Cleanup uses
+// its own bounded context so it can run even after generation is canceled.
+func setResponsePending(s *discordgo.Session, m *discordgo.Message, pending bool) {
+	setResponseReaction(s, m, "⏳", pending)
+}
+
+func setResponseReaction(s *discordgo.Session, m *discordgo.Message, emoji string, add bool) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	var err error
+	if add {
+		err = s.MessageReactionAdd(m.ChannelID, m.ID, emoji, discordgo.WithContext(ctx))
+	} else {
+		err = s.MessageReactionRemove(m.ChannelID, m.ID, emoji, "@me", discordgo.WithContext(ctx))
+	}
+	if err != nil {
+		log.Printf("openai: update %s reaction for %s: %v", emoji, m.ID, err)
+	}
+}
+
 func StreamMessageResponse(ctx context.Context, s *discordgo.Session, c *oa.Client, m *discordgo.Message, input []responses.ResponseInputItemUnionParam, previousResponseID, backgroundFacts string) (retErr error) {
 	if err := ctx.Err(); err != nil {
 		return err
@@ -370,6 +394,8 @@ func StreamMessageResponse(ctx context.Context, s *discordgo.Session, c *oa.Clie
 	}
 
 	streamer := newStreamer(s, msg)
+	deliveryFailed := false
+	setResponsePending(s, msg, true)
 	streamer.Start()
 	defer func() {
 		if err := streamer.Stop(); err != nil {
@@ -380,6 +406,12 @@ func StreamMessageResponse(ctx context.Context, s *discordgo.Session, c *oa.Clie
 			if err != nil {
 				retErr = errors.Join(retErr, fmt.Errorf("set Discord error state: %w", err))
 			}
+		}
+		for _, id := range streamer.MessageIDs() {
+			setResponsePending(s, &discordgo.Message{ID: id, ChannelID: m.ChannelID}, false)
+		}
+		if retErr == nil && ctx.Err() == nil && !deliveryFailed {
+			setResponseReaction(s, streamer.Message, "✅", true)
 		}
 	}()
 
@@ -449,6 +481,7 @@ func StreamMessageResponse(ctx context.Context, s *discordgo.Session, c *oa.Clie
 	artifacts := generatedArtifacts(completedResponse)
 	attachments, artifactErr := attachGeneratedArtifacts(ctx, s, c, streamer.Message, artifacts)
 	if artifactErr != nil {
+		deliveryFailed = true
 		log.Printf("openai: generated artifact delivery failed: %v", artifactErr)
 		_, _ = discord.SendMessage(s, m, "⚠️ One or more generated files couldn't be attached.")
 	}
@@ -457,12 +490,14 @@ func StreamMessageResponse(ctx context.Context, s *discordgo.Session, c *oa.Clie
 			message, err := s.ChannelMessage(m.ChannelID, id, discordgo.WithContext(ctx))
 			if err != nil {
 				log.Printf("openai: fetch message for artifact links: %v", err)
+				deliveryFailed = true
 				continue
 			}
 			content := linkGeneratedArtifacts(message.Content, attachments)
 			if content != message.Content {
 				// Send the Markdown unchanged; generic link suppression can alter destinations.
 				if _, err := s.ChannelMessageEditComplex(&discordgo.MessageEdit{ID: id, Channel: m.ChannelID, Content: &content}, discordgo.WithContext(ctx)); err != nil {
+					deliveryFailed = true
 					log.Printf("openai: update artifact links: %v", err)
 				}
 			}
