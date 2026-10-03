@@ -30,8 +30,9 @@ import (
 )
 
 const (
-	chatModel       = "gpt-6-astra"
-	reasoningEffort = "medium"
+	chatModel       = "gpt-6.1-sol"
+	reasoningEffort = responses.ReasoningEffortMedium
+	serviceTier     = responses.ResponseServiceTierFast
 )
 
 var (
@@ -434,6 +435,7 @@ func StreamMessageResponse(ctx context.Context, s *discordgo.Session, c *oa.Clie
 		Instructions:      oa.String(config.SystemMessage + contextText),
 		Metadata:          ResponseMetadata("chat"),
 		Model:             responses.ChatModel(chatModel),
+		ServiceTier:       responses.ResponseNewParamsServiceTier(responses.ResponseServiceTierFast),
 		Store:             oa.Bool(true),
 		Reasoning:         shared.ReasoningParam{Effort: reasoningEffort},
 		Text:              responses.ResponseTextConfigParam{Verbosity: responses.ResponseTextConfigVerbosityLow},
