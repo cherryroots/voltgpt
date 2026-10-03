@@ -40,7 +40,8 @@ main.go                        # Entry point, Discord session, handler registrat
 internal/
   apis/
     gemini/chat.go             # Gemini streaming chat with tool use
-    openai/chat.go             # OpenAI Responses API chat with stored response IDs
+    openai/client.go           # Shared OpenAI clients (chat and memory)
+    openai/chat.go             # Responses API streaming, input messages, generated artifacts (no Discord deps)
     wavespeed/request.go       # Wavespeed image/video generation
     wavespeed/structs.go       # Wavespeed API types
   config/
@@ -52,6 +53,9 @@ internal/
     commands.go                # Slash command handlers
     components.go              # Button/select menu handlers
     messages.go                # Message event handler (OpenAI chat)
+    chat_input.go              # Discord messages and reply chains to OpenAI input
+    chat_stream.go             # Streams OpenAI responses into Discord, reactions, file attachments
+    response_ids.go            # response_ids table: Discord message to OpenAI response ID
     modals.go                  # Modal submission handlers
   gamble/gamble.go             # Movie wheel game: rounds, bets, players
   hasher/hasher.go             # Perceptual image hashing, duplicate detection

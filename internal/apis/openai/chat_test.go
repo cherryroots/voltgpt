@@ -3,62 +3,15 @@ package openai
 import (
 	"context"
 	"errors"
-	"github.com/bwmarrin/discordgo"
 	"testing"
 
 	"github.com/openai/openai-go/v3/responses"
 )
 
-func TestLinkGeneratedArtifacts(t *testing.T) {
-	attachments := []*discordgo.MessageAttachment{{Filename: "my report.txt", URL: "https://cdn.discordapp.com/attachments/report?ex=123&sig=456"}}
-	for _, tt := range []struct{ input, want string }{
-		{"[Download](sandbox:/mnt/data/my%20report.txt)", "[Download](https://cdn.discordapp.com/attachments/report?ex=123&sig=456)"},
-		{"[Missing](sandbox:/mnt/data/missing.txt)", "[Missing](sandbox:/mnt/data/missing.txt)"},
-		{"Normal text", "Normal text"},
-	} {
-		if got := linkGeneratedArtifacts(tt.input, attachments); got != tt.want {
-			t.Errorf("linkGeneratedArtifacts(%q) = %q, want %q", tt.input, got, tt.want)
-		}
-	}
-}
-
-func TestStreamer_HasVisibleOutput(t *testing.T) {
-	s := newStreamer(nil, nil)
-
-	s.Update(" \n\t ")
-	if s.HasVisibleOutput() {
-		t.Fatal("HasVisibleOutput() = true, want false for whitespace-only output")
-	}
-
-	s.Update("hello")
-	if !s.HasVisibleOutput() {
-		t.Fatal("HasVisibleOutput() = false, want true after visible output")
-	}
-}
-
-func TestStreamMessageResponse_CanceledContext(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
-
-	err := StreamMessageResponse(ctx, nil, nil, nil, nil, "", "")
-	if !errors.Is(err, context.Canceled) {
-		t.Fatalf("StreamMessageResponse() error = %v, want context.Canceled", err)
-	}
-}
-
 func TestSafeBaseURLForLog_RedactsCredentialsAndQuery(t *testing.T) {
 	got := safeBaseURLForLog("https://user:secret@example.com/v1?token=secret")
 	if got != "https://example.com" {
 		t.Fatalf("safeBaseURLForLog() = %q, want %q", got, "https://example.com")
-	}
-}
-
-func TestStreamer_StopWaitsForTicker(t *testing.T) {
-	s := newStreamer(nil, nil)
-	s.Start()
-
-	if err := s.Stop(); err != nil {
-		t.Fatalf("Stop() error = %v", err)
 	}
 }
 
@@ -83,14 +36,14 @@ func TestGeneratedArtifacts(t *testing.T) {
 		},
 	}}
 
-	got := generatedArtifacts(response)
-	want := []generatedArtifact{{ContainerID: "container-1", FileID: "file-1", Filename: "report.csv"}}
+	got := GeneratedArtifacts(response)
+	want := []Artifact{{ContainerID: "container-1", FileID: "file-1", Filename: "report.csv"}}
 	if len(got) != len(want) {
-		t.Fatalf("generatedArtifacts() = %#v, want %#v", got, want)
+		t.Fatalf("GeneratedArtifacts() = %#v, want %#v", got, want)
 	}
 	for i := range want {
 		if got[i] != want[i] {
-			t.Errorf("generatedArtifacts()[%d] = %#v, want %#v", i, got[i], want[i])
+			t.Errorf("GeneratedArtifacts()[%d] = %#v, want %#v", i, got[i], want[i])
 		}
 	}
 }
@@ -98,20 +51,44 @@ func TestGeneratedArtifacts(t *testing.T) {
 func TestArtifactFilename(t *testing.T) {
 	tests := []struct {
 		name     string
-		artifact generatedArtifact
+		artifact Artifact
 		want     string
 	}{
-		{name: "plain", artifact: generatedArtifact{FileID: "file-1", Filename: "report.csv"}, want: "report.csv"},
-		{name: "unix path", artifact: generatedArtifact{FileID: "file-1", Filename: "/mnt/data/report.csv"}, want: "report.csv"},
-		{name: "windows path", artifact: generatedArtifact{FileID: "file-1", Filename: `C:\\data\\report.csv`}, want: "report.csv"},
-		{name: "missing", artifact: generatedArtifact{FileID: "file-1"}, want: "file-1"},
+		{name: "plain", artifact: Artifact{FileID: "file-1", Filename: "report.csv"}, want: "report.csv"},
+		{name: "unix path", artifact: Artifact{FileID: "file-1", Filename: "/mnt/data/report.csv"}, want: "report.csv"},
+		{name: "windows path", artifact: Artifact{FileID: "file-1", Filename: `C:\\data\\report.csv`}, want: "report.csv"},
+		{name: "missing", artifact: Artifact{FileID: "file-1"}, want: "file-1"},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := artifactFilename(tt.artifact); got != tt.want {
-				t.Errorf("artifactFilename() = %q, want %q", got, tt.want)
+			if got := tt.artifact.Name(); got != tt.want {
+				t.Errorf("Name() = %q, want %q", got, tt.want)
 			}
 		})
+	}
+}
+
+func TestStreamChat_CanceledContext(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	_, err := StreamChat(ctx, nil, ChatRequest{}, func(string) {})
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("StreamChat() error = %v, want context.Canceled", err)
+	}
+}
+
+func TestInputMessage_DropsAssistantImages(t *testing.T) {
+	images := []Image{{MIME: "image/png", Data: "AAAA"}}
+
+	user := InputMessage("user", "hi", images)
+	if got := len(user.OfMessage.Content.OfInputItemContentList); got != 2 {
+		t.Fatalf("user message parts = %d, want 2", got)
+	}
+
+	assistant := InputMessage("assistant", "hi", images)
+	if got := len(assistant.OfMessage.Content.OfInputItemContentList); got != 1 {
+		t.Fatalf("assistant message parts = %d, want 1", got)
 	}
 }

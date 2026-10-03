@@ -105,17 +105,17 @@ func HandleMessage(ctx context.Context, s *discordgo.Session, m *discordgo.Messa
 		content.Text = strings.ReplaceAll(content.Text, "🚫", "")
 	}
 
-	chatMessages = append(chatMessages, openaiapi.CreateContent("user", content))
+	chatMessages = append(chatMessages, createChatInput("user", content))
 
 	if isReply {
 		if m.Message.MessageReference != nil {
-			previousResponseID, err = openaiapi.LookupResponseID(m.Message.MessageReference.MessageID)
+			previousResponseID, err = lookupResponseID(m.Message.MessageReference.MessageID)
 			if err != nil {
 				log.Printf("openai: lookup response id for %s: %v", m.Message.MessageReference.MessageID, err)
 			}
 		}
 		if previousResponseID == "" {
-			openaiapi.PrependReplyMessages(s, m.Message.Member, m.Message, cache, &chatMessages)
+			prependReplyMessages(s, m.Message, cache, &chatMessages)
 		}
 	}
 
@@ -146,7 +146,7 @@ func HandleMessage(ctx context.Context, s *discordgo.Session, m *discordgo.Messa
 		})
 	}
 
-	err = openaiapi.StreamMessageResponse(ctx, s, c, m.Message, chatMessages, previousResponseID, backgroundFacts)
+	err = streamChatResponse(ctx, s, c, m.Message, chatMessages, previousResponseID, backgroundFacts)
 	if err != nil && !errors.Is(err, context.Canceled) {
 		discord.LogSendErrorMessage(s, m.Message, err.Error())
 	}

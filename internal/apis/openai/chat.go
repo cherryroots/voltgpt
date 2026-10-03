@@ -2,31 +2,15 @@ package openai
 
 import (
 	"context"
-	"database/sql"
-	"encoding/base64"
-	"errors"
 	"fmt"
-	"log"
-	"net/url"
-	"os"
+	"io"
 	"path"
-	"regexp"
 	"strings"
-	"sync"
-	"time"
 
 	oa "github.com/openai/openai-go/v3"
-	"github.com/openai/openai-go/v3/option"
 	"github.com/openai/openai-go/v3/packages/param"
 	"github.com/openai/openai-go/v3/responses"
 	"github.com/openai/openai-go/v3/shared"
-
-	"github.com/bwmarrin/discordgo"
-
-	"voltgpt/internal/config"
-	"voltgpt/internal/db"
-	"voltgpt/internal/discord"
-	"voltgpt/internal/utility"
 )
 
 const (
@@ -35,215 +19,76 @@ const (
 	serviceTier     = responses.ResponseServiceTierFast
 )
 
-var (
-	sharedClient           *oa.Client
-	sharedClientErr        error
-	sharedClientOnce       sync.Once
-	sharedMemoryClient     *oa.Client
-	sharedMemoryClientErr  error
-	sharedMemoryClientOnce sync.Once
-)
-
-func GetClient() (*oa.Client, error) {
-	sharedClientOnce.Do(func() {
-		token := strings.TrimSpace(os.Getenv("OPENAI_TOKEN"))
-		if token == "" {
-			sharedClientErr = fmt.Errorf("OPENAI_TOKEN is not set")
-			return
-		}
-
-		opts := []option.RequestOption{option.WithAPIKey(token)}
-		if baseURL := chatBaseURL(); baseURL != "" {
-			opts = append(opts, option.WithBaseURL(baseURL))
-			log.Printf("openai: chat client using base URL %s", safeBaseURLForLog(baseURL))
-		}
-
-		client := oa.NewClient(opts...)
-		sharedClient = &client
-	})
-	return sharedClient, sharedClientErr
+// ChatRequest describes one stored chat turn sent to the Responses API.
+type ChatRequest struct {
+	Input              []responses.ResponseInputItemUnionParam
+	Instructions       string
+	PreviousResponseID string
+	PromptCacheKey     string
 }
 
-func chatBaseURL() string {
-	baseURL := strings.TrimSpace(os.Getenv("OPENAI_BASE"))
-	if baseURL == "" {
-		return ""
+// StreamChat streams a chat response, calling onDelta with each piece of
+// output text, and returns the completed response.
+func StreamChat(ctx context.Context, c *oa.Client, req ChatRequest, onDelta func(string)) (responses.Response, error) {
+	if err := ctx.Err(); err != nil {
+		return responses.Response{}, err
+	}
+	if len(req.Input) == 0 {
+		return responses.Response{}, fmt.Errorf("no messages to send")
 	}
 
-	baseURL = strings.TrimRight(baseURL, "/")
-	if !strings.HasSuffix(baseURL, "/v1") {
-		baseURL += "/v1"
+	params := responses.ResponseNewParams{
+		Input: responses.ResponseNewParamsInputUnion{
+			OfInputItemList: responses.ResponseInputParam(req.Input),
+		},
+		Instructions:      oa.String(req.Instructions),
+		Metadata:          ResponseMetadata("chat"),
+		Model:             responses.ChatModel(chatModel),
+		ServiceTier:       responses.ResponseNewParamsServiceTier(serviceTier),
+		Store:             oa.Bool(true),
+		Reasoning:         shared.ReasoningParam{Effort: reasoningEffort},
+		Text:              responses.ResponseTextConfigParam{Verbosity: responses.ResponseTextConfigVerbosityLow},
+		Truncation:        responses.ResponseNewParamsTruncationAuto,
+		ParallelToolCalls: oa.Bool(true),
+		ToolChoice: responses.ResponseNewParamsToolChoiceUnion{
+			OfToolChoiceMode: param.NewOpt(responses.ToolChoiceOptionsAuto),
+		},
+		Tools: builtInTools(),
 	}
-	return baseURL + "/"
-}
-
-func safeBaseURLForLog(baseURL string) string {
-	parsed, err := url.Parse(baseURL)
-	if err != nil || parsed.Scheme == "" || parsed.Host == "" {
-		return "<custom endpoint>"
+	if req.PromptCacheKey != "" {
+		params.PromptCacheKey = oa.String(req.PromptCacheKey)
 	}
-	return parsed.Scheme + "://" + parsed.Host
-}
-
-func GetMemoryClient() (*oa.Client, error) {
-	sharedMemoryClientOnce.Do(func() {
-		token := strings.TrimSpace(os.Getenv("MEMORY_OPENAI_TOKEN"))
-		if token == "" {
-			sharedMemoryClientErr = fmt.Errorf("MEMORY_OPENAI_TOKEN is not set")
-			return
-		}
-
-		client := oa.NewClient(option.WithAPIKey(token))
-		sharedMemoryClient = &client
-	})
-	return sharedMemoryClient, sharedMemoryClientErr
-}
-
-type streamer struct {
-	Session    *discordgo.Session
-	Message    *discordgo.Message
-	Buffer     string
-	hasOutput  bool
-	mu         sync.Mutex
-	flushMu    sync.Mutex
-	done       chan struct{}
-	stopOnce   sync.Once
-	ticker     *time.Ticker
-	tickerWG   sync.WaitGroup
-	messageIDs []string
-	flushErr   error
-}
-
-type generatedArtifact struct {
-	ContainerID string
-	FileID      string
-	Filename    string
-}
-
-func newStreamer(s *discordgo.Session, m *discordgo.Message) *streamer {
-	messageIDs := make([]string, 0, 1)
-	if m != nil && m.ID != "" {
-		messageIDs = append(messageIDs, m.ID)
+	if req.PreviousResponseID != "" {
+		params.PreviousResponseID = oa.String(req.PreviousResponseID)
 	}
 
-	return &streamer{
-		Session:    s,
-		Message:    m,
-		done:       make(chan struct{}),
-		messageIDs: messageIDs,
-	}
-}
+	stream := c.Responses.NewStreaming(ctx, params)
 
-func (s *streamer) Start() {
-	s.ticker = time.NewTicker(1 * time.Second)
-	s.tickerWG.Add(1)
-	go func() {
-		defer s.tickerWG.Done()
-		for {
-			select {
-			case <-s.ticker.C:
-				_ = s.Flush()
-			case <-s.done:
-				s.ticker.Stop()
-				return
-			}
-		}
-	}()
-}
-
-func (s *streamer) Update(content string) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if utility.HasVisibleContent(content) {
-		s.hasOutput = true
-	}
-	s.Buffer += content
-}
-
-func (s *streamer) Stop() error {
-	stopped := false
-	s.stopOnce.Do(func() {
-		stopped = true
-		close(s.done)
-		s.tickerWG.Wait()
-		_ = s.Flush()
-	})
-	if !stopped {
-		return nil
-	}
-
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.flushErr
-}
-
-func (s *streamer) MessageIDs() []string {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	ids := make([]string, len(s.messageIDs))
-	copy(ids, s.messageIDs)
-	return ids
-}
-
-func (s *streamer) rememberMessageID(id string) {
-	if id == "" {
-		return
-	}
-	for _, existing := range s.messageIDs {
-		if existing == id {
-			return
+	var completed responses.Response
+	for stream.Next() {
+		switch e := stream.Current().AsAny().(type) {
+		case responses.ResponseTextDeltaEvent:
+			onDelta(e.Delta)
+		case responses.ResponseRefusalDeltaEvent:
+			onDelta(e.Delta)
+		case responses.ResponseCompletedEvent:
+			completed = e.Response
+		case responses.ResponseErrorEvent:
+			return responses.Response{}, fmt.Errorf("openai response error: %s", e.Message)
+		case responses.ResponseFailedEvent:
+			return responses.Response{}, fmt.Errorf("openai response failed: status=%s", e.Response.Status)
 		}
 	}
-	s.messageIDs = append(s.messageIDs, id)
-}
-
-func (s *streamer) HasVisibleOutput() bool {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	return s.hasOutput
-}
-
-func (s *streamer) Flush() error {
-	s.flushMu.Lock()
-	defer s.flushMu.Unlock()
-
-	s.mu.Lock()
-	buffer := s.Buffer
-	message := s.Message
-	if buffer == "" || strings.TrimSpace(buffer) == "" {
-		err := s.flushErr
-		s.mu.Unlock()
-		return err
-	}
-	s.mu.Unlock()
-
-	newBuffer, newMsg, err := utility.SplitSend(s.Session, message, buffer)
-	if err == nil && newMsg != nil && newMsg.ID != message.ID {
-		setResponsePending(s.Session, newMsg, true)
-		setResponsePending(s.Session, message, false)
-	}
-
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if err != nil {
-		log.Printf("openai: error sending message update: %v", err)
-		if s.flushErr == nil {
-			s.flushErr = fmt.Errorf("send Discord message update: %w", err)
+	if err := stream.Err(); err != nil {
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return responses.Response{}, ctxErr
 		}
-		return s.flushErr
+		return responses.Response{}, fmt.Errorf("stream error: %w", err)
 	}
-
-	if newMsg != nil {
-		s.Message = newMsg
-		s.rememberMessageID(newMsg.ID)
+	if completed.ID == "" {
+		return responses.Response{}, fmt.Errorf("missing response ID from OpenAI stream")
 	}
-	if strings.HasPrefix(s.Buffer, buffer) {
-		s.Buffer = newBuffer + strings.TrimPrefix(s.Buffer, buffer)
-	}
-	s.flushErr = nil
-	return nil
+	return completed, nil
 }
 
 func builtInTools() []responses.ToolUnionParam {
@@ -253,8 +98,16 @@ func builtInTools() []responses.ToolUnionParam {
 	}
 }
 
-func generatedArtifacts(response responses.Response) []generatedArtifact {
-	artifacts := make([]generatedArtifact, 0)
+// Artifact is a file the code interpreter generated and cited in a response.
+type Artifact struct {
+	ContainerID string
+	FileID      string
+	Filename    string
+}
+
+// GeneratedArtifacts returns the unique container files cited in a response.
+func GeneratedArtifacts(response responses.Response) []Artifact {
+	artifacts := make([]Artifact, 0)
 	seen := make(map[string]struct{})
 
 	for _, output := range response.Output {
@@ -275,7 +128,7 @@ func generatedArtifacts(response responses.Response) []generatedArtifact {
 					continue
 				}
 				seen[key] = struct{}{}
-				artifacts = append(artifacts, generatedArtifact{
+				artifacts = append(artifacts, Artifact{
 					ContainerID: annotation.ContainerID,
 					FileID:      annotation.FileID,
 					Filename:    annotation.Filename,
@@ -287,347 +140,48 @@ func generatedArtifacts(response responses.Response) []generatedArtifact {
 	return artifacts
 }
 
-func artifactFilename(artifact generatedArtifact) string {
-	filename := path.Base(strings.ReplaceAll(strings.TrimSpace(artifact.Filename), "\\", "/"))
+// Name returns the artifact's base filename, falling back to its file ID.
+func (a Artifact) Name() string {
+	filename := path.Base(strings.ReplaceAll(strings.TrimSpace(a.Filename), "\\", "/"))
 	if filename == "" || filename == "." || filename == "/" {
-		return artifact.FileID
+		return a.FileID
 	}
 	return filename
 }
 
-func attachGeneratedArtifacts(ctx context.Context, s *discordgo.Session, c *oa.Client, m *discordgo.Message, artifacts []generatedArtifact) ([]*discordgo.MessageAttachment, error) {
-	var files []*discordgo.File
-	var errs []error
-
-	for _, artifact := range artifacts {
-		if len(files)+len(m.Attachments) >= 10 {
-			errs = append(errs, fmt.Errorf("generated files exceed the message attachment limit"))
-			break
-		}
-		response, err := c.Containers.Files.Content.Get(ctx, artifact.ContainerID, artifact.FileID)
-		if err != nil {
-			errs = append(errs, fmt.Errorf("download generated file %s: %w", artifact.FileID, err))
-			continue
-		}
-
-		filename := artifactFilename(artifact)
-		contentType := response.Header.Get("Content-Type")
-		if contentType == "" {
-			contentType = "application/octet-stream"
-		}
-		defer response.Body.Close()
-		files = append(files, &discordgo.File{
-			Name:        filename,
-			ContentType: contentType,
-			Reader:      response.Body,
-		})
-	}
-
-	if len(files) == 0 {
-		return nil, errors.Join(errs...)
-	}
-	// Omitting Content preserves the final streamed text exactly.
-	updated, err := s.ChannelMessageEditComplex(&discordgo.MessageEdit{
-		ID: m.ID, Channel: m.ChannelID, Files: files,
-	}, discordgo.WithContext(ctx))
+// DownloadArtifact opens the artifact's content. The caller closes the body.
+func DownloadArtifact(ctx context.Context, c *oa.Client, a Artifact) (body io.ReadCloser, contentType string, err error) {
+	response, err := c.Containers.Files.Content.Get(ctx, a.ContainerID, a.FileID)
 	if err != nil {
-		errs = append(errs, fmt.Errorf("attach generated files: %w", err))
-		return nil, errors.Join(errs...)
+		return nil, "", fmt.Errorf("download generated file %s: %w", a.FileID, err)
 	}
-	return updated.Attachments, errors.Join(errs...)
+	contentType = response.Header.Get("Content-Type")
+	if contentType == "" {
+		contentType = "application/octet-stream"
+	}
+	return response.Body, contentType, nil
 }
 
-var sandboxDestination = regexp.MustCompile(`sandbox:/[^\s<>\)]+`)
-
-func linkGeneratedArtifacts(content string, attachments []*discordgo.MessageAttachment) string {
-	return sandboxDestination.ReplaceAllStringFunc(content, func(destination string) string {
-		decoded, err := url.PathUnescape(strings.TrimPrefix(destination, "sandbox:"))
-		if err != nil {
-			return destination
-		}
-		var matched string
-		for _, attachment := range attachments {
-			if attachment.Filename == path.Base(decoded) && attachment.URL != "" {
-				if matched != "" { // Ambiguous filenames must not link to the wrong file.
-					return destination
-				}
-				matched = attachment.URL
-			}
-		}
-		if matched != "" {
-			return matched
-		}
-		return destination
-	})
+// Image is base64-encoded image data for an input message.
+type Image struct {
+	MIME string
+	Data string
 }
 
-// Reaction failures should never prevent delivery of the response. Cleanup uses
-// its own bounded context so it can run even after generation is canceled.
-func setResponsePending(s *discordgo.Session, m *discordgo.Message, pending bool) {
-	setResponseReaction(s, m, "⏳", pending)
-}
-
-func setResponseReaction(s *discordgo.Session, m *discordgo.Message, emoji string, add bool) {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	var err error
-	if add {
-		err = s.MessageReactionAdd(m.ChannelID, m.ID, emoji, discordgo.WithContext(ctx))
-	} else {
-		err = s.MessageReactionRemove(m.ChannelID, m.ID, emoji, "@me", discordgo.WithContext(ctx))
-	}
-	if err != nil {
-		log.Printf("openai: update %s reaction for %s: %v", emoji, m.ID, err)
-	}
-}
-
-func StreamMessageResponse(ctx context.Context, s *discordgo.Session, c *oa.Client, m *discordgo.Message, input []responses.ResponseInputItemUnionParam, previousResponseID, backgroundFacts string) (retErr error) {
-	if err := ctx.Err(); err != nil {
-		return err
-	}
-	if len(input) == 0 {
-		return fmt.Errorf("no messages to send")
-	}
-
-	msg, err := discord.SendMessage(s, m, "Thinking...")
-	if err != nil {
-		return fmt.Errorf("failed to send message: %w", err)
-	}
-
-	streamer := newStreamer(s, msg)
-	deliveryFailed := false
-	setResponsePending(s, msg, true)
-	streamer.Start()
-	defer func() {
-		if err := streamer.Stop(); err != nil {
-			retErr = errors.Join(retErr, err)
-		}
-		if retErr != nil && !errors.Is(retErr, context.Canceled) {
-			_, err := discord.EditMessage(s, streamer.Message, "⚠️ Something went wrong while generating this response.")
-			if err != nil {
-				retErr = errors.Join(retErr, fmt.Errorf("set Discord error state: %w", err))
-			}
-		}
-		for _, id := range streamer.MessageIDs() {
-			setResponsePending(s, &discordgo.Message{ID: id, ChannelID: m.ChannelID}, false)
-		}
-		if retErr == nil && ctx.Err() == nil && !deliveryFailed {
-			setResponseReaction(s, streamer.Message, "✅", true)
-		}
-	}()
-
-	channel, err := s.Channel(m.ChannelID)
-	if err != nil {
-		channel = &discordgo.Channel{Name: "Unknown"}
-	}
-
-	contextText := fmt.Sprintf(
-		"\n\n# [Ephemeral context for this turn only]\nCurrent time: %s\nChannel: %s\nRelevant memory/context:\n```xml\n%s\n```",
-		time.Now().Format("2006-01-02 15:04:05"),
-		channel.Name,
-		backgroundFacts,
-	)
-
-	params := responses.ResponseNewParams{
-		Input: responses.ResponseNewParamsInputUnion{
-			OfInputItemList: responses.ResponseInputParam(input),
-		},
-		Instructions:      oa.String(config.SystemMessage + contextText),
-		Metadata:          ResponseMetadata("chat"),
-		Model:             responses.ChatModel(chatModel),
-		ServiceTier:       responses.ResponseNewParamsServiceTier(responses.ResponseServiceTierFast),
-		Store:             oa.Bool(true),
-		Reasoning:         shared.ReasoningParam{Effort: reasoningEffort},
-		Text:              responses.ResponseTextConfigParam{Verbosity: responses.ResponseTextConfigVerbosityLow},
-		Truncation:        responses.ResponseNewParamsTruncationAuto,
-		ParallelToolCalls: oa.Bool(true),
-		ToolChoice: responses.ResponseNewParamsToolChoiceUnion{
-			OfToolChoiceMode: param.NewOpt(responses.ToolChoiceOptionsAuto),
-		},
-		Tools:          builtInTools(),
-		PromptCacheKey: oa.String("discord:" + m.ChannelID),
-	}
-	if previousResponseID != "" {
-		params.PreviousResponseID = oa.String(previousResponseID)
-	}
-
-	stream := c.Responses.NewStreaming(ctx, params)
-
-	var completedResponse responses.Response
-	for stream.Next() {
-		event := stream.Current()
-
-		switch e := event.AsAny().(type) {
-		case responses.ResponseTextDeltaEvent:
-			streamer.Update(e.Delta)
-		case responses.ResponseRefusalDeltaEvent:
-			streamer.Update(e.Delta)
-		case responses.ResponseCompletedEvent:
-			completedResponse = e.Response
-		case responses.ResponseErrorEvent:
-			return fmt.Errorf("openai response error: %s", e.Message)
-		case responses.ResponseFailedEvent:
-			return fmt.Errorf("openai response failed: status=%s", e.Response.Status)
-		}
-	}
-	if err := stream.Err(); err != nil {
-		if ctxErr := ctx.Err(); ctxErr != nil {
-			return ctxErr
-		}
-		return fmt.Errorf("stream error: %w", err)
-	}
-
-	if err := streamer.Stop(); err != nil {
-		return err
-	}
-	artifacts := generatedArtifacts(completedResponse)
-	attachments, artifactErr := attachGeneratedArtifacts(ctx, s, c, streamer.Message, artifacts)
-	if artifactErr != nil {
-		deliveryFailed = true
-		log.Printf("openai: generated artifact delivery failed: %v", artifactErr)
-		_, _ = discord.SendMessage(s, m, "⚠️ One or more generated files couldn't be attached.")
-	}
-	if len(attachments) > 0 {
-		for _, id := range streamer.MessageIDs() {
-			message, err := s.ChannelMessage(m.ChannelID, id, discordgo.WithContext(ctx))
-			if err != nil {
-				log.Printf("openai: fetch message for artifact links: %v", err)
-				deliveryFailed = true
-				continue
-			}
-			content := linkGeneratedArtifacts(message.Content, attachments)
-			if content != message.Content {
-				// Send the Markdown unchanged; generic link suppression can alter destinations.
-				if _, err := s.ChannelMessageEditComplex(&discordgo.MessageEdit{ID: id, Channel: m.ChannelID, Content: &content}, discordgo.WithContext(ctx)); err != nil {
-					deliveryFailed = true
-					log.Printf("openai: update artifact links: %v", err)
-				}
-			}
-		}
-	}
-
-	if !streamer.HasVisibleOutput() {
-		emptyContent := utility.EmptyResponseEmoji
-		if len(attachments) > 0 {
-			emptyContent = "Generated files attached."
-		}
-		emptyMsg, err := discord.EditMessage(s, streamer.Message, emptyContent)
-		if err != nil {
-			return fmt.Errorf("set empty response emoji: %w", err)
-		}
-		streamer.Message = emptyMsg
-	}
-
-	responseID := completedResponse.ID
-	if responseID == "" {
-		return fmt.Errorf("missing response ID from OpenAI stream")
-	}
-
-	for _, messageID := range streamer.MessageIDs() {
-		if err := StoreResponseID(messageID, responseID); err != nil {
-			return fmt.Errorf("store response ID for %s: %w", messageID, err)
-		}
-	}
-
-	return nil
-}
-
-func LookupResponseID(discordMsgID string) (string, error) {
-	if db.DB == nil {
-		return "", fmt.Errorf("database is not initialized")
-	}
-
-	var responseID string
-	err := db.DB.QueryRow(
-		"SELECT openai_response_id FROM response_ids WHERE discord_message_id = ?",
-		discordMsgID,
-	).Scan(&responseID)
-	if err == sql.ErrNoRows {
-		return "", nil
-	}
-	if err != nil {
-		return "", err
-	}
-	return responseID, nil
-}
-
-func StoreResponseID(discordMsgID, openaiResponseID string) error {
-	if db.DB == nil {
-		return fmt.Errorf("database is not initialized")
-	}
-
-	_, err := db.DB.Exec(
-		`INSERT INTO response_ids (discord_message_id, openai_response_id)
-		 VALUES (?, ?)
-		 ON CONFLICT(discord_message_id) DO UPDATE SET openai_response_id = excluded.openai_response_id`,
-		discordMsgID,
-		openaiResponseID,
-	)
-	return err
-}
-
-func PrependReplyMessages(s *discordgo.Session, _ *discordgo.Member, message *discordgo.Message, cache []*discordgo.Message, chatMessages *[]responses.ResponseInputItemUnionParam) {
-	reference := utility.GetReferencedMessage(s, message, cache)
-	if reference == nil {
-		return
-	}
-
-	reply := utility.CleanMessage(s, reference)
-	reply.Content = utility.ResolveMentions(reply.Content, reply.Mentions)
-	images, videos, _, _ := utility.GetMessageMediaURL(reply)
-
-	replyContent := config.RequestContent{
-		Text: strings.TrimSpace(fmt.Sprintf("%s%s%s",
-			utility.AttachmentText(reply),
-			utility.EmbedText(reply),
-			reply.Content,
-		)),
-		Images: images,
-		Videos: videos,
-	}
-
-	role := "user"
-	if reply.Author != nil && reply.Author.ID == s.State.User.ID {
-		role = "assistant"
-	} else {
-		replyContent.Text = fmt.Sprintf("<user name=\"%s\"> %s </user>", reply.Author.Username, replyContent.Text)
-	}
-
-	newMsg := CreateContent(role, replyContent)
-	*chatMessages = append([]responses.ResponseInputItemUnionParam{newMsg}, *chatMessages...)
-
-	if reply.Type == discordgo.MessageTypeReply {
-		PrependReplyMessages(s, nil, reference, cache, chatMessages)
-	}
-}
-
-func CreateContent(role string, content config.RequestContent) responses.ResponseInputItemUnionParam {
+// InputMessage builds a chat input message. Images are dropped from assistant
+// messages because the API only accepts them from users.
+func InputMessage(role, text string, images []Image) responses.ResponseInputItemUnionParam {
 	var parts responses.ResponseInputMessageContentListParam
-	// PDFs are intentionally omitted because this OpenAI chat path does not support them.
 
-	if strings.TrimSpace(content.Text) != "" {
-		parts = append(parts, responses.ResponseInputContentParamOfInputText(content.Text))
+	if strings.TrimSpace(text) != "" {
+		parts = append(parts, responses.ResponseInputContentParamOfInputText(text))
 	}
 
 	if role != "assistant" {
-		for _, imageURL := range content.Images {
-			part, err := imageURLToInputPart(imageURL)
-			if err != nil {
-				log.Printf("openai: skip image %s: %v", imageURL, err)
-				continue
-			}
+		for _, image := range images {
+			part := responses.ResponseInputContentParamOfInputImage(responses.ResponseInputImageDetailAuto)
+			part.OfInputImage.ImageURL = param.NewOpt(fmt.Sprintf("data:%s;base64,%s", image.MIME, image.Data))
 			parts = append(parts, part)
-		}
-
-		for _, videoURL := range content.Videos {
-			frames, err := utility.VideoToBase64Images(videoURL)
-			if err != nil {
-				log.Printf("openai: skip video %s: %v", videoURL, err)
-				continue
-			}
-			for _, frame := range frames {
-				parts = append(parts, dataURLImagePart("image/png", frame))
-			}
 		}
 	}
 
@@ -645,24 +199,4 @@ func toRole(role string) responses.EasyInputMessageRole {
 	default:
 		return responses.EasyInputMessageRoleUser
 	}
-}
-
-func imageURLToInputPart(imageURL string) (responses.ResponseInputContentUnionParam, error) {
-	mime := utility.MediaType(imageURL)
-	if mime == "" {
-		return responses.ResponseInputContentUnionParam{}, fmt.Errorf("unknown media type")
-	}
-
-	data, err := utility.DownloadBytes(imageURL)
-	if err != nil {
-		return responses.ResponseInputContentUnionParam{}, err
-	}
-
-	return dataURLImagePart(mime, base64.StdEncoding.EncodeToString(data)), nil
-}
-
-func dataURLImagePart(mime, data string) responses.ResponseInputContentUnionParam {
-	part := responses.ResponseInputContentParamOfInputImage(responses.ResponseInputImageDetailAuto)
-	part.OfInputImage.ImageURL = param.NewOpt(fmt.Sprintf("data:%s;base64,%s", mime, data))
-	return part
 }
